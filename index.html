@@ -1541,7 +1541,10 @@ const state = {
     state: null,              // US state code
     primary_goal: null        // stop_collectors/remove_items/raise_score/rebuild/peace/fight_lawsuit
   },
-  uploaded: {
+  upload: {
+    filename: null,           // name of the uploaded file
+    doc_type: null,           // credit_report/collection_letter/summons/other/unknown
+    parsed: null,             // output of classifyDocument().parsed
     file_type: null,          // credit_report/collection_letter/summons/other/unknown
     bureau: null,             // experian/equifax/transunion/innovis
     accounts: [],
@@ -2094,7 +2097,39 @@ async function extractTextFromPDF(file) {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    text += content.items.map(item => item.str).join(' ') + '\n';
+
+    // Rebuild real line breaks. pdf.js returns positioned text runs, not lines —
+    // joining them all with a space collapses each page into one long line and
+    // every line-based parser downstream (accounts, inquiries, collections)
+    // silently finds nothing. Use the y-coordinate of each run (transform[5])
+    // plus pdf.js's own hasEOL flag to reconstruct the original lines.
+    const lines = [];
+    let line = '';
+    let lastY = null;
+
+    for (const item of content.items) {
+      if (typeof item.str !== 'string') continue;
+      const y = (item.transform && item.transform.length > 5) ? item.transform[5] : null;
+
+      if (line && lastY !== null && y !== null && Math.abs(y - lastY) > 2) {
+        lines.push(line.trim());
+        line = '';
+      }
+
+      if (line && !line.endsWith(' ') && !item.str.startsWith(' ')) line += ' ';
+      line += item.str;
+
+      if (item.hasEOL) {
+        lines.push(line.trim());
+        line = '';
+        lastY = null;
+      } else if (y !== null) {
+        lastY = y;
+      }
+    }
+    if (line.trim()) lines.push(line.trim());
+
+    text += lines.filter(l => l.length > 0).join('\n') + '\n';
   }
   return text;
 }
@@ -2179,7 +2214,9 @@ function parseCreditReport(text) {
   const accountBlocks = text.match(/(?:^|\n)([A-Z][A-Z0-9\s&\/\.\-]{3,40})\s[\s\S]{20,800}?(?=\n\n|\n[A-Z][A-Z]|\nInquir|\nCollect|$)/g);
   if (accountBlocks) {
     accountBlocks.slice(0, 30).forEach(block => {
-      const creditorLine = block.split('\n')[0].trim();
+      // The block regex starts its match at the preceding newline, so split('\n')[0]
+      // was always '' and every account got dropped by the length guard below.
+      const creditorLine = block.replace(/^[\r\n]+/, '').split('\n')[0].trim();
       if (creditorLine.length < 4 || creditorLine.length > 60) return;
       if (/^(INQUIR|COLLECT|ACCOUNT|DATE|BALANCE|STATUS|PAYMENT)/i.test(creditorLine)) return;
       
