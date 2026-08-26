@@ -2352,12 +2352,28 @@ function parseThreeBureauReport(text) {
     const status = tbWord(statusRow, ['Pays as Agreed', 'Charge Off', 'Collection', 'Repossession', 'Closed', 'Open', 'Current', 'Paid', 'Delinquent', 'Derogatory']) ||
                    (closedFlag ? 'Closed' : 'unknown');
 
+    // "Reported Yes No No" — which bureaus carry this tradeline. Column order
+    // matches the grid header: Equifax, Experian, TransUnion. Matched strictly
+    // so the "Reported Balance" row below it can never be picked up instead.
+    const reportedBy = [];
+    for (const l of blk) {
+      const rm = l.match(/^Reported\s+((?:Yes|No|N\/A)(?:\s+(?:Yes|No|N\/A))*)\s*$/i);
+      if (rm) {
+        const cols = rm[1].trim().split(/\s+/);
+        ['Equifax', 'Experian', 'TransUnion'].forEach((b, ci) => {
+          if (/^yes$/i.test(cols[ci] || '')) reportedBy.push(b);
+        });
+        break;
+      }
+    }
+
     const acctNumRow = tbRow(blk, 'Account Number');
     // Masked form only, e.g. "xxxxx 1234" — stop before the N/A columns that follow.
     const acctNumMatch = acctNumRow && acctNumRow.match(/x{2,}(?:\s*[\w-]+)?/i);
 
     result.accounts.push({
       creditor: creditor,
+      reported_by: reportedBy,
       account_number: acctNumMatch ? acctNumMatch[0].trim() : '',
       balance: tbMoney(tbRow(blk, 'Reported Balance')) || tbMoney(tbRow(blk, 'Balance')),
       credit_limit: tbMoney(tbRow(blk, 'Credit Limit')),
@@ -2424,10 +2440,22 @@ function parseThreeBureauReport(text) {
     }
   }
 
-  // Which bureau produced the report.
+  // "powered by X" is the brand that SOLD the report, not the bureaus whose data
+  // is in it. Disputing only the provider leaves the other two reporting the
+  // same item, so work out which bureaus actually carry data here.
   const powered = text.match(/Three Bureau Credit Report powered by\s+(\w+)/i);
-  if (powered) result.bureau = powered[1];
-  else if (/equifax/i.test(text)) result.bureau = 'Equifax';
+  result.provider = powered ? powered[1] : null;
+
+  const withData = new Set();
+  (result.scores || []).forEach(sc => { if (sc.reported) withData.add(sc.bureau); });
+  (result.accounts || []).forEach(a => (a.reported_by || []).forEach(b => withData.add(b)));
+  (result.inquiries || []).forEach(q => { if (q.bureau) withData.add(q.bureau); });
+  (result.collections || []).forEach(c => { if (c.bureau) withData.add(c.bureau); });
+  result.bureaus = ['Equifax', 'Experian', 'TransUnion'].filter(b => withData.has(b));
+
+  // Keep .bureau for everything downstream, but point it at a bureau that
+  // actually holds data rather than at the provider's brand name.
+  result.bureau = result.bureaus[0] || result.provider || (/equifax/i.test(text) ? 'Equifax' : null);
 
   return result;
 }
@@ -2612,6 +2640,10 @@ function parseCreditReport(text) {
   if (/equifax/i.test(text)) result.bureau = 'Equifax';
   else if (/experian/i.test(text)) result.bureau = 'Experian';
   else if (/transunion/i.test(text)) result.bureau = 'TransUnion';
+  // A single-bureau export names one bureau. Record it as the list too, so the
+  // analysis can warn that the other two files have not been looked at — the
+  // most common way people think an item is gone when it is not.
+  result.bureaus = result.bureau ? [result.bureau] : [];
   
   // Scan for common account patterns — simplified
   const accountBlocks = text.match(/(?:^|\n)([A-Z][A-Z0-9\s&\/\.\-]{3,40})\s[\s\S]{20,800}?(?=\n\n|\n[A-Z][A-Z]|\nInquir|\nCollect|$)/g);
@@ -4725,6 +4757,31 @@ function analyzeReport(parsed, analysis) {
     });
   }
   
+  // Which bureaus you actually have to write to.
+  const bureausWithData = parsed.bureaus || [];
+  if (bureausWithData.length > 0) {
+    const addrs = bureausWithData
+      .map(b => {
+        const a = bureauAddresses[b.toLowerCase()];
+        return a ? `${a.name} — ${a.addr.replace(/\n/g, ', ')}` : b;
+      })
+      .join(' · ');
+    analysis.findings.push({
+      type: 'bureaus_to_dispute',
+      severity: 'medium',
+      title: bureausWithData.length === 1
+        ? `Only ${bureausWithData[0]} is reporting data on this file`
+        : `${bureausWithData.length} bureaus are reporting on you: ${bureausWithData.join(', ')}`,
+      detail: (bureausWithData.length === 1
+        ? `This report shows data from ${bureausWithData[0]} only. Deleting an item here does nothing about the other two bureaus — if you have not pulled them, do that before you assume the item is gone. `
+        : `Each bureau keeps its own file and investigates separately. An item deleted at one can keep reporting at the other two, so send your dispute to every bureau that shows it — the letters below are addressed to ${(parsed.bureau || bureausWithData[0])}, and you will want a copy for each of the others with the address swapped. `) +
+        `Addresses: ${addrs}` +
+        (parsed.provider && bureausWithData.indexOf(parsed.provider) === -1
+          ? ` Note: this report was sold to you by ${parsed.provider}, which is not the same thing as ${parsed.provider} holding the data — write to the bureaus listed above.`
+          : '')
+    });
+  }
+
   // Public records
   const records = parsed.publicRecords || [];
   if (records.length > 0) {
@@ -5516,6 +5573,7 @@ function buildLetterContext(tmpl) {
   ctx.items = disputableItems.length > 0 ? disputableItems : [];
   ctx.inquiries = parsed.inquiries || [];
   ctx.bureau = parsed.bureau ? parsed.bureau.toLowerCase() : 'experian';
+  ctx.bureaus = (parsed.bureaus || []).map(b => b.toLowerCase());
   
   // Specialized contexts
   if (tmpl.recipient === 'collector' && parsed.collectionLetter) {
