@@ -2163,7 +2163,244 @@ function classifyDocument(text) {
   }
 }
 
+// ========== STRUCTURED PARSER: "Three Bureau Credit Report" layout ==========
+// The tri-merge reports users actually upload (IdentityIQ / SmartCredit style,
+// "Three Bureau Credit Report powered by Equifax") are strictly structured:
+// numbered sections ("4. Installment Accounts"), numbered tradelines
+// ("4.1 Conn Credit Corp (CLOSED)"), tri-column rows ("Account Status Closed N/A N/A"),
+// and explicit emptiness ("You currently have no Hard Inquiries on your credit file.").
+//
+// Parsing that structure directly is far safer than the generic heuristics below,
+// which on a real report captured a comment line, an address fragment and three
+// FORMER EMPLOYERS from the Employment History table as if they were tradelines.
+// Disputing a man's old employer as a credit account is worse than finding nothing.
+
+function tbIsThreeBureauReport(text) {
+  return /Three Bureau Credit Report/i.test(text) &&
+         /^\s*\d+\.\s+Report Summary\s*$/m.test(text);
+}
+
+function tbEsc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// Rows read "Label <equifax> <experian> <transunion>" with N/A for bureaus that
+// don't report. Splitting positionally is unreliable (values are multi-word and
+// pdf.js gives single spaces), so pull values by shape instead.
+function tbRow(lines, label) {
+  const re = new RegExp('^' + tbEsc(label) + '\\s+(.+)$', 'i');
+  for (const l of lines) {
+    const m = l.match(re);
+    if (m) return m[1].trim();
+  }
+  return null;
+}
+function tbMoney(s) {
+  if (!s) return null;
+  const m = s.match(/\$\s?-?[\d,]+(?:\.\d{2})?/);
+  return m ? m[0].replace(/\s+/g, '') : null;
+}
+function tbDate(s) {
+  if (!s) return null;
+  const m = s.match(/[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
+  return m ? m[0] : null;
+}
+// Counts appear once per bureau; take the worst case across all three.
+function tbMaxInt(s) {
+  if (!s) return 0;
+  const nums = (s.match(/\b\d+\b/g) || []).map(Number);
+  return nums.length ? Math.max.apply(null, nums) : 0;
+}
+function tbWord(s, words) {
+  if (!s) return null;
+  for (const w of words) {
+    const re = new RegExp('(?:^|\\s)' + tbEsc(w) + '(?:\\s|$)', 'i');
+    if (re.test(s)) return w;
+  }
+  return null;
+}
+function tbSectionIsEmpty(blockLines, noun) {
+  const re = new RegExp('you currently have no ' + tbEsc(noun), 'i');
+  return blockLines.some(l => re.test(l));
+}
+
+function parseThreeBureauReport(text) {
+  const allLines = text.split(/\r?\n/).map(l => l.trim());
+
+  // Skip the table of contents: its entries carry trailing page numbers.
+  // The body proper starts at the bare "1. Report Summary" heading.
+  let bodyStart = allLines.findIndex(l => /^\d+\.\s+Report Summary$/i.test(l));
+  if (bodyStart < 0) bodyStart = 0;
+  const lines = allLines.slice(bodyStart);
+
+  // Strip repeating page footers so they can't leak into a block's content.
+  const body = lines.filter(l => !/^[A-Z][a-z]{2} \d{1,2}, \d{4} Three Bureau Credit Report powered by .+ Page \d+ of \d+$/i.test(l));
+
+  const sectionRe = /^(\d+)\.\s+(.+)$/;
+  const acctRe = /^(\d+)\.(\d+)\s+(.+)$/;
+
+  // Index every heading so blocks can be sliced cleanly.
+  const heads = [];
+  body.forEach((l, i) => {
+    const a = l.match(acctRe);
+    if (a) { heads.push({i, kind: 'account', section: +a[1], title: a[3]}); return; }
+    const s = l.match(sectionRe);
+    if (s) heads.push({i, kind: 'section', section: +s[1], title: s[2]});
+  });
+
+  const blockAfter = (idx) => {
+    const next = heads.find(h => h.i > idx);
+    return body.slice(idx + 1, next ? next.i : body.length);
+  };
+  const sectionBlock = (namePattern) => {
+    const h = heads.find(x => x.kind === 'section' && namePattern.test(x.title));
+    if (!h) return null;
+    const nextTop = heads.find(x => x.i > h.i && x.kind === 'section');
+    return body.slice(h.i + 1, nextTop ? nextTop.i : body.length);
+  };
+
+  const result = {accounts: [], inquiries: [], collections: [], personal: {}, publicRecords: [], scores: [], format: 'three_bureau'};
+
+  // ---------- Accounts ----------
+  heads.filter(h => h.kind === 'account').forEach(h => {
+    const blk = blockAfter(h.i);
+    let creditor = h.title.replace(/\s*\((CLOSED|OPEN)\)\s*$/i, '').trim();
+    const closedFlag = /\(CLOSED\)/i.test(h.title);
+    if (!creditor || creditor.length < 2) return;
+
+    // Comment lines sit between "Comments Contact" and the creditor's mailing address.
+    const cIdx = blk.findIndex(l => /^Comments\b/i.test(l));
+    const comments = [];
+    if (cIdx >= 0) {
+      for (let k = cIdx + 1; k < blk.length; k++) {
+        const l = blk[k];
+        if (!/-\s*$/.test(l)) break;
+        comments.push(l.replace(/\s*-\s*$/, '').trim());
+      }
+    }
+
+    const late30 = tbMaxInt(tbRow(blk, '30 Days Past Due'));
+    const late60 = tbMaxInt(tbRow(blk, '60 Days Past Due'));
+    const late90 = tbMaxInt(tbRow(blk, '90 Days Past Due'));
+    const late120 = tbMaxInt(tbRow(blk, '120 Days Past Due'));
+    const collCount = tbMaxInt(tbRow(blk, 'Collection Account'));
+    const chargeCount = tbMaxInt(tbRow(blk, 'Charge Off'));
+    const repoCount = tbMaxInt(tbRow(blk, 'Repossession'));
+    const bkCount = tbMaxInt(tbRow(blk, 'Included in Bankruptcy'));
+
+    const statusRow = tbRow(blk, 'Account Status') || tbRow(blk, 'Status');
+    const status = tbWord(statusRow, ['Pays as Agreed', 'Charge Off', 'Collection', 'Repossession', 'Closed', 'Open', 'Current', 'Paid', 'Delinquent', 'Derogatory']) ||
+                   (closedFlag ? 'Closed' : 'unknown');
+
+    const acctNumRow = tbRow(blk, 'Account Number');
+    // Masked form only, e.g. "xxxxx 1234" — stop before the N/A columns that follow.
+    const acctNumMatch = acctNumRow && acctNumRow.match(/x{2,}(?:\s*[\w-]+)?/i);
+
+    result.accounts.push({
+      creditor: creditor,
+      account_number: acctNumMatch ? acctNumMatch[0].trim() : '',
+      balance: tbMoney(tbRow(blk, 'Reported Balance')) || tbMoney(tbRow(blk, 'Balance')),
+      credit_limit: tbMoney(tbRow(blk, 'Credit Limit')),
+      high_credit: tbMoney(tbRow(blk, 'High Credit')),
+      past_due: tbMoney(tbRow(blk, 'Amount Past Due')),
+      status: status,
+      closed: closedFlag,
+      account_type: tbWord(tbRow(blk, 'Account Type'), ['Installment', 'Revolving', 'Mortgage', 'Open', 'Other']),
+      date_opened: tbDate(tbRow(blk, 'Date Opened')),
+      date_reported: tbDate(tbRow(blk, 'Date Reported')),
+      dofd: tbDate(tbRow(blk, 'Date Of First Delinquency')),
+      comments: comments,
+      late_counts: {d30: late30, d60: late60, d90: late90, d120: late120},
+      has_late_payments: (late30 + late60 + late90 + late120) > 0,
+      is_charge_off: chargeCount > 0 || /charge[\s-]?off/i.test(comments.join(' ')),
+      is_collection: collCount > 0,
+      is_repossession: repoCount > 0,
+      in_bankruptcy: bkCount > 0
+    });
+  });
+
+  // ---------- Inquiries ----------
+  const inqBlock = sectionBlock(/^Inquiries$/i);
+  if (inqBlock) {
+    const noHard = tbSectionIsEmpty(inqBlock, 'Hard Inquiries');
+    if (!noHard) {
+      // NOTE: this report had no hard inquiries, so the populated layout is unverified.
+      // Match conservatively: a creditor-ish name followed by a date on the same line.
+      inqBlock.forEach(l => {
+        if (/^(Hard|Soft) Inquiries$/i.test(l)) return;
+        const m = l.match(/^([A-Z][A-Za-z0-9&'\/\.\- ]{2,45}?)\s+((?:[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4})|\d{1,2}\/\d{1,2}\/\d{2,4})\s*$/);
+        if (m) result.inquiries.push({creditor: m[1].trim(), date: m[2], type: 'hard'});
+      });
+    }
+  }
+
+  // ---------- Collections ----------
+  const colBlock = sectionBlock(/^Collections$/i);
+  if (colBlock && !tbSectionIsEmpty(colBlock, 'Collections')) {
+    // Same caveat: unverified against a populated section.
+    colBlock.forEach(l => {
+      const m = l.match(/^([A-Z][A-Z0-9&'\/\.\- ]{3,45}?)\s+.*?(\$\s?[\d,]+(?:\.\d{2})?)/);
+      if (m) result.collections.push({agency: m[1].trim(), balance: m[2].replace(/\s+/g, ''), status: 'collection'});
+    });
+  }
+
+  // ---------- Public records ----------
+  const prBlock = sectionBlock(/^Public Records$/i);
+  if (prBlock) {
+    ['Bankruptcies', 'Judgments', 'Liens'].forEach(kind => {
+      if (!tbSectionIsEmpty(prBlock, kind)) {
+        const hit = prBlock.some(l => new RegExp('^' + kind + '$', 'i').test(l));
+        if (hit) result.publicRecords.push({type: kind.toLowerCase(), detail: 'Present — review this section of your report directly.'});
+      }
+    });
+  }
+
+  // ---------- Personal information ----------
+  const piBlock = sectionBlock(/^Personal Information$/i);
+  if (piBlock) {
+    // The Name row concatenates all three bureaus' name fields with no reliable
+    // separator, so keep it raw rather than inventing a split.
+    const nameRow = tbRow(piBlock, 'Name');
+    if (nameRow) result.personal.name_raw = nameRow.trim();
+    const dobRow = tbRow(piBlock, 'Date Of Birth');
+    if (dobRow) result.personal.dob = tbDate(dobRow);
+    const addrs = [];
+    piBlock.forEach((l, i) => {
+      const m = l.match(/^Address\s+(.+)$/i);
+      if (m && !/^N\/A/i.test(m[1])) addrs.push(m[1].trim());
+    });
+    if (addrs.length) result.personal.addresses = addrs;
+  }
+
+  // ---------- Scores ----------
+  // Rendered as four consecutive lines: bureau, footnote marker, score, rating.
+  for (let i = 0; i < body.length - 3; i++) {
+    if (/^(Equifax|Experian|TransUnion)$/i.test(body[i]) &&
+        /^\d$/.test(body[i + 1]) &&
+        /^\d{1,3}$/.test(body[i + 2]) &&
+        /^[A-Za-z\/ ]{1,20}$/.test(body[i + 3])) {
+      const score = parseInt(body[i + 2], 10);
+      result.scores.push({bureau: body[i], score: score, rating: body[i + 3].trim(), reported: score > 0});
+    }
+  }
+
+  // Which bureau produced the report.
+  const powered = text.match(/Three Bureau Credit Report powered by\s+(\w+)/i);
+  if (powered) result.bureau = powered[1];
+  else if (/equifax/i.test(text)) result.bureau = 'Equifax';
+
+  return result;
+}
+
 function parseCreditReport(text) {
+  // Prefer the structured parser when the document is a recognised tri-merge layout.
+  // The heuristics below stay as the fallback for formats we have not seen.
+  if (tbIsThreeBureauReport(text)) {
+    try {
+      const structured = parseThreeBureauReport(text);
+      if (structured && structured.accounts.length > 0) return structured;
+    } catch (e) {
+      // Fall through to the generic heuristics rather than failing the upload.
+    }
+  }
   const result = {accounts:[], inquiries:[], collections:[], personal:{}, publicRecords:[]};
   
   // Try to extract personal info
@@ -3977,12 +4214,48 @@ function analyzeReport(parsed, analysis) {
   const accounts = parsed.accounts || [];
   const inquiries = parsed.inquiries || [];
   const collections = parsed.collections || [];
+  const scores = parsed.scores || [];
   
   analysis.findings.push({
     type: 'summary',
     title: 'Report parsed',
     detail: `Found ${accounts.length} account(s), ${inquiries.length} inquir(ies), ${collections.length} collection(s)${parsed.bureau ? ' from ' + parsed.bureau : ''}.`
   });
+  
+  // Scores, when the report carries them.
+  if (scores.length) {
+    const reported = scores.filter(s => s.reported);
+    if (reported.length) {
+      analysis.findings.push({
+        type: 'scores',
+        severity: 'low',
+        title: 'Your scores on this report',
+        detail: reported.map(s => `${s.bureau}: ${s.score}${s.rating && s.rating !== 'N/A' ? ' (' + s.rating + ')' : ''}`).join(' · ')
+      });
+    }
+    // A bureau with no file at all is worth knowing about — thin files get
+    // applications denied even when nothing negative is reporting.
+    const missing = scores.filter(s => !s.reported).map(s => s.bureau);
+    if (missing.length) {
+      analysis.findings.push({
+        type: 'no_file',
+        severity: 'medium',
+        title: `No file at ${missing.join(' and ')}`,
+        detail: `${missing.join(' and ')} ${missing.length === 1 ? 'is' : 'are'} not reporting a score for you. That usually means little or no data is on file there, which can get applications denied even with nothing negative on your other reports. Adding a reporting tradeline is the fix here — not a dispute.`
+      });
+    }
+  }
+  
+  // Nothing derogatory is itself a finding worth stating plainly.
+  const derog = accounts.filter(a => a.has_late_payments || a.is_charge_off || a.is_collection || a.is_repossession || a.in_bankruptcy);
+  if (accounts.length > 0 && derog.length === 0 && collections.length === 0) {
+    analysis.findings.push({
+      type: 'clean',
+      severity: 'low',
+      title: 'No derogatory items found on this report',
+      detail: 'Every account read from this report is reporting without late payments, charge-offs, collections or public records. There is nothing here to dispute on accuracy grounds — your work is building positive history, not removing negatives.'
+    });
+  }
   
   // Scan accounts for dispute candidates
   accounts.forEach(acct => {
