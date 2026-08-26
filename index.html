@@ -431,6 +431,64 @@ section { padding: var(--space-20) 0; }
   .no-print { display: none !important; }
   .letter-output { page-break-after: always; }
 }
+
+/* ========== MGC ACTION PLAN (print / save-as-PDF) ========== */
+#action-plan-doc { display: none; }
+
+@media print {
+  @page { margin: 0.7in; }
+
+  body.printing-plan > *:not(#action-plan-doc) { display: none !important; }
+  body.printing-plan #action-plan-doc {
+    display: block !important;
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #1a1a1a;
+    font-size: 10.5pt;
+    line-height: 1.5;
+  }
+
+  #action-plan-doc .plan-cover { text-align: center; page-break-after: always; padding-top: 1.2in; }
+  /* The logo is a JPEG on a 254,254,254 ground, which reads as a faint grey box
+     on a pure-white page in PDF viewers. Multiply blends it away; a browser that
+     ignores the property just falls back to the box. */
+  #action-plan-doc .plan-logo { width: 2.6in; height: auto; margin: 0 auto 0.35in; display: block; mix-blend-mode: multiply; }
+  #action-plan-doc .plan-title { font-size: 30pt; margin: 0 0 6pt; letter-spacing: 0.01em; color: #8d5058; }
+  #action-plan-doc .plan-sub { font-size: 12pt; font-style: italic; color: #6b5a55; margin: 0 0 0.5in; }
+  #action-plan-doc .plan-meta { display: inline-block; text-align: left; border-top: 1px solid #d4a5a5; border-bottom: 1px solid #d4a5a5; padding: 12pt 0; margin-bottom: 0.4in; }
+  #action-plan-doc .plan-meta p { margin: 3pt 0; font-size: 10.5pt; }
+
+  #action-plan-doc .plan-section, #action-plan-doc .plan-letter { margin-bottom: 22pt; }
+  #action-plan-doc .plan-break { page-break-before: always; }
+  #action-plan-doc h2 { font-size: 16pt; color: #8d5058; border-bottom: 1px solid #e8ddd6; padding-bottom: 4pt; margin: 0 0 10pt; page-break-after: avoid; }
+  #action-plan-doc h3 { font-size: 11.5pt; margin: 0 0 3pt; page-break-after: avoid; }
+  #action-plan-doc p, #action-plan-doc li { orphans: 3; widows: 3; }
+
+  #action-plan-doc .plan-item { margin-bottom: 11pt; page-break-inside: avoid; }
+  #action-plan-doc .plan-warn { border-left: 3pt solid #b76e79; padding-left: 9pt; }
+  #action-plan-doc .plan-phase { margin-bottom: 14pt; page-break-inside: avoid; }
+  #action-plan-doc .plan-timeline { font-style: italic; color: #6b5a55; margin: 0 0 5pt; }
+  #action-plan-doc .plan-addr { list-style: none; padding: 0; }
+  #action-plan-doc .plan-addr li { margin-bottom: 8pt; }
+
+  #action-plan-doc .plan-letter { page-break-before: always; }
+  #action-plan-doc .plan-letter-sub { font-style: italic; color: #6b5a55; margin: 0 0 8pt; }
+  #action-plan-doc .plan-gate { font-weight: bold; color: #8d5058; margin: 0 0 8pt; }
+  #action-plan-doc .plan-when { font-size: 9.5pt; color: #4a4a4a; margin: 0 0 6pt; }
+  #action-plan-doc .plan-letter-body {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 10.5pt;
+    line-height: 1.55;
+    /* A boxed border breaks badly across pages — half a rectangle at each
+       break. A single left rule reads as intentional however it splits. */
+    border-left: 2pt solid #d4a5a5;
+    padding: 2pt 0 2pt 14pt;
+    margin-top: 8pt;
+  }
+  #action-plan-doc .plan-note { font-size: 9pt; color: #6b5a55; font-style: italic; margin-top: 14pt; }
+}
+
 </style>
 <style>
 /* ========== NAVIGATION ========== */
@@ -5239,8 +5297,8 @@ function applyIntakeBasedAnalysis(analysis) {
     analysis.warnings.push({
       severity: 'critical',
       title: '⚠ You\'ve been sued or served',
-      detail: 'You typically have only 14–30 days to respond to a civil summons. FAILURE TO RESPOND results in a default judgment against you, which leads to wage garnishment, bank account levies, and more. This is 5YearPlans territory — you should also review SoloSuit.com (free legal response tool) and consult an attorney immediately.',
-      cta: 'see_5yearplans'
+      detail: 'You typically have only 14–30 days to respond to a civil summons. FAILURE TO RESPOND results in a default judgment against you, which leads to wage garnishment, bank account levies, and more. Do not handle this alone — book a call, review SoloSuit.com (free legal response tool), and consult an attorney immediately.',
+      cta: 'see_consult'
     });
   } else if (f.maybe_lawsuit) {
     analysis.warnings.push({
@@ -5376,7 +5434,7 @@ function determineLetterPacket(analysis) {
     packet.push(letterTemplates.breach_notification);
   }
   
-  // Active lawsuit — still include letters but critical 5YearPlans CTA
+  // Active lawsuit — still include letters but surface the live-help CTA
   if (f.in_lawsuit) {
     // Most of the core letters still apply; C&D+DV if collector is plaintiff
     if (!packet.includes(letterTemplates.cd_dv_combo)) packet.push(letterTemplates.cd_dv_combo);
@@ -5568,8 +5626,8 @@ function renderAnalysis(analysis) {
     html += '<h3 style="margin-bottom:var(--space-3);color:var(--danger-dark);">⚠ Critical — read this first</h3>';
     criticalWarnings.forEach(w => {
       html += `<div style="margin-bottom:var(--space-4);"><strong style="display:block;color:var(--danger-dark);margin-bottom:var(--space-1);">${w.title}</strong><p>${w.detail}</p>`;
-      if (w.cta === 'see_5yearplans') {
-        html += `<p style="margin-top:var(--space-3);"><a href="https://5yearplans.com" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Visit 5YearPlans.com for live help</a></p>`;
+      if (w.cta === 'see_consult') {
+        html += `<p style="margin-top:var(--space-3);"><a href="https://ownlyfunds.myfundalytics.com/book" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Book a call for live help</a></p>`;
       }
       html += '</div>';
     });
@@ -5735,6 +5793,13 @@ function renderLetterPacket() {
   html += '</div>';
   html += '<p style="font-size:0.75rem;color:var(--text-tertiary);margin-top:var(--space-4);">⚠ Only include the last 4 digits of your SSN on letters — never the full number. The full number goes on your separate identity verification (photo ID + utility bill), not in the body of the letter.</p>';
   html += '</div>';
+
+  // Whole packet as one document
+  html += `<div class="card" style="margin-bottom:var(--space-10);border:1px solid var(--rose-gold-light);">
+    <h3 style="margin-bottom:var(--space-3);">Download your MGC Action Plan</h3>
+    <p style="font-size:0.9375rem;margin-bottom:var(--space-5);color:var(--text-secondary);">One document with everything: what we found, your phased plan, every letter in full, and where to send them. Fill in your details above first so the letters come out complete. Your browser's print dialog will open — choose <strong>Save as PDF</strong> as the destination. Nothing is uploaded; the file is built on your device.</p>
+    <button class="btn btn-primary" onclick="downloadActionPlan()">Download the MGC Action Plan (PDF) →</button>
+  </div>`;
   
   // Mailing instructions
   html += '<div class="card card-pink" style="margin-bottom:var(--space-10);">';
@@ -5790,9 +5855,9 @@ function renderLetterPacket() {
   // Security freeze walkthrough (for everyone)
   html += renderFreezeWalkthrough();
   
-  // 5YearPlans CTA (if appropriate)
+  // Live-help CTA (if appropriate)
   if (analysis.flags.in_lawsuit || analysis.flags.maybe_lawsuit || analysis.flags.aggressive_collector) {
-    html += render5YearPlansCTA();
+    html += renderLiveHelpCTA();
   }
   
   // Footer in the step
@@ -6216,20 +6281,164 @@ function renderFreezeWalkthrough() {
   `;
 }
 
-// ========== 5YEARPLANS CTA ==========
-function render5YearPlansCTA() {
+// ========== LIVE HELP CTA ==========
+function renderLiveHelpCTA() {
   return `
     <section style="margin-top:var(--space-16);">
       <div class="cta-5yp-card">
         <p class="eyebrow" style="color:var(--rose-gold);">When you need live help</p>
         <h2>This might be bigger than DIY.</h2>
         <p style="font-size:1.125rem;margin:var(--space-5) 0;">Your situation involves active legal pressure — a lawsuit, aggressive collection, or time-critical decisions. Those are the situations where live, one-on-one guidance matters most.</p>
-        <p style="font-size:1.0625rem;margin-bottom:var(--space-5);"><strong>5YearPlans</strong> is a companion service that provides live support, personalized response plans, and help responding to specific legal threats. It's where this tool hands off when things get urgent.</p>
-        <a href="https://5yearplans.com" target="_blank" rel="noopener" class="btn btn-primary btn-lg">Visit 5YearPlans.com →</a>
-        <p style="margin-top:var(--space-5);font-size:0.875rem;color:var(--text-tertiary);">Not an ad. Not a funnel. Just the next step for specific situations.</p>
+        <p style="font-size:1.0625rem;margin-bottom:var(--space-5);">Book a call with <strong>Dave Ivery</strong>, a certified credit score consultant, to go through your report and your options — or to be connected with a certified partner if your situation calls for one. This is where the tool hands off when things get urgent.</p>
+        <a href="https://ownlyfunds.myfundalytics.com/book" target="_blank" rel="noopener" class="btn btn-primary btn-lg">Book a call →</a>
+        <p style="margin-top:var(--space-5);font-size:0.875rem;color:var(--text-tertiary);">You still keep your report and send your own letters. Everything in this tool stays free to use on your own.</p>
       </div>
     </section>
   `;
+}
+
+// ========== MGC ACTION PLAN — PRINTABLE / SAVE-AS-PDF ==========
+// Everything in this tool runs in the browser, so the packet is produced the
+// same way: a purpose-built print document plus the browser's own
+// "Save as PDF". No PDF library, no upload, nothing leaves the machine.
+function planLogoSrc() {
+  const img = document.querySelector('.nav-logo img');
+  return img ? img.src : '';
+}
+
+function planEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function buildActionPlanDoc() {
+  const analysis = state.analysis;
+  if (!analysis) return false;
+
+  // Make sure the letters reflect whatever is currently typed into the form.
+  updateUserInfo && updateUserInfo();
+  if (!state.letterOutputs || !Object.keys(state.letterOutputs).length) regenerateAllLetters();
+
+  const u = userHeader();
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const bureaus = parsed.bureaus || [];
+  const scores = (parsed.scores || []).filter(s => s.reported);
+
+  let doc = document.getElementById('action-plan-doc');
+  if (!doc) {
+    doc = document.createElement('div');
+    doc.id = 'action-plan-doc';
+    document.body.appendChild(doc);
+  }
+
+  let h = '';
+
+  // ---- Cover ----
+  h += `<section class="plan-cover">
+    <img class="plan-logo" src="${planLogoSrc()}" alt="Making Good Choices">
+    <h1 class="plan-title">MGC Action Plan</h1>
+    <p class="plan-sub">Your credit rights, your report, your next steps.</p>
+    <div class="plan-meta">
+      <p><strong>Prepared for:</strong> ${planEsc(u.name)}</p>
+      <p><strong>Date:</strong> ${planEsc(u.date)}</p>
+      ${bureaus.length ? `<p><strong>Bureaus reviewed:</strong> ${planEsc(bureaus.join(', '))}</p>` : ''}
+      ${scores.length ? `<p><strong>Scores on file:</strong> ${scores.map(s => planEsc(s.bureau + ' ' + s.score)).join(' · ')}</p>` : ''}
+      <p><strong>Letters in this packet:</strong> ${analysis.letters.length}</p>
+    </div>
+    <p class="plan-note">This packet is for information purposes only. Making Good Choices is a self-service tool, not a credit repair organization. You keep your report, you send your own letters, and everything here is something you can do yourself for free.</p>
+  </section>`;
+
+  // ---- Findings ----
+  if (analysis.findings && analysis.findings.length) {
+    h += `<section class="plan-section"><h2>What we found</h2>`;
+    analysis.findings.forEach(f => {
+      h += `<div class="plan-item"><h3>${planEsc(f.title)}</h3>${f.detail ? `<p>${planEsc(f.detail)}</p>` : ''}</div>`;
+    });
+    h += `</section>`;
+  }
+
+  // ---- Warnings ----
+  if (analysis.warnings && analysis.warnings.length) {
+    h += `<section class="plan-section"><h2>Read these first</h2>`;
+    analysis.warnings.forEach(w => {
+      h += `<div class="plan-item plan-warn"><h3>${planEsc(w.title)}</h3><p>${planEsc(w.detail)}</p></div>`;
+    });
+    h += `</section>`;
+  }
+
+  // ---- Action plan ----
+  if (analysis.action_plan && analysis.action_plan.length) {
+    h += `<section class="plan-section"><h2>Your action plan</h2>`;
+    analysis.action_plan.forEach(phase => {
+      h += `<div class="plan-phase">
+        <h3>${planEsc(phase.name)}</h3>
+        <p class="plan-timeline">${planEsc(phase.timeline || '')}</p>
+        <ol>${(phase.steps || []).map(st => `<li>${planEsc(st)}</li>`).join('')}</ol>
+      </div>`;
+    });
+    h += `</section>`;
+  }
+
+  // ---- Where to send ----
+  if (bureaus.length) {
+    h += `<section class="plan-section"><h2>Where to send your disputes</h2>
+      <p>Each bureau keeps its own file and investigates separately, so an item deleted at one can keep reporting at the others. Send to every bureau showing the item, by certified mail with return receipt.</p>
+      <ul class="plan-addr">`;
+    bureaus.forEach(b => {
+      const a = bureauAddresses[b.toLowerCase()];
+      if (a) h += `<li><strong>${planEsc(a.name)}</strong><br>${planEsc(a.addr).replace(/\n/g, '<br>')}</li>`;
+    });
+    h += `</ul></section>`;
+  }
+
+  // ---- Letters ----
+  h += `<section class="plan-section plan-break"><h2>Your letters</h2>
+    <p>Put these in your own words before you send them. A furnisher may treat a dispute as frivolous when it looks like a form supplied by a credit repair organization (12 CFR § 1022.43). Keep the citations and the dates exactly as they are — change everything around them so it sounds like you wrote it, because you did.</p>
+  </section>`;
+
+  analysis.letters.forEach(tmpl => {
+    const out = (state.letterOutputs || {})[tmpl.id] || {};
+    h += `<section class="plan-letter">
+      <h2>${planEsc(tmpl.title)}</h2>
+      <p class="plan-letter-sub">${planEsc(tmpl.subtitle || '')}</p>
+      ${tmpl.gated ? `<p class="plan-gate">Do not send before day ${planEsc(tmpl.gate_day)}.</p>` : ''}
+      ${tmpl.when_to_use ? `<p class="plan-when"><strong>When to use:</strong> ${planEsc(tmpl.when_to_use)}</p>` : ''}
+      ${tmpl.what_to_expect ? `<p class="plan-when"><strong>What to expect:</strong> ${planEsc(tmpl.what_to_expect)}</p>` : ''}
+      <pre class="plan-letter-body">${planEsc(out.mail || '')}</pre>
+    </section>`;
+  });
+
+  // ---- Close ----
+  h += `<section class="plan-section plan-break">
+    <h2>If you want a human to look at this with you</h2>
+    <p>Dave Ivery is a certified credit score consultant and can go through your report with you, or connect you with a certified partner if your situation calls for one. Booking: <strong>ownlyfunds.myfundalytics.com/book</strong></p>
+    <h2 style="margin-top:24px;">Free resources</h2>
+    <ul>
+      <li>AnnualCreditReport.com — all three reports, free every week</li>
+      <li>IdentityTheft.gov — FTC identity theft reports and recovery plans</li>
+      <li>consumerfinance.gov/complaint — CFPB complaints, after you have disputed with the bureau and either 45 days have passed or the dispute is no longer pending</li>
+    </ul>
+    <p class="plan-note">Making Good Choices — for information purposes only. Not legal advice, not a credit repair organization, and no outcome is guaranteed. Everything in this packet is something you have the right to do yourself, for free.</p>
+  </section>`;
+
+  doc.innerHTML = h;
+  return true;
+}
+
+function downloadActionPlan() {
+  if (!buildActionPlanDoc()) {
+    showToast('Build your analysis first.');
+    return;
+  }
+  document.body.classList.add('printing-plan');
+  const cleanup = () => {
+    document.body.classList.remove('printing-plan');
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  // Safari/iOS do not always fire afterprint — clear the flag either way.
+  setTimeout(cleanup, 60000);
+  window.print();
 }
 
 // ========== TOAST ==========
