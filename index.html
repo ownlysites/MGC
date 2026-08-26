@@ -1357,7 +1357,7 @@ section { padding: var(--space-20) 0; }
     <div id="step-upload" class="flow-step">
       <div class="container-narrow" style="margin:0 auto;">
         <h2 style="margin-bottom:var(--space-3);">Upload what you have.</h2>
-        <p style="margin-bottom:var(--space-8);color:var(--text-secondary);">Credit report, collection letter, court summons — any PDF or image. Or skip this step and we'll build your plan from the intake.</p>
+        <p style="margin-bottom:var(--space-8);color:var(--text-secondary);">Credit report, collection letter, court summons — as a PDF. Or skip this step and we'll build your plan from the intake.</p>
 
         <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
           <div class="upload-icon">
@@ -1368,27 +1368,36 @@ section { padding: var(--space-20) 0; }
             </svg>
           </div>
           <p style="font-size:1.125rem;font-weight:500;color:var(--text-primary);margin-bottom:var(--space-2);">Drop your file here or click to browse</p>
-          <p style="font-size:0.875rem;color:var(--text-tertiary);">PDF, PNG, JPG — we'll figure out what it is</p>
+          <p style="font-size:0.875rem;color:var(--text-tertiary);">PDF only — that's the format every bureau gives you</p>
           <p style="font-size:0.8125rem;color:var(--text-tertiary);margin-top:var(--space-4);">Nothing leaves your browser.</p>
-          <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg" onchange="handleFileUpload(event)" style="display:none;">
+          <input type="file" id="file-input" accept=".pdf,application/pdf" onchange="handleFileUpload(event)" style="display:none;">
         </div>
 
         <div id="upload-status" class="hidden" style="margin-top:var(--space-6);"></div>
 
         <div id="no-report-box" class="card card-pink" style="margin-top:var(--space-8);display:none;">
           <h4 style="margin-bottom:var(--space-3);">Don't have your credit report yet?</h4>
-          <p style="font-size:0.9375rem;margin-bottom:var(--space-4);">You need a credit report to move forward. Here are your options:</p>
+          <p style="font-size:0.9375rem;margin-bottom:var(--space-4);">You need a report to move forward. Start at the top of this list and work down.</p>
+
           <div style="background:var(--white);padding:var(--space-4);border-radius:var(--radius);margin-bottom:var(--space-3);border-left:3px solid var(--success);">
-            <p style="font-weight:600;color:var(--text-primary);margin-bottom:var(--space-1);">Free — always.</p>
-            <p style="font-size:0.875rem;margin-bottom:var(--space-3);"><strong>AnnualCreditReport.com</strong> — All three bureaus, free every week. No credit card. No subscription. This is the official site mandated by federal law.</p>
-            <a href="https://www.annualcreditreport.com/" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Get free reports →</a>
+            <p style="font-weight:600;color:var(--text-primary);margin-bottom:var(--space-1);">Start here.</p>
+            <p style="font-size:0.875rem;margin-bottom:var(--space-3);"><strong>MyFreeScoreNow</strong> — All three bureaus with scores, in the tri-merge format this tool reads best. This is the one we recommend first.</p>
+            <a href="https://app.myfreescorenow.com/enroll/C01C8009" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Get your report →</a>
           </div>
-          <div style="background:var(--white);padding:var(--space-4);border-radius:var(--radius);border-left:3px solid var(--rose-gold-light);">
-            <p style="font-weight:600;color:var(--text-primary);margin-bottom:var(--space-1);">Paid alternative.</p>
-            <p style="font-size:0.875rem;margin-bottom:var(--space-2);"><strong>SmartCredit</strong> — All three bureaus plus scores in one dashboard. Requires a trial subscription, but <em>you're not required to keep it</em> — you can cancel after pulling your report.</p>
-            <p style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:var(--space-3);font-style:italic;">Affiliate disclosure: We receive a small commission if you sign up through this link, at no extra cost to you. You can get your reports free at AnnualCreditReport.com instead.</p>
+
+          <div style="background:var(--white);padding:var(--space-4);border-radius:var(--radius);margin-bottom:var(--space-3);border-left:3px solid var(--rose-gold-light);">
+            <p style="font-weight:600;color:var(--text-primary);margin-bottom:var(--space-1);">Or this one.</p>
+            <p style="font-size:0.875rem;margin-bottom:var(--space-3);"><strong>SmartCredit</strong> — All three bureaus plus scores in one dashboard. Requires a trial subscription, but <em>you're not required to keep it</em> — you can cancel after pulling your report.</p>
             <a href="https://www.smartcredit.com/?PID=38321" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Try SmartCredit →</a>
           </div>
+
+          <div style="background:var(--white);padding:var(--space-4);border-radius:var(--radius);margin-bottom:var(--space-3);border-left:3px solid var(--warm-gray-300);">
+            <p style="font-weight:600;color:var(--text-primary);margin-bottom:var(--space-1);">Always free.</p>
+            <p style="font-size:0.875rem;margin-bottom:var(--space-3);"><strong>AnnualCreditReport.com</strong> — All three bureaus, free every week, no credit card. This is the official site mandated by federal law. It gives you the raw reports without scores, and the layout varies by bureau, so this tool reads it less cleanly than the options above.</p>
+            <a href="https://www.annualcreditreport.com/" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Get free reports →</a>
+          </div>
+
+          <p style="font-size:0.75rem;color:var(--text-tertiary);font-style:italic;margin-top:var(--space-3);">Affiliate disclosure: we receive a commission if you sign up through the MyFreeScoreNow or SmartCredit links, at no extra cost to you. You can always get your reports free at AnnualCreditReport.com instead.</p>
         </div>
 
         <div class="flow-nav">
@@ -2058,7 +2067,10 @@ async function handleFileUpload(event) {
     if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
       text = await extractTextFromPDF(file);
     } else if (file.type.startsWith('image/')) {
-      text = await extractTextFromImage(file);
+      // A photo or screenshot cannot be read accurately enough to build dispute
+      // letters from — a misread account number or balance goes out in a legal
+      // letter. Ask for the PDF instead of guessing at the contents.
+      throw new Error('This tool reads PDFs, not photos or screenshots. Every bureau and credit-monitoring service gives you a PDF — download that and upload it here.');
     } else {
       text = await file.text();
     }
@@ -2078,8 +2090,11 @@ async function handleFileUpload(event) {
       <button class="btn btn-primary" style="margin-top:var(--space-4);" onclick="skipToAnalysis()">See my analysis →</button>
     </div>`;
   } catch (err) {
+    // A wrong file type is a different problem from a file we couldn't parse —
+    // don't tell someone to try again with the same screenshot.
+    const wrongType = /reads PDFs, not photos/.test(err.message || '');
     statusEl.innerHTML = `<div class="status-error">
-      <p><strong>Couldn't read that file automatically.</strong></p>
+      <p><strong>${wrongType ? 'That file needs to be a PDF.' : "Couldn't read that file automatically."}</strong></p>
       <p style="font-size:0.9375rem;margin-top:var(--space-2);">${err.message || 'Unknown error'}</p>
       <p style="font-size:0.9375rem;margin-top:var(--space-3);">No problem — we can still build your plan based on your intake answers.</p>
       <button class="btn btn-primary" style="margin-top:var(--space-3);" onclick="skipToAnalysis()">Continue without upload →</button>
@@ -2132,11 +2147,6 @@ async function extractTextFromPDF(file) {
     text += lines.filter(l => l.length > 0).join('\n') + '\n';
   }
   return text;
-}
-
-async function extractTextFromImage(file) {
-  // For images without OCR loaded, return empty — we'll prompt manual entry
-  return '';
 }
 
 // ========== DOCUMENT CLASSIFICATION & PARSING ==========
@@ -2318,40 +2328,20 @@ function parseThreeBureauReport(text) {
   });
 
   // ---------- Inquiries ----------
+  // Layout (verified against a populated report): the bureaus that have inquiries
+  // are listed first, then one "Date Company Address" table per bureau, in the
+  // same order. Rows read "<Mon DD, YYYY> <COMPANY> <ADDRESS>" with the city/state
+  // wrapping onto the following line.
   const inqBlock = sectionBlock(/^Inquiries$/i);
-  if (inqBlock) {
-    const noHard = tbSectionIsEmpty(inqBlock, 'Hard Inquiries');
-    if (!noHard) {
-      // NOTE: this report had no hard inquiries, so the populated layout is unverified.
-      // Match conservatively: a creditor-ish name followed by a date on the same line.
-      inqBlock.forEach(l => {
-        if (/^(Hard|Soft) Inquiries$/i.test(l)) return;
-        const m = l.match(/^([A-Z][A-Za-z0-9&'\/\.\- ]{2,45}?)\s+((?:[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4})|\d{1,2}\/\d{1,2}\/\d{2,4})\s*$/);
-        if (m) result.inquiries.push({creditor: m[1].trim(), date: m[2], type: 'hard'});
-      });
-    }
-  }
+  if (inqBlock) result.inquiries = tbParseInquiries(inqBlock);
 
   // ---------- Collections ----------
   const colBlock = sectionBlock(/^Collections$/i);
-  if (colBlock && !tbSectionIsEmpty(colBlock, 'Collections')) {
-    // Same caveat: unverified against a populated section.
-    colBlock.forEach(l => {
-      const m = l.match(/^([A-Z][A-Z0-9&'\/\.\- ]{3,45}?)\s+.*?(\$\s?[\d,]+(?:\.\d{2})?)/);
-      if (m) result.collections.push({agency: m[1].trim(), balance: m[2].replace(/\s+/g, ''), status: 'collection'});
-    });
-  }
+  if (colBlock) result.collections = tbParseCollections(colBlock);
 
   // ---------- Public records ----------
   const prBlock = sectionBlock(/^Public Records$/i);
-  if (prBlock) {
-    ['Bankruptcies', 'Judgments', 'Liens'].forEach(kind => {
-      if (!tbSectionIsEmpty(prBlock, kind)) {
-        const hit = prBlock.some(l => new RegExp('^' + kind + '$', 'i').test(l));
-        if (hit) result.publicRecords.push({type: kind.toLowerCase(), detail: 'Present — review this section of your report directly.'});
-      }
-    });
-  }
+  if (prBlock) result.publicRecords = tbParsePublicRecords(prBlock);
 
   // ---------- Personal information ----------
   const piBlock = sectionBlock(/^Personal Information$/i);
@@ -2388,6 +2378,123 @@ function parseThreeBureauReport(text) {
   else if (/equifax/i.test(text)) result.bureau = 'Equifax';
 
   return result;
+}
+
+function tbParseInquiries(blk) {
+  const out = [];
+  const hardIdx = blk.findIndex(l => /^Hard Inquiries$/i.test(l));
+  const softIdx = blk.findIndex(l => /^Soft Inquiries$/i.test(l));
+  const region = hardIdx < 0 ? blk : blk.slice(hardIdx + 1, (softIdx > hardIdx ? softIdx : blk.length));
+  if (region.some(l => /you currently have no hard inquiries/i.test(l))) return out;
+
+  // Bureau labels appear before the first table; table N belongs to label N.
+  const bureaus = [];
+  for (const l of region) {
+    if (/^Date\s+Company\s+Address$/i.test(l)) break;
+    if (/^(Equifax|Experian|TransUnion)$/i.test(l)) bureaus.push(l);
+  }
+
+  let table = -1;
+  region.forEach(l => {
+    if (/^Date\s+Company\s+Address$/i.test(l)) { table++; return; }
+    const m = l.match(/^([A-Z][a-z]{2}\s+\d{1,2},\s*\d{4})\s+(.+)$/);
+    if (!m) return;
+    const rest = m[2].trim();
+    // The address begins at "PO BOX" or a street number; everything before it is the creditor.
+    const split = rest.match(/^(.*?)\s+((?:P\.?\s?O\.?\s+BOX)\b.*|\d+\s+\S.*)$/i);
+    const creditor = (split ? split[1] : rest).trim();
+    if (!creditor) return;
+    out.push({
+      creditor: creditor,
+      address: split ? split[2].trim() : '',
+      date: m[1],
+      bureau: bureaus[table] || null,
+      type: 'hard'
+    });
+  });
+  return out;
+}
+
+function tbParseCollections(blk) {
+  const out = [];
+  if (blk.some(l => /you currently have no collections/i.test(l))) return out;
+
+  // Each bureau's collections are introduced by a bare bureau-name line, then
+  // "Date Reported:" / "Agency Client:" pairs, then the matching detail blocks.
+  const groups = [];
+  let cur = null;
+  blk.forEach(l => {
+    if (/^(Equifax|Experian|TransUnion)$/i.test(l)) { cur = {bureau: l, lines: []}; groups.push(cur); return; }
+    if (cur) cur.lines.push(l);
+  });
+
+  groups.forEach(g => {
+    const agencies = [];
+    const amounts = [];
+    let lastReported = null;
+    g.lines.forEach(l => {
+      let m = l.match(/^Date Reported:\s*(.+)$/i);
+      if (m) { lastReported = m[1].trim(); return; }
+      m = l.match(/^Agency Client:\s*(.+)$/i);
+      if (m) { agencies.push({agency: m[1].trim(), date_reported: lastReported}); lastReported = null; return; }
+      m = l.match(/^Amount\s+(.+)$/i);
+      if (m) { amounts.push(tbMoney(m[1])); return; }
+    });
+    // Only pair a balance to an agency when the counts line up exactly. Page
+    // breaks can reorder the detail blocks, and attaching the wrong balance to
+    // the wrong collection would poison a dispute letter — better to report the
+    // debt with no amount than with someone else's.
+    const canPair = agencies.length > 0 && agencies.length === amounts.length;
+    agencies.forEach((a, i) => {
+      out.push({
+        agency: a.agency,
+        date_reported: a.date_reported,
+        balance: canPair ? amounts[i] : null,
+        bureau: g.bureau,
+        status: 'collection'
+      });
+    });
+  });
+  return out;
+}
+
+function tbCleanRef(raw) {
+  if (!raw) return null;
+  // Strip the status word and the trailing N/A columns so the reference number
+  // isn't polluted with the rest of the row.
+  let r = raw.replace(/\b(Dismissed|Discharged|Satisfied|Released|Vacated|Filed|Withdrawn)\b.*$/i, '');
+  r = r.replace(/(\s+N\/A)+\s*$/i, '').trim();
+  return r || null;
+}
+
+function tbParsePublicRecords(blk) {
+  const out = [];
+  const kinds = ['Bankruptcies', 'Judgments', 'Liens'];
+  const present = kinds.filter(k =>
+    blk.some(l => new RegExp('^' + k + '$', 'i').test(l)) &&
+    !blk.some(l => new RegExp('you currently have no ' + k, 'i').test(l))
+  );
+  if (!present.length) return out;
+
+  // The detail tables are rendered after all three headings, so they cannot be
+  // sliced by heading. When exactly one kind is populated every table belongs to
+  // it; when more than one is, don't guess which — label them generically.
+  const kind = present.length === 1 ? present[0].replace(/ies$/, 'y').replace(/s$/, '').toLowerCase() : 'public record';
+
+  blk.forEach((l, i) => {
+    const m = l.match(/^([A-Z][a-z]{2}\s+\d{1,2},\s*\d{4})\s*(.*)$/);
+    if (!m) return;
+    const context = [l, blk[i + 1] || '', blk[i + 2] || ''].join(' ');
+    const status = tbWord(context, ['Dismissed', 'Discharged', 'Satisfied', 'Released', 'Vacated', 'Filed', 'Withdrawn']);
+    out.push({
+      type: kind,
+      date_filed: m[1],
+      status: status || null,
+      reference: tbCleanRef(m[2]),
+      ambiguous_kind: present.length > 1
+    });
+  });
+  return out;
 }
 
 function parseCreditReport(text) {
@@ -4210,6 +4317,13 @@ function computeFlags(intake, upload) {
   return flags;
 }
 
+function tbBureauBreakdown(items, key) {
+  const counts = {};
+  items.forEach(it => { const b = it[key]; if (b) counts[b] = (counts[b] || 0) + 1; });
+  const parts = Object.keys(counts).map(b => `${b} ${counts[b]}`);
+  return parts.length ? ` (${parts.join(', ')})` : '';
+}
+
 function analyzeReport(parsed, analysis) {
   const accounts = parsed.accounts || [];
   const inquiries = parsed.inquiries || [];
@@ -4301,7 +4415,7 @@ function analyzeReport(parsed, analysis) {
     analysis.findings.push({
       type: 'inquiries',
       severity: 'low',
-      title: `${inquiries.length} hard inquir${inquiries.length === 1 ? 'y' : 'ies'} on file`,
+      title: `${inquiries.length} hard inquir${inquiries.length === 1 ? 'y' : 'ies'} on file${tbBureauBreakdown(inquiries, 'bureau')}`,
       detail: 'Review each. Any inquiry from a company you didn\'t apply to is an FCRA violation worth $100–$1,000. Inquiries older than 2 years should also have aged off.',
       letter: 'inquiry_dispute',
       inquiries
@@ -4313,12 +4427,38 @@ function analyzeReport(parsed, analysis) {
     analysis.findings.push({
       type: 'collections_found',
       severity: 'high',
-      title: `${collections.length} collection account(s)`,
-      detail: 'Each collection should be validated directly with the collector (FDCPA §809) and disputed with the bureaus (FCRA §611 + §623).',
+      title: `${collections.length} collection entr${collections.length === 1 ? 'y' : 'ies'}${tbBureauBreakdown(collections, 'bureau')}`,
+      detail: 'Each collection should be validated directly with the collector (FDCPA §809) and disputed with the bureaus (FCRA §611 + §623). Note: the same debt is usually listed separately by each bureau that has it — often under a different abbreviation of the agency name — so the number of distinct debts here is smaller than the number of entries.',
       letter: 'cd_dv_combo'
     });
   }
   
+  // Public records
+  const records = parsed.publicRecords || [];
+  if (records.length > 0) {
+    const byType = {};
+    records.forEach(r => { byType[r.type] = (byType[r.type] || 0) + 1; });
+    const summary = Object.keys(byType).map(k => `${byType[k]} ${k}${byType[k] > 1 ? ' entries' : ''}`).join(', ');
+    const statuses = records.map(r => r.status).filter(Boolean);
+    analysis.findings.push({
+      type: 'public_record',
+      severity: 'high',
+      title: `Public record on file: ${summary}`,
+      detail: `Filed ${records[0].date_filed || 'date not reported'}${statuses.length ? ', status ' + statuses[0] : ''}. Public records are reported by each bureau separately, so one filing can appear more than once. Verify the filing date, the reference number and the status against the court's own record — a public record that reports a status the court does not show is disputable, and one past its reporting window must come off.`
+    });
+  }
+
+  // Missing date of first delinquency on delinquent accounts
+  const lateAccts = accounts.filter(a => a.has_late_payments || a.is_charge_off || a.is_collection);
+  if (lateAccts.length > 0 && accounts.every(a => !a.dofd)) {
+    analysis.findings.push({
+      type: 'missing_dofd',
+      severity: 'medium',
+      title: 'No date of first delinquency reported on any account',
+      detail: `${lateAccts.length} account${lateAccts.length === 1 ? ' is' : 's are'} showing delinquency, but no account on this report carries a date of first delinquency. The DOFD is what sets the date an item must age off your file, so ask each furnisher and bureau to report it. If a furnisher cannot supply one for a delinquent account, that is worth raising in your dispute.`
+    });
+  }
+
   // Generic wins — always suggest these when a report is uploaded
   analysis.wins.push({
     title: 'Check for Metro 2 inconsistencies',
