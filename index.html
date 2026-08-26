@@ -2400,7 +2400,7 @@ function tbParseInquiries(blk) {
   }
 
   let table = -1;
-  region.forEach(l => {
+  region.forEach((l, idx) => {
     if (/^Date\s+Company\s+Address$/i.test(l)) { table++; return; }
     const m = l.match(/^([A-Z][a-z]{2}\s+\d{1,2},\s*\d{4})\s+(.+)$/);
     if (!m) return;
@@ -2409,9 +2409,16 @@ function tbParseInquiries(blk) {
     const split = rest.match(/^(.*?)\s+((?:P\.?\s?O\.?\s+BOX)\b.*|\d+\s+\S.*)$/i);
     const creditor = (split ? split[1] : rest).trim();
     if (!creditor) return;
+    // The city/state/ZIP wraps onto the next line. Pick it up — an inquiry
+    // letter goes to this company by mail, so a half address is no address.
+    let address = split ? split[2].trim() : '';
+    const nextLine = (region[idx + 1] || '').trim();
+    if (address && /^[A-Z][A-Za-z .'\-]+,\s*[A-Z]{2}\s+\d{5}(-\d{4})?$/.test(nextLine)) {
+      address += '\n' + nextLine;
+    }
     out.push({
       creditor: creditor,
-      address: split ? split[2].trim() : '',
+      address: address,
       date: m[1],
       bureau: bureaus[table] || null,
       type: 'hard'
@@ -2934,6 +2941,18 @@ const letterTemplates = {
     when_to_use: 'Any hard inquiry on your report from a company you didn\'t apply to. Also works for inquiries older than 2 years that should have aged off.',
     what_to_expect: 'Bureau investigates; inquiries are often quickly removed because creditors can\'t always prove permissible purpose. Fast wins.',
     compile: (ctx) => compileInquiryDispute(ctx)
+  },
+
+  // ========== CORE LETTER 8b: PERMISSIBLE PURPOSE DEMAND (direct to the puller) ==========
+  inquiry_permissible_purpose: {
+    id: 'inquiry_permissible_purpose',
+    title: 'Permissible Purpose Demand',
+    subtitle: 'FCRA § 604 — sent to the company that pulled, not the bureau',
+    description: 'The fastest route on an unauthorized inquiry. The bureau does not hold your authorization — the company that pulled your report does. This letter goes straight to them and demands the record.',
+    recipient: 'furnisher',
+    when_to_use: 'Any hard inquiry you did not authorize. Send this at the same time as the bureau dispute, not after it — the two run in parallel and the company is the only party that can actually produce the proof.',
+    what_to_expect: 'A company that cannot produce your application or written authorization will usually request deletion itself rather than put the claim in writing. Send certified mail so the date of receipt is fixed.',
+    compile: (ctx) => compileInquiryPermissiblePurpose(ctx)
   },
   
   // ========== CORE LETTER 9: 605B IDENTITY THEFT BLOCK ==========
@@ -3614,6 +3633,47 @@ function compileInquiryDispute(ctx) {
   const short = `Unauthorized inquiries on my credit — no permissible purpose under FCRA § 604: ${inquiries.length > 0 ? inquiries.map(i=>i.creditor).slice(0,3).join(', ') : '[list]'}. Please remove. — ${u.name}`;
   
   return {mail, portal: portal.length > 2000 ? portal.substring(0,1990)+'…' : portal, short};
+}
+
+// ========== COMPILER: PERMISSIBLE PURPOSE DEMAND (to the inquiring company) ==========
+function compileInquiryPermissiblePurpose(ctx) {
+  const inquiries = ctx.inquiries || [];
+  const q = inquiries[0] || {};
+  const company = q.creditor || '[Company that pulled your report]';
+  const companyAddr = q.address || '[Company address — printed beside the inquiry on your report]';
+  const inqDateStr = q.date || '[Date of the inquiry]';
+  const bureauSeen = q.bureau || '[Bureau where the inquiry appears]';
+  const u = userHeader();
+
+  const recipientBlock = [company, companyAddr].filter(Boolean).join('\n');
+
+  const body = [
+    `On ${inqDateStr}, your company obtained my consumer report from ${bureauSeen}. I did not apply for credit with you, I did not authorize you to access my report, and I have no account or business relationship with you that would give you a permissible purpose to do so.`,
+    '',
+    'Section 604 of the Fair Credit Reporting Act (15 U.S.C. § 1681b) permits access to a consumer report only for the purposes it enumerates. Obtaining a report without one of those purposes is a violation of Section 604, and Section 616 and Section 617 (15 U.S.C. §§ 1681n and 1681o) provide for damages, costs and attorney fees.',
+    '',
+    'I am writing to you rather than only to the credit bureau because the bureau does not hold the record of my authorization. You do. Within 15 days of receipt of this letter, please provide:',
+    '',
+    '(a) The specific permissible purpose under § 1681b you relied on;',
+    '(b) A copy of the application, contract or written authorization you claim gave you that purpose, including the date, and the name and address submitted on it;',
+    '(c) The identity of the individual or department that requested the report;',
+    '(d) If the request came through a third party, dealer, broker or marketing partner, that party’s name and address.',
+    '',
+    'If you cannot produce a record showing a permissible purpose, I ask that you contact each consumer reporting agency you obtained my report from and request deletion of the inquiry, and confirm to me in writing that you have done so.',
+    '',
+    'This letter is sent by certified mail so that the date of your receipt is a matter of record. I am also disputing this inquiry with the consumer reporting agencies directly.'
+  ];
+
+  const mail = mailEnvelope(body, recipientBlock, {
+    re: `Demand for Permissible Purpose — Unauthorized Inquiry Dated ${inqDateStr}`,
+    ssnLine: true
+  });
+
+  const portal = `Your company pulled my consumer report on ${inqDateStr}. I did not apply to you or authorize the pull. Under FCRA § 604 (15 U.S.C. § 1681b), state the permissible purpose you relied on and provide the application or written authorization supporting it within 15 days. If you cannot, request deletion of the inquiry from every bureau you pulled and confirm in writing. — ${u.name}`;
+
+  const short = `Unauthorized pull of my credit report on ${inqDateStr}. No permissible purpose under FCRA § 604. Produce the authorization or request deletion of the inquiry. — ${u.name}`;
+
+  return {mail, portal: portal.length > 2000 ? portal.substring(0, 1990) + '…' : portal, short};
 }
 
 // ========== COMPILER: 605B IDENTITY THEFT BLOCK ==========
@@ -4322,6 +4382,44 @@ function computeFlags(intake, upload) {
   return flags;
 }
 
+// ========== INQUIRY TIMING HELPERS ==========
+// Inquiries are the one item on a report where the clock does most of the work:
+// they stop affecting a score at ~12 months and must stop reporting at 24.
+// Knowing which bucket each one is in decides whether it is worth a letter.
+function inqDate(str) {
+  if (!str) return null;
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+function inqMonthsAgo(str) {
+  const d = inqDate(str);
+  if (!d) return null;
+  const now = new Date();
+  let m = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) m -= 1;
+  return m;
+}
+// Group inquiries that fall inside one rate-shopping window. Scoring models
+// count multiple pulls for the SAME loan type inside the window as one, so a
+// cluster is only good news if the pulls were for the same kind of credit —
+// which the report doesn't say. Word it as a condition, never as a promise.
+function inqClusters(inquiries, windowDays) {
+  const dated = inquiries
+    .map(q => ({q: q, d: inqDate(q.date)}))
+    .filter(x => x.d)
+    .sort((a, b) => a.d - b.d);
+  const out = [];
+  let run = [];
+  for (const item of dated) {
+    if (!run.length) { run = [item]; continue; }
+    const spanDays = (item.d - run[0].d) / 86400000;
+    if (spanDays <= windowDays) run.push(item);
+    else { if (run.length > 1) out.push(run.map(x => x.q)); run = [item]; }
+  }
+  if (run.length > 1) out.push(run.map(x => x.q));
+  return out;
+}
+
 function tbBureauBreakdown(items, key) {
   const counts = {};
   items.forEach(it => { const b = it[key]; if (b) counts[b] = (counts[b] || 0) + 1; });
@@ -4425,6 +4523,54 @@ function analyzeReport(parsed, analysis) {
       letter: 'inquiry_dispute',
       inquiries
     });
+
+    // Past the 2-year reporting limit — these come off on the calendar, not on
+    // the merits, so they are the cheapest deletions on the whole report.
+    const expired = inquiries.filter(q => {
+      const m = inqMonthsAgo(q.date);
+      return m !== null && m >= 24;
+    });
+    if (expired.length) {
+      analysis.findings.push({
+        type: 'inquiry_expired',
+        severity: 'medium',
+        title: `${expired.length} inquir${expired.length === 1 ? 'y is' : 'ies are'} past the 2-year limit and should already be gone`,
+        detail: `An inquiry may be reported for 24 months. ${expired.map(q => `${q.creditor} (${q.date})`).join('; ')} ${expired.length === 1 ? 'is' : 'are'} older than that. This needs no argument about permissible purpose — the item is simply out of time. Dispute on obsolescence and it comes off.`,
+        letter: 'inquiry_dispute',
+        inquiries: expired
+      });
+    }
+
+    // Only the last 12 months are actually costing points today.
+    const scoring = inquiries.filter(q => {
+      const m = inqMonthsAgo(q.date);
+      return m !== null && m < 12;
+    });
+    const datedCount = inquiries.filter(q => inqMonthsAgo(q.date) !== null).length;
+    if (datedCount > 0) {
+      analysis.findings.push({
+        type: 'inquiry_scoring_window',
+        severity: 'low',
+        title: scoring.length === 0
+          ? 'None of your inquiries are still affecting your score'
+          : `${scoring.length} of ${datedCount} inquiries ${scoring.length === 1 ? 'is' : 'are'} still affecting your score`,
+        detail: scoring.length === 0
+          ? 'Every dated inquiry on this report is more than 12 months old. Inquiries stop influencing your score at about 12 months even though they keep showing for 24, so removing them will not move your number. Spend your effort on accounts instead.'
+          : 'Inquiries stop influencing your score at about 12 months, even though they keep showing for 24. Only the ones inside that window are costing you points today, and inquiries are a small part of the calculation to begin with. Do not let a long inquiry list pull your attention away from accounts and collections, which move the number far more.'
+      });
+    }
+
+    // Rate-shopping windows.
+    const clusters = inqClusters(inquiries, 45);
+    if (clusters.length) {
+      const biggest = clusters.sort((a, b) => b.length - a.length)[0];
+      analysis.findings.push({
+        type: 'inquiry_rate_shopping',
+        severity: 'low',
+        title: `${biggest.length} inquiries fall inside one 45-day window`,
+        detail: `${biggest.map(q => q.creditor).join(', ')}. If those pulls were for the same kind of loan — auto, mortgage or student — scoring models treat the whole cluster as a single inquiry, so it is already costing you far less than the count suggests. If they were for different kinds of credit, they count separately. Check what you were applying for before spending a letter on these.`
+      });
+    }
   }
   
   // Collections section
@@ -4620,6 +4766,7 @@ function determineLetterPacket(analysis) {
     packet.push(letterTemplates['609_request']);
     packet.push(letterTemplates.mov);
     packet.push(letterTemplates.inquiry_dispute);
+    packet.push(letterTemplates.inquiry_permissible_purpose);
     packet.push(letterTemplates.goodwill);
     packet.push(letterTemplates.pay_for_delete);
   }
