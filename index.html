@@ -5678,9 +5678,30 @@ function renderAnalysis(analysis) {
     </div>`;
   });
   html += '</div></section>';
+
+  html += humanHelpCard('analysis');
   
   html += '</div>';
   content.innerHTML = html;
+}
+
+// ========== TALK TO A HUMAN ==========
+// Reading a credit report wrong is the expensive mistake here — disputing an
+// accurate item, or spending a month on one that was never moving the score.
+// The offer is a conversation about the report, not someone taking the file
+// over: this stays a self-service tool and the consumer sends their own letters.
+function humanHelpCard(context) {
+  const line = context === 'letters'
+    ? 'Before you mail these, it can be worth having someone read the report with you — the costly mistake is disputing something that is accurate, or spending a month on an item that was never moving your score.'
+    : 'If you want a second set of eyes on what this report actually says before you act on it, you can book a call.';
+  return `<section style="margin-top:var(--space-10);">
+    <div class="card card-pink">
+      <h4 style="margin-bottom:var(--space-2);">Want a human to look at this with you?</h4>
+      <p style="font-size:0.9375rem;margin-bottom:var(--space-3);">${line} Dave Ivery is a certified credit score consultant and can go through your report with you, or connect you with a certified partner if your situation calls for one.</p>
+      <p style="font-size:0.9375rem;margin-bottom:var(--space-4);">This does not change how the tool works. You keep your report, you send your own letters, and everything here stays free to use on your own.</p>
+      <a href="https://ownlyfunds.myfundalytics.com/book" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Book a call →</a>
+    </div>
+  </section>`;
 }
 
 function severityLabel(s) {
@@ -5782,6 +5803,8 @@ function renderLetterPacket() {
   html += '</div>';
   
   html += '</div>';
+  html += humanHelpCard('letters');
+
   content.innerHTML = html;
   
   // Generate all letters with current (placeholder) user info
