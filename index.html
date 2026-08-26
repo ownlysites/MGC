@@ -1357,7 +1357,7 @@ section { padding: var(--space-20) 0; }
     <div id="step-upload" class="flow-step">
       <div class="container-narrow" style="margin:0 auto;">
         <h2 style="margin-bottom:var(--space-3);">Upload what you have.</h2>
-        <p style="margin-bottom:var(--space-8);color:var(--text-secondary);">Credit report, collection letter, court summons — as a PDF. Or skip this step and we'll build your plan from the intake.</p>
+        <p style="margin-bottom:var(--space-8);color:var(--text-secondary);">Credit report, collection letter, court summons — as a PDF. A tri-merge report covers all three bureaus at once; if you pulled Equifax, Experian and TransUnion separately, select all of them together and we'll merge them into one picture. Or skip this step and we'll build your plan from the intake.</p>
 
         <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
           <div class="upload-icon">
@@ -1368,9 +1368,9 @@ section { padding: var(--space-20) 0; }
             </svg>
           </div>
           <p style="font-size:1.125rem;font-weight:500;color:var(--text-primary);margin-bottom:var(--space-2);">Drop your file here or click to browse</p>
-          <p style="font-size:0.875rem;color:var(--text-tertiary);">PDF only — that's the format every bureau gives you</p>
+          <p style="font-size:0.875rem;color:var(--text-tertiary);">PDF only. One tri-merge report, or pick all three single-bureau PDFs at once — we'll combine them.</p>
           <p style="font-size:0.8125rem;color:var(--text-tertiary);margin-top:var(--space-4);">Nothing leaves your browser.</p>
-          <input type="file" id="file-input" accept=".pdf,application/pdf" onchange="handleFileUpload(event)" style="display:none;">
+          <input type="file" id="file-input" accept=".pdf,application/pdf" multiple onchange="handleFileUpload(event)" style="display:none;">
         </div>
 
         <div id="upload-status" class="hidden" style="margin-top:var(--space-6);"></div>
@@ -2102,56 +2102,149 @@ function skipToAnalysis() {
 }
 
 // ========== FILE UPLOAD & PARSING ==========
+// ========== MERGING SEPARATE SINGLE-BUREAU REPORTS ==========
+// Pulling each bureau on its own is normal — and the three files describe the
+// same accounts under different names ("CAPITAL ONE" vs "CAPITAL ONE BANK USA").
+// The masked account number is identical across bureaus, so that is the only
+// key trustworthy enough to merge on. Anything without one stays a separate
+// row: an over-merge would hide a tradeline that only one bureau reports, which
+// is exactly the thing worth disputing.
+function acctKey(a) {
+  const n = (a.account_number || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  return n.length >= 4 ? n : null;
+}
+
+function mergeParsedReports(parts) {
+  if (parts.length === 1) return parts[0];
+
+  const merged = {
+    accounts: [], inquiries: [], collections: [], publicRecords: [],
+    scores: [], personal: {}, bureaus: [], format: 'merged_single_bureau',
+    provider: 'Separate single-bureau reports', sources: []
+  };
+  const byKey = {};
+
+  parts.forEach(p => {
+    const bureau = p.bureau || null;
+    merged.sources.push({bureau: bureau, format: p.format, accounts: (p.accounts || []).length});
+    if (bureau && merged.bureaus.indexOf(bureau) === -1) merged.bureaus.push(bureau);
+
+    (p.accounts || []).forEach(a => {
+      const k = acctKey(a);
+      if (k && byKey[k]) {
+        const t = byKey[k];
+        (a.reported_by || []).forEach(b => { if (t.reported_by.indexOf(b) === -1) t.reported_by.push(b); });
+        // Keep the worst case across bureaus — a derogatory at one bureau is
+        // real even when another reports the account clean.
+        t.has_late_payments = t.has_late_payments || a.has_late_payments;
+        t.is_charge_off = t.is_charge_off || a.is_charge_off;
+        t.is_collection = t.is_collection || a.is_collection;
+        t.is_repossession = t.is_repossession || a.is_repossession;
+        t.in_bankruptcy = t.in_bankruptcy || a.in_bankruptcy;
+        ['balance', 'credit_limit', 'high_credit', 'past_due', 'date_opened', 'dofd', 'account_type'].forEach(f => {
+          if (!t[f] && a[f]) t[f] = a[f];
+        });
+        (a.comments || []).forEach(c => { if (t.comments.indexOf(c) === -1) t.comments.push(c); });
+        if (bureau) t.per_bureau = (t.per_bureau || []).concat([{bureau: bureau, status: a.status, balance: a.balance}]);
+      } else {
+        const copy = JSON.parse(JSON.stringify(a));
+        copy.reported_by = (a.reported_by || []).slice();
+        copy.comments = (a.comments || []).slice();
+        copy.per_bureau = bureau ? [{bureau: bureau, status: a.status, balance: a.balance}] : [];
+        merged.accounts.push(copy);
+        if (k) byKey[k] = copy;
+      }
+    });
+
+    // Inquiries and collections are bureau-specific by nature — each bureau's
+    // list is its own. Keep them all, labelled.
+    (p.inquiries || []).forEach(q => merged.inquiries.push(q));
+    (p.collections || []).forEach(c => merged.collections.push(c));
+    (p.publicRecords || []).forEach(r => merged.publicRecords.push(r));
+    (p.scores || []).forEach(sc => merged.scores.push(sc));
+    if (!merged.personal.name_raw && p.personal && p.personal.name_raw) merged.personal.name_raw = p.personal.name_raw;
+  });
+
+  merged.bureaus = ['Equifax', 'Experian', 'TransUnion'].filter(b => merged.bureaus.indexOf(b) !== -1);
+  merged.bureau = merged.bureaus[0] || null;
+  return merged;
+}
+
+async function readOneFile(file) {
+  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+    return await extractTextFromPDF(file);
+  }
+  if (file.type.startsWith('image/')) {
+    // A photo or screenshot cannot be read accurately enough to build dispute
+    // letters from — a misread account number or balance goes out in a legal
+    // letter. Ask for the PDF instead of guessing at the contents.
+    throw new Error('This tool reads PDFs, not photos or screenshots. Every bureau and credit-monitoring service gives you a PDF — download that and upload it here.');
+  }
+  return await file.text();
+}
+
 async function handleFileUpload(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
+
   const statusEl = document.getElementById('upload-status');
   statusEl.classList.remove('hidden');
   statusEl.innerHTML = `<div class="status-working">
     <div class="spinner"></div>
-    <p><strong>Reading your file locally…</strong></p>
+    <p><strong>Reading your ${files.length === 1 ? 'file' : files.length + ' files'} locally…</strong></p>
     <p style="font-size:0.875rem;color:var(--text-tertiary);">Nothing is being uploaded. This happens entirely in your browser.</p>
   </div>`;
-  
-  try {
-    let text = '';
-    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-      text = await extractTextFromPDF(file);
-    } else if (file.type.startsWith('image/')) {
-      // A photo or screenshot cannot be read accurately enough to build dispute
-      // letters from — a misread account number or balance goes out in a legal
-      // letter. Ask for the PDF instead of guessing at the contents.
-      throw new Error('This tool reads PDFs, not photos or screenshots. Every bureau and credit-monitoring service gives you a PDF — download that and upload it here.');
-    } else {
-      text = await file.text();
+
+  const parts = [];
+  const failures = [];
+  let label = 'Credit Report';
+  let combinedText = '';
+
+  for (const file of files) {
+    try {
+      const text = await readOneFile(file);
+      const classification = classifyDocument(text);
+      label = classification.label;
+      combinedText += (combinedText ? '\n\n' : '') + text;
+      parts.push({parsed: classification.parsed, type: classification.type, name: file.name});
+    } catch (err) {
+      failures.push({name: file.name, message: err.message || 'Unknown error'});
     }
-    
-    state.upload.raw_text = text;
-    state.upload.filename = file.name;
-    
-    // Classify the document
-    const classification = classifyDocument(text);
-    state.upload.doc_type = classification.type;
-    state.upload.parsed = classification.parsed;
-    
-    statusEl.innerHTML = `<div class="status-success">
-      <p><strong>✓ Document read successfully.</strong></p>
-      <p style="font-size:0.9375rem;margin-top:var(--space-2);">Identified as: <strong>${classification.label}</strong></p>
-      <p style="font-size:0.875rem;color:var(--text-tertiary);margin-top:var(--space-2);">Found ${classification.parsed.accounts ? classification.parsed.accounts.length : 0} account(s), ${classification.parsed.inquiries ? classification.parsed.inquiries.length : 0} inquir(ies), ${classification.parsed.collections ? classification.parsed.collections.length : 0} collection(s).</p>
-      <button class="btn btn-primary" style="margin-top:var(--space-4);" onclick="skipToAnalysis()">See my analysis →</button>
-    </div>`;
-  } catch (err) {
-    // A wrong file type is a different problem from a file we couldn't parse —
-    // don't tell someone to try again with the same screenshot.
-    const wrongType = /reads PDFs, not photos/.test(err.message || '');
+  }
+
+  if (!parts.length) {
+    const first = failures[0] || {message: 'Unknown error'};
+    const wrongType = /reads PDFs, not photos/.test(first.message);
     statusEl.innerHTML = `<div class="status-error">
       <p><strong>${wrongType ? 'That file needs to be a PDF.' : "Couldn't read that file automatically."}</strong></p>
-      <p style="font-size:0.9375rem;margin-top:var(--space-2);">${err.message || 'Unknown error'}</p>
+      <p style="font-size:0.9375rem;margin-top:var(--space-2);">${first.message}</p>
       <p style="font-size:0.9375rem;margin-top:var(--space-3);">No problem — we can still build your plan based on your intake answers.</p>
       <button class="btn btn-primary" style="margin-top:var(--space-3);" onclick="skipToAnalysis()">Continue without upload →</button>
     </div>`;
+    return;
   }
+
+  const parsed = mergeParsedReports(parts.map(p => p.parsed));
+  state.upload.raw_text = combinedText;
+  state.upload.filename = files.map(f => f.name).join(', ');
+  state.upload.doc_type = parts[0].type;
+  state.upload.parsed = parsed;
+
+  const bureauLine = (parsed.bureaus && parsed.bureaus.length)
+    ? `<p style="font-size:0.875rem;color:var(--text-tertiary);margin-top:var(--space-2);">Bureau${parsed.bureaus.length > 1 ? 's' : ''} read: <strong>${parsed.bureaus.join(', ')}</strong>${parsed.format === 'merged_single_bureau' ? ' — merged from ' + parts.length + ' separate reports' : ''}.</p>`
+    : '';
+  const failLine = failures.length
+    ? `<p style="font-size:0.875rem;color:var(--text-tertiary);margin-top:var(--space-2);">Could not read ${failures.length} of the files you picked (${failures.map(f => f.name).join(', ')}). Everything below comes from the rest.</p>`
+    : '';
+
+  statusEl.innerHTML = `<div class="status-success">
+    <p><strong>✓ ${parts.length === 1 ? 'Document' : parts.length + ' documents'} read successfully.</strong></p>
+    <p style="font-size:0.9375rem;margin-top:var(--space-2);">Identified as: <strong>${label}</strong></p>
+    ${bureauLine}
+    <p style="font-size:0.875rem;color:var(--text-tertiary);margin-top:var(--space-2);">Found ${parsed.accounts ? parsed.accounts.length : 0} account(s), ${parsed.inquiries ? parsed.inquiries.length : 0} inquir(ies), ${parsed.collections ? parsed.collections.length : 0} collection(s).</p>
+    ${failLine}
+    <button class="btn btn-primary" style="margin-top:var(--space-4);" onclick="skipToAnalysis()">See my analysis →</button>
+  </div>`;
 }
 
 async function extractTextFromPDF(file) {
@@ -2584,9 +2677,277 @@ function tbParsePublicRecords(blk) {
   return out;
 }
 
+// ========== STRUCTURED PARSER: Experian printable report (single bureau) ==========
+// The single-bureau PDFs people actually download come out of Experian's
+// printable-report viewer, and the SAME layout is used for all three bureaus —
+// usa.experian.com/mfe/credit/printable-report/{experian|equifax|transunion}.
+// Every page is stamped "Experian" regardless of whose data it is, which is why
+// naive bureau detection reads a TransUnion file as Experian. Take the bureau
+// from the URL path, not from the branding.
+function isExperianPrintable(text) {
+  if (/printable-report\/(experian|equifax|transunion)\//i.test(text)) return true;
+  return /^Account info$/m.test(text) && /Prepared For/i.test(text) && /Date generated:/i.test(text);
+}
+
+function expBureau(text) {
+  const m = text.match(/printable-report\/(experian|equifax|transunion)\//i);
+  if (m) return {experian: 'Experian', equifax: 'Equifax', transunion: 'TransUnion'}[m[1].toLowerCase()];
+  const d = text.match(/\b(Experian|Equifax|TransUnion)\s+data\b/i);
+  if (d) return {experian: 'Experian', equifax: 'Equifax', transunion: 'TransUnion'}[d[1].toLowerCase()];
+  return null;
+}
+
+// Longest labels first: "Status updated" must win over "Status", and
+// "Balance updated" / "Original balance" over "Balance".
+const EXP_FIELDS = [
+  ['Account name', 'creditor'],
+  ['Account number', 'account_number'],
+  ['Original creditor', 'original_creditor'],
+  ['Company sold', 'company_sold'],
+  ['Date opened', 'date_opened'],
+  ['Open/closed', 'open_closed'],
+  ['Status updated', 'status_updated'],
+  ['Account type', 'account_type'],
+  ['Balance updated', 'balance_updated'],
+  ['Original balance', 'original_balance'],
+  ['Past due amount', 'past_due'],
+  ['Highest balance', 'high_credit'],
+  ['Monthly payment', 'monthly_payment'],
+  ['Credit limit', 'credit_limit'],
+  ['Credit usage', 'credit_usage'],
+  ['Responsibility', 'responsibility'],
+  ['Your statement', 'your_statement'],
+  ['Paid off', 'paid_off'],
+  ['Terms', 'terms'],
+  ['Status', 'status'],
+  ['Balance', 'balance']
+];
+
+function parseExperianPrintable(text) {
+  const result = {accounts: [], inquiries: [], collections: [], personal: {}, publicRecords: [], scores: [], format: 'experian_printable'};
+  const bureau = expBureau(text);
+
+  // Drop the repeating page furniture so it can never land inside a block.
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l =>
+    !/^\d{1,2}\/\d{1,2}\/\d{2},\s*\d{1,2}:\d{2}\s*(AM|PM)\s+Experian$/i.test(l) &&
+    !/^https:\/\/usa\.experian\.com\//i.test(l) &&
+    !/^Prepared For\b.*Date generated:/i.test(l)
+  );
+
+  // ---------- Accounts ----------
+  const starts = [];
+  lines.forEach((l, i) => { if (/^Account info$/i.test(l)) starts.push(i); });
+
+  // The final account block would otherwise run to the end of the document and
+  // swallow the sections that follow it — which made the last tradeline inherit
+  // "Collection accounts" as one of its comments and get flagged as a
+  // collection. Stop at the next account OR the next top-level section.
+  const SECTION_HEAD = /^(Collection accounts|Public records|Inquiries|Credit scores|Personal information)$/i;
+  starts.forEach((start, n) => {
+    let end = n + 1 < starts.length ? starts[n + 1] : lines.length;
+    for (let i = start + 1; i < end; i++) {
+      if (SECTION_HEAD.test(lines[i])) { end = i; break; }
+    }
+    const blk = lines.slice(start + 1, end);
+
+    const fields = {};
+    let statusExtra = [];
+    for (const l of blk) {
+      if (/^Payment history$/i.test(l)) break;
+      let matched = false;
+      for (const [label, key] of EXP_FIELDS) {
+        const re = new RegExp('^' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+(.+)$', 'i');
+        const m = l.match(re);
+        if (m) {
+          if (fields[key] === undefined) fields[key] = m[1].trim();
+          matched = true;
+          if (key === 'status') statusExtra = [];
+          break;
+        }
+      }
+      // A long status wraps onto the next lines ("...written off. $1,531 past
+      // due as of Aug 2026."). Keep them so charge-off and collection wording
+      // is not cut in half.
+      if (!matched && fields.status !== undefined && fields.balance === undefined && l && !/^[A-Z][a-z]+ [a-z]/.test(l) === false) {
+        statusExtra.push(l);
+      }
+    }
+    const statusFull = [fields.status || '', statusExtra.join(' ')].join(' ').trim();
+
+    if (!fields.creditor) return;
+
+    // Payment-history grid: standalone 30/60/90/120 cells are the late months.
+    // Grid cells are one per line: 30/60/90/120/150 for lateness, CO for a
+    // charge-off month, plus CLS (closed), ND (no data), C and a glyph for
+    // current — those carry no delinquency and are ignored. Missing 150 and CO
+    // is what makes a parser undercount against the report's own
+    // "Accounts ever late" figure.
+    const phStart = blk.findIndex(l => /^Payment history$/i.test(l));
+    const late = {d30: 0, d60: 0, d90: 0, d120: 0, d150: 0};
+    let gridChargeOff = 0;
+    if (phStart >= 0) {
+      for (let i = phStart + 1; i < blk.length; i++) {
+        if (/^Contact info$/i.test(blk[i])) break;
+        const cell = blk[i];
+        const m = cell.match(/^(30|60|90|120|150)$/);
+        if (m) { late['d' + m[1]] += 1; continue; }
+        if (/^CO$/.test(cell)) gridChargeOff += 1;
+      }
+    }
+    const lateTotal = late.d30 + late.d60 + late.d90 + late.d120 + late.d150;
+
+    // Equifax puts the derogatory label in Comments rather than Status
+    // ("COLLECTION ACCOUNT" under a Status of "-"), so a status-only read misses
+    // it entirely. Pick the comments up and treat them as equal evidence.
+    const comments = [];
+    const cIdx = blk.findIndex(l => /^Comments$/i.test(l));
+    if (cIdx >= 0) {
+      for (let i = cIdx + 1; i < blk.length; i++) {
+        const l = blk[i];
+        if (!l || l === '-') continue;
+        if (/^(Account info|Payment history|Contact info|Address|Phone number)$/i.test(l)) break;
+        if (SECTION_HEAD.test(l)) break;
+        if (l.length > 80) break;
+        comments.push(l);
+        if (comments.length >= 4) break;
+      }
+    }
+    const evidence = (statusFull + ' ' + comments.join(' ')).trim();
+
+    const isCollection = /collection account|in collection/i.test(evidence);
+    const isChargeOff = /charge[\s-]?off|charged off/i.test(evidence);
+    const pastDueDays = evidence.match(/(\d+)\s*days? past due/i);
+
+    const acct = {
+      creditor: fields.creditor,
+      account_number: fields.account_number || '',
+      original_creditor: fields.original_creditor && fields.original_creditor !== '-' ? fields.original_creditor : null,
+      account_type: fields.account_type && fields.account_type !== '-' ? fields.account_type : null,
+      date_opened: fields.date_opened && fields.date_opened !== '-' ? fields.date_opened : null,
+      date_reported: fields.balance_updated || fields.status_updated || null,
+      status: statusFull || (comments.length ? comments[0] : 'unknown'),
+      closed: /^closed$/i.test(fields.open_closed || ''),
+      balance: fields.balance && fields.balance !== '-' ? fields.balance : null,
+      credit_limit: fields.credit_limit && fields.credit_limit !== '-' ? fields.credit_limit : null,
+      high_credit: fields.high_credit && fields.high_credit !== '-' ? fields.high_credit : null,
+      past_due: fields.past_due && fields.past_due !== '-' ? fields.past_due : null,
+      credit_usage: fields.credit_usage && fields.credit_usage !== '-' ? fields.credit_usage : null,
+      responsibility: fields.responsibility || null,
+      dofd: null,
+      comments: comments,
+      reported_by: bureau ? [bureau] : [],
+      late_counts: late,
+      charge_off_months: gridChargeOff,
+      has_late_payments: lateTotal > 0 || gridChargeOff > 0 || !!pastDueDays || /past due|collection|charge/i.test(evidence),
+      is_charge_off: isChargeOff || gridChargeOff > 0,
+      is_collection: isCollection,
+      is_repossession: /repossess/i.test(evidence),
+      in_bankruptcy: /bankrupt/i.test(evidence)
+    };
+    result.accounts.push(acct);
+
+    // This layout carries collections as tradelines, not in their own section.
+    if (isCollection) {
+      result.collections.push({
+        agency: acct.creditor,
+        original_creditor: acct.original_creditor,
+        date_reported: acct.date_reported,
+        balance: acct.balance,
+        bureau: bureau,
+        status: 'collection'
+      });
+    }
+  });
+
+  // ---------- Inquiries ----------
+  const inqIdx = lines.findIndex(l => /^Inquiries$/i.test(l));
+  if (inqIdx >= 0) {
+    for (let i = inqIdx + 1; i < lines.length; i++) {
+      const m = lines[i].match(/^Inquired on\s+(.+)$/i);
+      if (!m) continue;
+      // Creditor is the line immediately above the date.
+      let creditor = '';
+      for (let k = i - 1; k > inqIdx; k--) {
+        if (lines[k]) { creditor = lines[k]; break; }
+      }
+      if (!creditor || /^Inquired on/i.test(creditor)) continue;
+      const addr = [];
+      for (let k = i + 1; k < lines.length && addr.length < 3; k++) {
+        const l = lines[k];
+        if (/^Inquired on/i.test(l) || /^This inquiry is scheduled/i.test(l)) break;
+        if (/^Business Type:/i.test(l)) continue;
+        if (/^\(\d{3}\)/.test(l)) break;
+        if (l) addr.push(l);
+      }
+      result.inquiries.push({
+        creditor: creditor,
+        address: addr.join('\n'),
+        date: m[1].replace(/\.$/, '').trim(),
+        bureau: bureau,
+        type: 'hard'
+      });
+    }
+  }
+
+  // ---------- Collections / public records sections ----------
+  // This layout states emptiness explicitly. When a section is NOT empty the
+  // entry layout is unverified — no sample has had one — so record its presence
+  // rather than inventing a shape for it.
+  const colIdx = lines.findIndex(l => /^Collection accounts$/i.test(l));
+  if (colIdx >= 0 && !/^No collection accounts reported/i.test(lines[colIdx + 1] || '')) {
+    result.collectionsSectionPopulated = true;
+  }
+  const prIdx = lines.findIndex(l => /^Public records$/i.test(l));
+  if (prIdx >= 0 && !/^No public records reported/i.test(lines[prIdx + 1] || '')) {
+    result.publicRecords.push({type: 'public record', date_filed: null, status: null, reference: null, detail: 'Present — review the Public records section of your report directly.'});
+  }
+
+  // ---------- Score ----------
+  const sIdx = lines.findIndex(l => /^FICO Score/i.test(l));
+  if (sIdx >= 0) {
+    for (let i = sIdx + 1; i < Math.min(sIdx + 5, lines.length); i++) {
+      const m = lines[i].match(/^(\d{3})$/);
+      if (m) {
+        const val = parseInt(m[1], 10);
+        if (val >= 300 && val <= 850) {
+          result.scores.push({bureau: bureau || 'This bureau', score: val, rating: '', reported: true});
+        }
+        break;
+      }
+    }
+  }
+
+  // ---------- Personal ----------
+  const nameIdx = lines.findIndex(l => /^Name$/i.test(l));
+  if (nameIdx >= 0 && lines[nameIdx + 1]) result.personal.name_raw = lines[nameIdx + 1];
+
+  result.bureau = bureau;
+  result.bureaus = bureau ? [bureau] : [];
+  result.provider = 'Experian printable report';
+
+  // The report's own summary, kept so the analysis can say when what we parsed
+  // disagrees with what the report claims.
+  const sum = {};
+  ['Open accounts', 'Closed accounts', 'Accounts ever late', 'Collections'].forEach(k => {
+    const re = new RegExp('^' + k + '\\s+(\\d+)$', 'i');
+    for (const l of lines) { const m = l.match(re); if (m) { sum[k] = parseInt(m[1], 10); break; } }
+  });
+  result.reportSummary = sum;
+
+  return result;
+}
+
 function parseCreditReport(text) {
   // Prefer the structured parser when the document is a recognised tri-merge layout.
   // The heuristics below stay as the fallback for formats we have not seen.
+  if (isExperianPrintable(text)) {
+    try {
+      const single = parseExperianPrintable(text);
+      if (single && single.accounts.length > 0) return single;
+    } catch (e) {
+      // fall through
+    }
+  }
   if (tbIsThreeBureauReport(text)) {
     try {
       const structured = parseThreeBureauReport(text);
@@ -4757,6 +5118,18 @@ function analyzeReport(parsed, analysis) {
     });
   }
   
+  // Merged from separate single-bureau pulls: say what merging could and could
+  // not do, so a duplicated row does not read as two different debts.
+  if (parsed.format === 'merged_single_bureau') {
+    const multi = accounts.filter(a => (a.reported_by || []).length > 1).length;
+    analysis.findings.push({
+      type: 'merged_reports',
+      severity: 'low',
+      title: `Merged ${(parsed.sources || []).length} separate bureau reports`,
+      detail: `${multi} account${multi === 1 ? ' was' : 's were'} matched across bureaus by masked account number and combined into one row, with the worst status of the three kept. Where the bureaus mask an account number differently, the same debt can still appear more than once in the list below under slightly different creditor names — we do not guess at those, because merging two accounts that are not the same one would hide a tradeline only one bureau reports, and that is exactly the kind worth disputing. Read near-duplicate names as one debt at two bureaus.`
+    });
+  }
+
   // Which bureaus you actually have to write to.
   const bureausWithData = parsed.bureaus || [];
   if (bureausWithData.length > 0) {
