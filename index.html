@@ -1403,6 +1403,8 @@ section { padding: var(--space-20) 0; }
             <a href="https://www.annualcreditreport.com/" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Get free reports →</a>
           </div>
 
+          <p style="font-size:0.75rem;color:var(--text-tertiary);font-style:italic;margin-top:var(--space-3);">For information purposes only. This is a self-service tool — we do not sell to you, sign you up, or act on your behalf with any of these services or with the bureaus. You do all of it yourself.</p>
+
         </div>
 
         <div class="flow-nav">
@@ -1549,6 +1551,9 @@ const state = {
     situation: null,          // collector/denied/rebuilding/idtheft/breach/cleanup/lawsuit
     prior_dispute: null,      // never/yes
     prior_dispute_when: null, // <30/30-45/45+
+    prior_dispute_resolved: null, // answered/pending/unsure
+    voice: null,              // hopeful/plain/firm/angry
+    personal_statement: null, // consumer's own words, optional
     collector_contact: null,  // aggressive/occasional/none/unsure
     lawsuit_status: null,     // yes/no/notsure
     special_flags: [],        // identity_theft, data_breach, bankruptcy, scra, student_loans, tax_debt, medical_debt
@@ -1621,6 +1626,18 @@ const intakeQuestions = [
     ]
   },
   {
+    id: 'prior_dispute_resolved',
+    q: 'Has the bureau already answered that dispute?',
+    help: 'The CFPB opens to you either 45 days after you disputed OR as soon as the dispute is no longer pending — whichever comes first. An answer you disagree with still counts as an answer.',
+    type: 'single',
+    depends_on: {field:'prior_dispute', value:'yes'},
+    options: [
+      {v:'answered', t:'Yes — they responded', d:'"Verified", corrected, deleted, or rejected as frivolous. Any of these closes the dispute.'},
+      {v:'pending', t:'No — still waiting', d:'No response yet'},
+      {v:'unsure', t:'I\'m not sure'}
+    ]
+  },
+  {
     id: 'collector_contact',
     q: 'Are you currently being contacted by debt collectors?',
     help: 'This determines whether cease & desist letters belong in your packet.',
@@ -1659,6 +1676,26 @@ const intakeQuestions = [
       {v:'medical_debt', t:'I have medical collections'},
       {v:'none', t:'None of these'}
     ]
+  },
+  {
+    id: 'voice',
+    q: 'How do you want these letters to sound?',
+    help: 'This changes the wording, never your rights or the legal citations. Pick whichever is closest to how you actually feel — a letter that sounds like you is harder to dismiss as a form letter.',
+    type: 'single',
+    options: [
+      {v:'hopeful', t:'Hopeful — I\'m rebuilding', d:'Cooperative and forward-looking. Good for goodwill letters and creditors you still do business with.'},
+      {v:'plain', t:'Matter-of-fact', d:'Neutral and businesslike. Nothing but the facts and the statute.'},
+      {v:'firm', t:'Firm — I know my rights', d:'Direct and unmistakable about what you expect and by when.'},
+      {v:'frustrated', t:'Frustrated — this has gone on too long', d:'Says plainly that this has cost you something. Still professional, never insulting.'}
+    ]
+  },
+  {
+    id: 'personal_statement',
+    q: 'In your own words, what has this actually done to you?',
+    help: 'Optional, but this is the single most valuable thing you can add. Two or three sentences in your own voice — a denied loan, a rate you got stuck with, sleep you have lost. Furnishers may refuse to investigate a dispute that looks like a form supplied by a credit repair company (12 CFR § 1022.43). Your own words are what make it yours.',
+    type: 'textarea',
+    optional: true,
+    placeholder: 'Example: I was turned down for an auto loan in June because of this account. I have never been late on anything else. I have called twice and nobody can tell me where it came from.'
   },
   {
     id: 'state',
@@ -1979,6 +2016,10 @@ function renderIntakeQuestion() {
     if (q.optional) {
       html += `<p style="margin-top:var(--space-4);font-size:0.875rem;color:var(--text-tertiary);">Optional — continue if none apply.</p>`;
     }
+  } else if (q.type === 'textarea') {
+    const cur = state.intake[q.id] || '';
+    html += `<textarea id="intake-textarea-${q.id}" class="form-input" rows="5" style="width:100%;max-width:640px;font-family:inherit;font-size:1rem;padding:var(--space-4);border:1px solid var(--warm-gray-300);border-radius:var(--radius);" placeholder="${(q.placeholder || '').replace(/"/g, '&quot;')}" oninput="setIntakeText('${q.id}', this.value)">${cur.replace(/</g, '&lt;')}</textarea>`;
+    html += `<p style="margin-top:var(--space-3);font-size:0.8125rem;color:var(--text-tertiary);">Optional — you can skip this. Nothing you type leaves your browser.</p>`;
   } else if (q.type === 'select') {
     html += '<div style="max-width:400px;">';
     html += `<select class="form-select" onchange="selectIntake('${q.id}', this.value)">`;
@@ -2016,12 +2057,18 @@ function toggleIntakeMulti(field, value) {
   renderIntakeQuestion();
 }
 
+function setIntakeText(field, value) {
+  state.intake[field] = value;
+  updateIntakeNextBtn();
+}
+
 function updateIntakeNextBtn() {
   const q = visibleIntakeQuestions[currentIntakeIndex];
   if (!q) return;
   const val = state.intake[q.id];
   let hasAnswer = false;
   if (q.type === 'multi') hasAnswer = q.optional || (val && val.length > 0);
+  else if (q.type === 'textarea') hasAnswer = q.optional || (val && val.trim().length > 0);
   else hasAnswer = val !== null && val !== undefined && val !== '';
   document.getElementById('intake-next-btn').disabled = !hasAnswer;
 }
@@ -3150,6 +3197,47 @@ function bureauHeader(bureauKey) {
   return `${b.name}\n${b.addr}`;
 }
 
+// ========== STATE MEDICAL DEBT LAWS ==========
+// Fifteen states now restrict medical debt on credit reports. These sit on top
+// of the bureaus' voluntary NCAP policies, and they are NOT settled law: when
+// the Eastern District of Texas vacated the CFPB's medical debt rule on
+// July 11, 2025, it also said in passing that FCRA would preempt state laws
+// prohibiting medical debt reporting. That comment was dicta, it binds no one
+// outside that case, and the statutes below remain on the books — but a
+// furnisher may push back, so the tool says "cite it and expect an argument"
+// rather than "this guarantees deletion."
+const medicalDebtStates = {
+  CA: {bill: 'SB 1061 (2024)', rule: 'prohibits medical debt from being included on consumer credit reports'},
+  CO: {bill: 'HB 23-1126 (2023)', rule: 'restricts medical debt from appearing on credit reports'},
+  CT: {bill: 'SB 395 (2024) and SB 1469 (2025)', rule: 'restricts reporting of medical debt'},
+  DE: {bill: 'SB 156 (2025)', rule: 'prohibits reporting medical debt and using it in credit decisions'},
+  IL: {bill: 'SB 2933 (2024)', rule: 'makes it unlawful for collection agencies to report medical debt'},
+  ME: {bill: 'L.D. 558 (2025)', rule: 'bars medical creditors from furnishing medical debt information'},
+  MD: {bill: 'HB 268 and HB 1020 (2025)', rule: 'bans hospital and collection-agency reporting of medical debt'},
+  MN: {bill: 'SF 1347 (2025) and SF 4097', rule: 'prohibits reporting of medical debt'},
+  NJ: {bill: 'SB 2806 (2025)', rule: 'excludes paid medical debt and medical debt under $500'},
+  NY: {bill: 'S4907A (2024)', rule: 'prohibits consumer reporting agencies from reporting medical debt'},
+  OR: {bill: 'SB 605 (2025)', rule: 'prevents medical providers from reporting debt to consumer reporting agencies'},
+  RI: {bill: 'S-0169 and S-0172 (2025)', rule: 'bans medical debt reporting'},
+  VT: {bill: 'SB 27 (2025)', rule: 'removes medical debt from credit scoring'},
+  VA: {bill: 'HB 1725 (2025), effective July 1, 2026', rule: 'restricts medical debt reporting and related fees'},
+  WA: {bill: 'SB 5480 (2025)', rule: 'bars collection agencies from reporting medical debt'}
+};
+
+function getMedicalDebtLaw(stateCode) {
+  return medicalDebtStates[stateCode] || null;
+}
+
+// Only 10 states have a full stateLaws entry, so fall back to the label on the
+// intake dropdown rather than saying "your state" to someone in Colorado.
+function stateName(stateCode) {
+  const sl = getStateLaw(stateCode);
+  if (sl && sl.name) return sl.name;
+  const q = intakeQuestions.find(x => x.id === 'state');
+  const opt = q && q.options.find(o => o.v === stateCode);
+  return opt ? opt.t.replace(/\s*★\s*$/, '').trim() : 'Your state';
+}
+
 function getStateLaw(stateCode) {
   return stateLaws[stateCode] || null;
 }
@@ -3162,6 +3250,51 @@ function stateLawClause(stateCode) {
     return `In addition to federal law, I note that ${sl.name} consumer protection law — specifically the ${sl.fdcpa_equivalent} — provides additional rights in this matter. ${sl.fdcpa_note || ''}${cite ? ' See ' + cite + '.' : ''}`;
   }
   return '';
+}
+
+// ========== VOICE ==========
+// A letter that reads like a form is a letter a furnisher may decline to
+// investigate: 12 CFR § 1022.43 lets them treat a dispute "prepared on behalf
+// of the Consumer by, or submitted on a form supplied to the Consumer by a
+// credit repair organization" as frivolous. Tone selection plus the consumer's
+// own statement is what makes each letter theirs. It never changes the legal
+// substance — only how it sounds.
+const voiceFragments = {
+  hopeful: {
+    lead: 'I want to explain what this has meant for me personally:',
+    close: 'I am trying to rebuild, and I would rather resolve this with you directly than take it any further. I appreciate you taking a careful look.'
+  },
+  plain: {
+    lead: 'For context, here is the effect this reporting has had:',
+    close: 'Please confirm in writing what action you have taken and the date you took it.'
+  },
+  firm: {
+    lead: 'So that the record is complete, here is what this reporting has cost me:',
+    close: 'I expect a substantive response within the statutory period, in writing. If the item cannot be verified with actual source documentation, it must be deleted rather than re-reported.'
+  },
+  frustrated: {
+    lead: 'I want to be direct about what this has already cost me:',
+    close: 'This has gone on longer than it should have, and I have kept a record of every contact. I am asking you to resolve it correctly this time, in writing, within the period the statute allows.'
+  }
+};
+
+function currentVoice() {
+  return voiceFragments[state.intake.voice] || null;
+}
+
+// The consumer's own words, in their own paragraph. Trimmed and capped so a
+// runaway paste cannot swamp the letter.
+function personalStatementBlock() {
+  const raw = (state.intake.personal_statement || '').trim();
+  if (!raw) return [];
+  const v = currentVoice();
+  const text = raw.length > 1200 ? raw.slice(0, 1200) + '…' : raw;
+  return ['', (v ? v.lead : 'For context:'), '', text];
+}
+
+function voiceClosing() {
+  const v = currentVoice();
+  return v ? v.close : null;
 }
 
 function mailEnvelope(bodyLines, recipientBlock, ctx = {}) {
@@ -3181,8 +3314,9 @@ function mailEnvelope(bodyLines, recipientBlock, ctx = {}) {
     'To Whom It May Concern:',
     '',
     ...bodyLines,
+    ...personalStatementBlock(),
     '',
-    pickFrom(fragments.closing_formal, 1),
+    voiceClosing() || pickFrom(fragments.closing_formal, 1),
     '',
     '',
     '_______________________________',
@@ -4376,8 +4510,15 @@ function computeFlags(intake, upload) {
     has_report: !!(upload && upload.parsed),
     has_collection_letter: upload && upload.doc_type === 'collection_letter',
     has_summons: upload && upload.doc_type === 'summons',
-    cfpb_gate_open: intake.prior_dispute === 'yes' && intake.prior_dispute_when === 'gt45',
-    cfpb_gate_closing: intake.prior_dispute === 'yes' && intake.prior_dispute_when === '30to45'
+    // The CFPB gate opens on EITHER trigger: 45 days elapsed, or the dispute is
+    // no longer pending. Someone who got a "verified" answer on day 20 does not
+    // have to sit out the remaining 25 days.
+    cfpb_gate_open: intake.prior_dispute === 'yes' &&
+      (intake.prior_dispute_when === 'gt45' || intake.prior_dispute_resolved === 'answered'),
+    cfpb_gate_closing: intake.prior_dispute === 'yes' &&
+      intake.prior_dispute_when === '30to45' &&
+      intake.prior_dispute_resolved !== 'answered',
+    cfpb_gate_reason: intake.prior_dispute_resolved === 'answered' ? 'answered' : 'elapsed'
   };
   return flags;
 }
@@ -4637,6 +4778,17 @@ function analyzeReport(parsed, analysis) {
       detail: 'Under the 2023 National Consumer Assistance Plan updates: (1) paid medical collections cannot appear on your report; (2) medical collections under $500 cannot appear; (3) medical collections less than 1 year old cannot appear. Check each medical item against these rules.',
       letter: 'initial_bureau_dispute'
     });
+
+    const mdl = getMedicalDebtLaw(state.intake.state);
+    if (mdl) {
+      analysis.findings.push({
+        type: 'medical_state_law',
+        severity: 'medium',
+        title: `${stateName(state.intake.state)} has its own medical debt reporting law`,
+        detail: `${mdl.bill} ${mdl.rule}. That is on top of the bureaus' voluntary rules, and it is worth citing by name in your dispute — a state statute is harder to brush off than a general accuracy argument. One caveat you should know going in: when a federal court in Texas struck down the CFPB's medical debt rule in July 2025, it commented that federal law may override state laws like this one. That comment was not a ruling on your state's statute and the law is still on the books, so cite it — but expect the furnisher to argue about it rather than fold immediately.`,
+        letter: 'initial_bureau_dispute'
+      });
+    }
   }
 }
 
@@ -4738,7 +4890,10 @@ function applyIntakeBasedAnalysis(analysis) {
   if (f.cfpb_gate_open) {
     analysis.wins.push({
       title: 'CFPB escalation is available to you',
-      detail: 'Your prior dispute is more than 45 days old and unresolved. You can now file a CFPB complaint — companies typically respond within 15 days and take CFPB complaints more seriously than regular disputes.'
+      detail: (f.cfpb_gate_reason === 'answered'
+        ? 'The bureau has already answered your dispute, so it is no longer pending. That opens the CFPB to you now — you do not have to sit out the rest of the 45 days. '
+        : 'Your prior dispute is more than 45 days old and unresolved. ') +
+        'You can now file a CFPB complaint — companies typically respond within 15 days and take CFPB complaints more seriously than regular disputes.'
     });
   } else if (f.cfpb_gate_closing) {
     analysis.wins.push({
@@ -5059,6 +5214,11 @@ function renderAnalysis(analysis) {
   html += '<section style="margin-top:var(--space-10);">';
   html += '<h2>Your letter packet</h2>';
   html += `<p style="color:var(--text-secondary);margin-bottom:var(--space-6);">Based on your situation, we'll generate <strong>${analysis.letters.length}</strong> letters for you. Each one is written uniquely — no two users get the same wording. Click below to view and customize.</p>`;
+  html += `<div class="card card-pink" style="margin-bottom:var(--space-6);">
+    <h5 style="margin-bottom:var(--space-2);">Put these in your own words before you send them.</h5>
+    <p style="font-size:0.9375rem;margin-bottom:var(--space-2);">This matters more than it sounds. Under 12 CFR § 1022.43, a furnisher may treat a direct dispute as frivolous if it was <em>prepared on your behalf by, or submitted on a form supplied by, a credit repair organization</em> — and a letter that reads like a template invites exactly that response. They still have to tell you within five business days if they refuse, but you will have burned the time.</p>
+    <p style="font-size:0.9375rem;">Change the sentences. Say what happened to you. Keep the statute citations and the dates — those are the parts that have to be right — and make everything around them sound like you wrote it, because you did.</p>
+  </div>`;
   html += '<div class="packet-preview">';
   analysis.letters.forEach(l => {
     const gatedNote = l.gated ? ` <span class="gated-badge">Day ${l.gate_day}+ only</span>` : '';
