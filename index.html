@@ -6523,20 +6523,13 @@ function planEsc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function planRef() {
-  // Stable per session. Printed on the cover, on every letter, and in the
-  // closing note so a consumer can point at "the plan you gave me" later.
-  const seed = Math.abs(seedRand()) % 1000000;
-  const d = new Date();
-  const ymd = '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
-  return 'MGC-' + ymd + '-' + String(seed).padStart(6, '0');
-}
-
 function planHead(section) {
-  // The plan reference rides here because it is the only element that reliably
-  // repeats across pages — see the note on running footers in the print CSS.
-  const ref = state.planRef || '';
-  return `<div class="plan-head"><img src="${planLogoSrc()}" alt=""><span>${planEsc(section)}${ref ? ' &nbsp;·&nbsp; ' + planEsc(ref) : ''}</span></div>`;
+  // The date rides here because the section header is the only element that
+  // reliably repeats across pages — see the note on running footers in the
+  // print CSS. It used to be a generated document reference, but nothing is
+  // stored anywhere, so that number could never actually be looked up.
+  const when = state.planDate || '';
+  return `<div class="plan-head"><img src="${planLogoSrc()}" alt=""><span>${planEsc(section)}${when ? ' &nbsp;·&nbsp; ' + planEsc(when) : ''}</span></div>`;
 }
 
 function planTitle(title, sub) {
@@ -6564,7 +6557,7 @@ function buildActionPlanDoc() {
   const inquiries = parsed.inquiries || [];
   const collections = parsed.collections || [];
   const records = parsed.publicRecords || [];
-  const ref = state.planRef || (state.planRef = planRef());
+  state.planDate = u.date;
   const named = (state.userInfo && state.userInfo.name) ? state.userInfo.name : null;
 
   const letters = analysis.letters || [];
@@ -6606,8 +6599,7 @@ function buildActionPlanDoc() {
           <div class="plan-band-meta">
             <p>Prepared for ${planEsc(named || 'you')} &nbsp;|&nbsp; ${planEsc(u.date)}</p>
             <p>Prepared by Making Good Choices &nbsp;|&nbsp; Dave Ivery, Certified Credit Score Consultant</p>
-            <p>Document ${planEsc(ref)}</p>
-          </div>
+              </div>
         </div>
       </div>
     </div>
@@ -6830,7 +6822,7 @@ function buildActionPlanDoc() {
 
     <div class="plan-rule">
       <b>Important</b>
-      <p>This document is for educational and planning purposes. It is based on the credit data available on the report date. It is not legal, tax or credit-repair advice, and it does not guarantee a deletion, a score change, an approval or a timeline. Bureaus and furnishers make their own determinations under their own procedures. Prepared ${planEsc(u.date)} · ${planEsc(ref)}</p>
+      <p>This document is for educational and planning purposes. It is based on the credit data available on the report date. It is not legal, tax or credit-repair advice, and it does not guarantee a deletion, a score change, an approval or a timeline. Bureaus and furnishers make their own determinations under their own procedures. Prepared ${planEsc(u.date)}.</p>
     </div>
   </section>`;
 
@@ -6841,7 +6833,7 @@ function buildActionPlanDoc() {
     <div class="plan-backmark">
       <img src="${planLogoSrc()}" alt="Making Good Choices">
       <p>Know your rights. Defend your data. Clean your credit.</p>
-      <p class="plan-backref">${planEsc(ref)}</p>
+      <p class="plan-backref">Prepared ${planEsc(u.date)}</p>
     </div>
   </section>`;
 
