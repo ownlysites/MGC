@@ -588,6 +588,42 @@ section { padding: var(--space-20) 0; }
   }
   #action-plan-doc .plan-addr strong { color: #2a1f18; }
 
+  /* ---- letter separator sheets ----
+     A page the sender pulls out and bins. It carries everything that used to
+     clutter the letter itself, and says so at the top in the one place nobody
+     can miss. */
+  #action-plan-doc .plan-divider { page-break-before: always; page-break-after: always; }
+  #action-plan-doc .plan-divider-warn {
+    background: #8d5058; color: #ffffff;
+    border-radius: 6pt;
+    padding: 9pt 14pt;
+    font-size: 8.5pt; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 0.42in;
+  }
+  #action-plan-doc .plan-divider-body { border-left: 3.5pt solid #d4a5a5; padding-left: 16pt; }
+  #action-plan-doc .plan-divider-num { font-size: 7.5pt; letter-spacing: 0.12em; text-transform: uppercase; color: #b76e79; margin: 0 0 6pt; }
+  #action-plan-doc .plan-divider h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 26pt; font-weight: 600; color: #2a1f18; margin: 0 0 4pt; }
+  #action-plan-doc .plan-divider-sub { font-size: 9.5pt; color: #7d6a5c; margin: 0 0 14pt; }
+  #action-plan-doc .plan-divider-gate {
+    display: inline-block; background: #fde8e8; color: #8d5058;
+    font-size: 8.5pt; font-weight: 700; border-radius: 4pt;
+    padding: 5pt 10pt; margin: 0 0 14pt;
+  }
+  #action-plan-doc .plan-divider-grid { display: flex; flex-wrap: wrap; gap: 12pt; }
+  #action-plan-doc .plan-divider-grid > div {
+    flex: 1 1 44%; min-width: 2.4in;
+    border: 0.75pt solid #e8ddd6; border-radius: 6pt; padding: 11pt 12pt;
+    page-break-inside: avoid;
+  }
+  #action-plan-doc .plan-divider-grid em {
+    font-style: normal; font-size: 7pt; letter-spacing: 0.09em; text-transform: uppercase;
+    color: #8d5058; display: block; margin-bottom: 5pt;
+  }
+  #action-plan-doc .plan-divider-grid p { margin: 0; font-size: 8.5pt; color: #5d4d42; }
+  #action-plan-doc .plan-divider-foot { font-size: 8.5pt; color: #7d6a5c; font-style: italic; margin: 0.3in 0 0; }
+
   /* ---- letters ----
      A letter page is a letter. No border rule, no eyebrow, no reference number:
      these sheets get signed and posted to a bureau or a furnisher, and anything
@@ -6688,19 +6724,35 @@ function buildActionPlanDoc() {
       <b>Put these in your own words first</b>
       <p>We strongly recommend rewriting each letter in your own voice before you send it. A furnisher may treat a dispute as frivolous when it reads like a form supplied by a credit repair organization (12 CFR § 1022.43). Keep the statute citations, account numbers and dates exactly as printed — change the sentences around them so the letter sounds like you wrote it, because you did.</p>
     </div>
-    <p class="plan-sublabel">Every page after this one is a finished letter. Sign it, add your enclosures, and mail it — nothing on those pages is a note to you.</p>
-    ${letters.map((t, i) => `<div class="plan-row">
-      <span class="plan-chip">Letter ${i + 1} of ${letters.length}</span>
-      <h3>${planEsc(t.title)}</h3>
-      <p style="color:#7d6a5c;margin-bottom:5pt;">${planEsc(t.subtitle || '')}</p>
-      ${t.gated ? `<p style="color:#8d5058;font-weight:700;margin-bottom:4pt;">Do not send before day ${planEsc(t.gate_day)}.</p>` : ''}
-      ${t.when_to_use ? `<p><strong>When to use:</strong> ${planEsc(t.when_to_use)}</p>` : ''}
-      ${t.what_to_expect ? `<p style="margin-top:3pt;"><strong>What to expect:</strong> ${planEsc(t.what_to_expect)}</p>` : ''}
-    </div>`).join('')}
+    <p class="plan-sublabel">How the rest of this packet is ordered</p>
+    <p style="font-size:9pt;color:#5d4d42;margin:0 0 14pt;">Each letter is introduced by a separator sheet giving its number, what it does and when to send it. The letter itself is on the page straight after, with nothing on it but the letter. Take the separator sheets out before you mail anything.</p>
+    <ol class="plan-list">
+      ${letters.map((t, i) => `<li><strong>Letter ${i + 1} — ${planEsc(t.title)}</strong><br>${planEsc(t.subtitle || '')}${t.gated ? ` <em>· day ${planEsc(t.gate_day)}+ only</em>` : ''}</li>`).join('')}
+    </ol>
   </section>`;
 
   letters.forEach((tmpl, idx) => {
     const out = (state.letterOutputs || {})[tmpl.id] || {};
+    // Separator sheet: everything the sender needs to know about this letter,
+    // on a page that never goes in the envelope. It exists so the letter itself
+    // can stay completely bare.
+    h += `<section class="plan-divider">
+      <div class="plan-divider-warn">Do not mail this page — remove it before sending</div>
+      <div class="plan-divider-body">
+        <p class="plan-divider-num">Letter ${idx + 1} of ${letters.length}</p>
+        <h2>${planEsc(tmpl.title)}</h2>
+        <p class="plan-divider-sub">${planEsc(tmpl.subtitle || '')}</p>
+        ${tmpl.gated ? `<p class="plan-divider-gate">Do not send before day ${planEsc(tmpl.gate_day)}.</p>` : ''}
+        <div class="plan-divider-grid">
+          ${tmpl.when_to_use ? `<div><em>When to use</em><p>${planEsc(tmpl.when_to_use)}</p></div>` : ''}
+          ${tmpl.what_to_expect ? `<div><em>What to expect</em><p>${planEsc(tmpl.what_to_expect)}</p></div>` : ''}
+          <div><em>Goes to</em><p>${planEsc(tmpl.recipient === 'bureau' ? 'The credit bureau — send a copy to each one reporting the item' : tmpl.recipient === 'furnisher' ? 'The company that reported it, not the bureau' : tmpl.recipient === 'collector' ? 'The collection agency' : tmpl.recipient === 'CFPB' ? 'Paste into the CFPB complaint portal — this one is not mailed' : 'See the address printed on the letter')}</p></div>
+          <div><em>Before you send</em><p>Rewrite it in your own words, keeping the citations, account numbers and dates exactly as printed. Sign in ink, enclose your ID and proof of address, and send certified mail with return receipt requested.</p></div>
+        </div>
+        <p class="plan-divider-foot">The next page is the finished letter. Nothing on it is addressed to you.</p>
+      </div>
+    </section>`;
+
     // Nothing but the letter. These pages go in an envelope to a bureau or a
     // furnisher, so no title, no reference number, no guidance, no rules — any
     // of it would be read as the consumer sending a form somebody prepared.
