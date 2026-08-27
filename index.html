@@ -596,19 +596,16 @@ section { padding: var(--space-20) 0; }
   }
   #action-plan-doc .plan-addr strong { color: #2a1f18; }
 
-  /* ---- letters ---- */
-  #action-plan-doc .plan-letter { padding: 0 0 0.5in; page-break-before: always; }
-  #action-plan-doc .plan-letter-num { font-size: 7pt; letter-spacing: 0.1em; text-transform: uppercase; color: #b76e79; margin: 0 0 5pt; }
-  #action-plan-doc .plan-letter h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 22pt; margin: 0 0 3pt; color: #2a1f18; }
-  #action-plan-doc .plan-letter-sub { font-size: 8.5pt; color: #7d6a5c; margin: 0 0 10pt; }
-  #action-plan-doc .plan-gate { font-size: 8pt; font-weight: 700; color: #8d5058; background: #fde8e8; border-radius: 4pt; padding: 5pt 9pt; display: inline-block; margin: 0 0 9pt; }
-  #action-plan-doc .plan-when { font-size: 8.25pt; color: #5d4d42; margin: 0 0 5pt; }
+  /* ---- letters ----
+     A letter page is a letter. No border rule, no eyebrow, no reference number:
+     these sheets get signed and posted to a bureau or a furnisher, and anything
+     framing them as generated output undercuts the consumer sending them. */
+  #action-plan-doc .plan-letter { padding: 0 0 0.2in; page-break-before: always; }
   #action-plan-doc .plan-letter-body {
     white-space: pre-wrap; word-wrap: break-word;
     font-family: 'Inter', -apple-system, Helvetica, Arial, sans-serif;
-    font-size: 9pt; line-height: 1.6; color: #2a1f18;
-    border-left: 2.5pt solid #d4a5a5;
-    padding: 4pt 0 4pt 14pt; margin-top: 10pt;
+    font-size: 10pt; line-height: 1.65; color: #2a1f18;
+    margin: 0; padding: 0; border: 0;
   }
 
   /* ---- checklist + log ---- */
@@ -6660,26 +6657,27 @@ function buildActionPlanDoc() {
   h += `<section class="plan-sheet">
     ${planHead('Your letters')}
     ${planTitle('Your letters', `${letters.length} letter${letters.length === 1 ? '' : 's'}, each on its own page, ready to sign.`)}
-    <ol class="plan-list">
-      ${letters.map(t => `<li><strong>${planEsc(t.title)}</strong> — ${planEsc(t.subtitle || '')}${t.gated ? ` <em>(day ${planEsc(t.gate_day)}+ only)</em>` : ''}</li>`).join('')}
-    </ol>
-    <div class="plan-rule">
+    <div class="plan-rule" style="margin-top:0;margin-bottom:16pt;">
       <b>Put these in your own words first</b>
-      <p>A furnisher may treat a dispute as frivolous when it reads like a form supplied by a credit repair organization (12 CFR § 1022.43). Keep the statute citations, account numbers and dates exactly as printed — change the sentences around them so the letter sounds like you wrote it, because you did.</p>
+      <p>We strongly recommend rewriting each letter in your own voice before you send it. A furnisher may treat a dispute as frivolous when it reads like a form supplied by a credit repair organization (12 CFR § 1022.43). Keep the statute citations, account numbers and dates exactly as printed — change the sentences around them so the letter sounds like you wrote it, because you did.</p>
     </div>
+    <p class="plan-sublabel">Every page after this one is a finished letter. Sign it, add your enclosures, and mail it — nothing on those pages is a note to you.</p>
+    ${letters.map((t, i) => `<div class="plan-row">
+      <span class="plan-chip">Page ${i + 1}</span>
+      <h3>${planEsc(t.title)}</h3>
+      <p style="color:#7d6a5c;margin-bottom:5pt;">${planEsc(t.subtitle || '')}</p>
+      ${t.gated ? `<p style="color:#8d5058;font-weight:700;margin-bottom:4pt;">Do not send before day ${planEsc(t.gate_day)}.</p>` : ''}
+      ${t.when_to_use ? `<p><strong>When to use:</strong> ${planEsc(t.when_to_use)}</p>` : ''}
+      ${t.what_to_expect ? `<p style="margin-top:3pt;"><strong>What to expect:</strong> ${planEsc(t.what_to_expect)}</p>` : ''}
+    </div>`).join('')}
   </section>`;
 
   letters.forEach((tmpl, idx) => {
     const out = (state.letterOutputs || {})[tmpl.id] || {};
-    h += `<section class="plan-letter">
-      <p class="plan-letter-num">Letter ${idx + 1} of ${letters.length} &nbsp;·&nbsp; ${planEsc(ref)}</p>
-      <h2>${planEsc(tmpl.title)}</h2>
-      <p class="plan-letter-sub">${planEsc(tmpl.subtitle || '')}</p>
-      ${tmpl.gated ? `<p class="plan-gate">Do not send before day ${planEsc(tmpl.gate_day)}</p>` : ''}
-      ${tmpl.when_to_use ? `<p class="plan-when"><strong>When to use:</strong> ${planEsc(tmpl.when_to_use)}</p>` : ''}
-      ${tmpl.what_to_expect ? `<p class="plan-when"><strong>What to expect:</strong> ${planEsc(tmpl.what_to_expect)}</p>` : ''}
-      <pre class="plan-letter-body">${planEsc(out.mail || '')}</pre>
-    </section>`;
+    // Nothing but the letter. These pages go in an envelope to a bureau or a
+    // furnisher, so no title, no reference number, no guidance, no rules — any
+    // of it would be read as the consumer sending a form somebody prepared.
+    h += `<section class="plan-letter"><pre class="plan-letter-body">${planEsc(out.mail || '')}</pre></section>`;
   });
 
   // ================= CHECKLIST =================
