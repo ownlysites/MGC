@@ -433,60 +433,202 @@ section { padding: var(--space-20) 0; }
 }
 
 /* ========== MGC ACTION PLAN (print / save-as-PDF) ========== */
+/* Screen: hidden. Print: the app disappears and this is the whole document.
+   Page margins are ZERO so the cover band can bleed to the paper edge and the
+   running footer can sit at the true page bottom; every content sheet supplies
+   its own padding instead. print-color-adjust:exact forces the colour panels to
+   render even when the viewer leaves "Background graphics" unticked. */
 #action-plan-doc { display: none; }
 
 @media print {
-  @page { margin: 0.7in; }
+  @page { margin: 0.5in; }
 
+  /* The page's own body margin left a white strip above the full-bleed cover
+     band, so zero it while the plan is printing. */
+  html, body.printing-plan { margin: 0 !important; padding: 0 !important; border: 0 !important; }
+  body.printing-plan #action-plan-doc { margin: 0 !important; padding: 0 !important; }
+  body.printing-plan #action-plan-doc > section:first-of-type { margin-top: 0 !important; }
+  body.printing-plan #action-plan-doc .plan-cover,
+  body.printing-plan #action-plan-doc .plan-band { margin: 0 !important; }
   body.printing-plan > *:not(#action-plan-doc) { display: none !important; }
   body.printing-plan #action-plan-doc {
     display: block !important;
-    font-family: Georgia, 'Times New Roman', serif;
-    color: #1a1a1a;
-    font-size: 10.5pt;
-    line-height: 1.5;
-  }
-
-  #action-plan-doc .plan-cover { text-align: center; page-break-after: always; padding-top: 1.2in; }
-  /* The logo is a JPEG on a 254,254,254 ground, which reads as a faint grey box
-     on a pure-white page in PDF viewers. Multiply blends it away; a browser that
-     ignores the property just falls back to the box. */
-  #action-plan-doc .plan-logo { width: 2.6in; height: auto; margin: 0 auto 0.35in; display: block; mix-blend-mode: multiply; }
-  #action-plan-doc .plan-title { font-size: 30pt; margin: 0 0 6pt; letter-spacing: 0.01em; color: #8d5058; }
-  #action-plan-doc .plan-sub { font-size: 12pt; font-style: italic; color: #6b5a55; margin: 0 0 0.5in; }
-  #action-plan-doc .plan-meta { display: inline-block; text-align: left; border-top: 1px solid #d4a5a5; border-bottom: 1px solid #d4a5a5; padding: 12pt 0; margin-bottom: 0.4in; }
-  #action-plan-doc .plan-meta p { margin: 3pt 0; font-size: 10.5pt; }
-
-  #action-plan-doc .plan-section, #action-plan-doc .plan-letter { margin-bottom: 22pt; }
-  #action-plan-doc .plan-break { page-break-before: always; }
-  #action-plan-doc h2 { font-size: 16pt; color: #8d5058; border-bottom: 1px solid #e8ddd6; padding-bottom: 4pt; margin: 0 0 10pt; page-break-after: avoid; }
-  #action-plan-doc h3 { font-size: 11.5pt; margin: 0 0 3pt; page-break-after: avoid; }
-  #action-plan-doc p, #action-plan-doc li { orphans: 3; widows: 3; }
-
-  #action-plan-doc .plan-item { margin-bottom: 11pt; page-break-inside: avoid; }
-  #action-plan-doc .plan-warn { border-left: 3pt solid #b76e79; padding-left: 9pt; }
-  #action-plan-doc .plan-phase { margin-bottom: 14pt; page-break-inside: avoid; }
-  #action-plan-doc .plan-timeline { font-style: italic; color: #6b5a55; margin: 0 0 5pt; }
-  #action-plan-doc .plan-addr { list-style: none; padding: 0; }
-  #action-plan-doc .plan-addr li { margin-bottom: 8pt; }
-
-  #action-plan-doc .plan-letter { page-break-before: always; }
-  #action-plan-doc .plan-letter-sub { font-style: italic; color: #6b5a55; margin: 0 0 8pt; }
-  #action-plan-doc .plan-gate { font-weight: bold; color: #8d5058; margin: 0 0 8pt; }
-  #action-plan-doc .plan-when { font-size: 9.5pt; color: #4a4a4a; margin: 0 0 6pt; }
-  #action-plan-doc .plan-letter-body {
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    font-family: Georgia, 'Times New Roman', serif;
-    font-size: 10.5pt;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #2a1f18;
+    font-size: 9.5pt;
     line-height: 1.55;
-    /* A boxed border breaks badly across pages — half a rectangle at each
-       break. A single left rule reads as intentional however it splits. */
-    border-left: 2pt solid #d4a5a5;
-    padding: 2pt 0 2pt 14pt;
-    margin-top: 8pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
-  #action-plan-doc .plan-note { font-size: 9pt; color: #6b5a55; font-style: italic; margin-top: 14pt; }
+  #action-plan-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* No running footer. Chrome's print engine would not repeat one: a fixed
+     element does not reserve space and wraps to the top on a negative offset,
+     and a table-footer-group only rendered once at the end. The plan reference
+     rides in the per-section header instead, which does repeat. */
+
+  /* ---- sheet: one padded page-worth of content ---- */
+  #action-plan-doc .plan-sheet { padding: 0 0 0.5in; page-break-before: always; }
+  #action-plan-doc .plan-sheet.plan-first { page-break-before: auto; }
+
+  /* ---- section header block, top of each opening sheet ---- */
+  #action-plan-doc .plan-head {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 0.75pt solid #e8ddd6;
+    padding-bottom: 8pt; margin-bottom: 20pt;
+  }
+  #action-plan-doc .plan-head img { height: 26pt; width: auto; mix-blend-mode: multiply; }
+  #action-plan-doc .plan-head span { font-size: 7.5pt; letter-spacing: 0.09em; text-transform: uppercase; color: #a89688; }
+
+  #action-plan-doc .plan-h {
+    border-left: 3.5pt solid #8d5058;
+    padding-left: 11pt;
+    margin: 0 0 18pt;
+  }
+  #action-plan-doc .plan-h h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 24pt; font-weight: 600; color: #2a1f18; margin: 0 0 3pt; letter-spacing: -0.01em; }
+  #action-plan-doc .plan-h p { font-size: 9pt; color: #7d6a5c; margin: 0; }
+
+  /* ---- COVER ---- */
+  #action-plan-doc .plan-cover { page-break-after: always; }
+  #action-plan-doc .plan-band {
+    background: #8d5058;
+    color: #ffffff;
+    border-radius: 10pt;
+    padding: 0.3in 0.36in 0.32in;
+  }
+  #action-plan-doc .plan-band-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.24in; }
+  #action-plan-doc .plan-logocard { background: #ffffff; border-radius: 7pt; padding: 9pt 14pt; }
+  #action-plan-doc .plan-logocard img { height: 54pt; width: auto; display: block; mix-blend-mode: multiply; }
+  #action-plan-doc .plan-band-tag { font-size: 7.5pt; letter-spacing: 0.13em; text-transform: uppercase; color: #fbd5d5; padding-top: 6pt; }
+  #action-plan-doc .plan-band h1 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 34pt; line-height: 1.12; font-weight: 700; margin: 0 0 0.26in; letter-spacing: -0.015em; color: #ffffff; }
+  #action-plan-doc .plan-band-meta p { font-size: 9pt; color: #fbd5d5; margin: 0 0 5pt; }
+
+  /* Chrome mis-measures the flex tile row in paged media and pushed the ground
+     rule onto a page of its own. The cover fits comfortably, so keep it whole. */
+  #action-plan-doc .plan-cover-body { padding: 0.26in 0 0; page-break-inside: avoid; }
+
+  #action-plan-doc .plan-scorecard {
+    border: 0.75pt solid #e8ddd6; border-radius: 8pt;
+    padding: 14pt 16pt; display: flex; gap: 16pt; align-items: center;
+    margin-bottom: 0.22in; page-break-inside: avoid;
+  }
+  #action-plan-doc .plan-dial {
+    background: #fde8e8; border-radius: 50%;
+    width: 0.92in; height: 0.92in; flex: 0 0 0.92in;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  #action-plan-doc .plan-dial b { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 27pt; color: #8d5058; line-height: 1; }
+  #action-plan-doc .plan-dial span { font-size: 6pt; letter-spacing: 0.09em; text-transform: uppercase; color: #7d6a5c; margin-top: 4pt; }
+  #action-plan-doc .plan-scorecard-label { font-size: 7.5pt; letter-spacing: 0.1em; text-transform: uppercase; color: #7d6a5c; margin: 0 0 5pt; }
+  #action-plan-doc .plan-scorecard h3 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 18pt; margin: 0 0 6pt; color: #2a1f18; }
+  #action-plan-doc .plan-scorecard p { margin: 0; font-size: 9pt; color: #5d4d42; }
+
+  #action-plan-doc .plan-sublabel { font-size: 7.5pt; letter-spacing: 0.1em; text-transform: uppercase; color: #7d6a5c; margin: 0 0 8pt; font-weight: 600; }
+
+  /* ---- tile grids ---- */
+  #action-plan-doc .plan-tiles { display: flex; flex-wrap: wrap; gap: 9pt; margin-bottom: 0.22in; page-break-inside: avoid; }
+  #action-plan-doc .plan-tile {
+    flex: 1 1 30%; min-width: 1.6in;
+    border: 0.75pt solid #e8ddd6; border-radius: 6pt;
+    padding: 11pt 12pt; border-left: 3pt solid #d4a5a5;
+  }
+  #action-plan-doc .plan-tile em { font-style: normal; font-size: 7pt; letter-spacing: 0.09em; text-transform: uppercase; color: #7d6a5c; display: block; margin-bottom: 5pt; }
+  #action-plan-doc .plan-tile b { font-size: 15pt; color: #2a1f18; font-weight: 700; }
+  #action-plan-doc .plan-tile b.sm { font-size: 10.5pt; }
+
+  /* ---- callouts ---- */
+  #action-plan-doc .plan-rule {
+    background: #fef5f5; border-radius: 7pt; padding: 12pt 14pt; margin-top: 0.18in;
+    page-break-inside: avoid;
+  }
+  #action-plan-doc .plan-rule b { display: block; font-size: 7.5pt; letter-spacing: 0.1em; text-transform: uppercase; color: #8d5058; margin-bottom: 6pt; }
+  #action-plan-doc .plan-rule p { margin: 0; font-size: 8.5pt; color: #5d4d42; line-height: 1.5; }
+  /* One brand colour throughout — same rose-gold-dark as the cover band. */
+  #action-plan-doc .plan-dark {
+    background: #8d5058; color: #ffffff; border-radius: 7pt; padding: 16pt 18pt;
+    page-break-inside: avoid;
+  }
+  #action-plan-doc .plan-dark b { display: block; font-size: 7.5pt; letter-spacing: 0.1em; text-transform: uppercase; color: #fbd5d5; margin-bottom: 6pt; }
+  #action-plan-doc .plan-dark h3 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 17pt; margin: 0 0 6pt; color: #fff; }
+  #action-plan-doc .plan-dark p { margin: 0; font-size: 8.5pt; color: #f4eeea; }
+
+  /* ---- finding / factor rows ---- */
+  #action-plan-doc .plan-row {
+    border: 0.75pt solid #e8ddd6; border-radius: 7pt;
+    padding: 12pt 14pt; margin-bottom: 9pt;
+    page-break-inside: avoid;
+  }
+  #action-plan-doc .plan-row h3 { font-size: 10.5pt; margin: 0 0 4pt; color: #2a1f18; }
+  #action-plan-doc .plan-row p { margin: 0; font-size: 8.75pt; color: #5d4d42; }
+  #action-plan-doc .plan-row.sev-high { border-left: 3pt solid #8d5058; }
+  #action-plan-doc .plan-row.sev-medium { border-left: 3pt solid #b76e79; }
+  #action-plan-doc .plan-row.sev-low { border-left: 3pt solid #d4a5a5; }
+  #action-plan-doc .plan-row.warn { border-left: 3pt solid #8d5058; background: #f7e6e6; }
+  #action-plan-doc .plan-chip {
+    float: right; font-size: 6.5pt; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #8d5058; background: #fde8e8; border-radius: 20pt; padding: 3pt 8pt; margin-left: 8pt;
+  }
+
+  /* ---- numbered steps ---- */
+  #action-plan-doc .plan-step {
+    display: flex; gap: 12pt; align-items: flex-start;
+    border: 0.75pt solid #e8ddd6; border-radius: 7pt;
+    padding: 12pt 14pt; margin-bottom: 9pt; page-break-inside: avoid;
+  }
+  #action-plan-doc .plan-num {
+    flex: 0 0 20pt; height: 20pt; border-radius: 50%;
+    background: #fef5f5; color: #8d5058;
+    font-size: 9.5pt; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #action-plan-doc .plan-step em { font-style: normal; font-size: 6.5pt; letter-spacing: 0.1em; text-transform: uppercase; color: #b76e79; display: block; margin-bottom: 3pt; }
+  #action-plan-doc .plan-step h3 { font-size: 11pt; margin: 0 0 4pt; color: #2a1f18; }
+  #action-plan-doc .plan-step p { margin: 0; font-size: 8.75pt; color: #5d4d42; }
+  #action-plan-doc .plan-step ol { margin: 6pt 0 0; padding-left: 14pt; font-size: 8.75pt; color: #5d4d42; }
+  #action-plan-doc .plan-step ol li { margin-bottom: 4pt; }
+
+  /* ---- lists ---- */
+  #action-plan-doc .plan-list { padding-left: 14pt; margin: 0 0 14pt; }
+  #action-plan-doc .plan-list li { margin-bottom: 6pt; font-size: 9pt; }
+  #action-plan-doc .plan-addr { list-style: none; padding: 0; margin: 0; }
+  #action-plan-doc .plan-addr li {
+    border: 0.75pt solid #e8ddd6; border-radius: 6pt; padding: 10pt 12pt; margin-bottom: 8pt; font-size: 8.75pt;
+  }
+  #action-plan-doc .plan-addr strong { color: #2a1f18; }
+
+  /* ---- letters ---- */
+  #action-plan-doc .plan-letter { padding: 0 0 0.5in; page-break-before: always; }
+  #action-plan-doc .plan-letter-num { font-size: 7pt; letter-spacing: 0.1em; text-transform: uppercase; color: #b76e79; margin: 0 0 5pt; }
+  #action-plan-doc .plan-letter h2 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 22pt; margin: 0 0 3pt; color: #2a1f18; }
+  #action-plan-doc .plan-letter-sub { font-size: 8.5pt; color: #7d6a5c; margin: 0 0 10pt; }
+  #action-plan-doc .plan-gate { font-size: 8pt; font-weight: 700; color: #8d5058; background: #fde8e8; border-radius: 4pt; padding: 5pt 9pt; display: inline-block; margin: 0 0 9pt; }
+  #action-plan-doc .plan-when { font-size: 8.25pt; color: #5d4d42; margin: 0 0 5pt; }
+  #action-plan-doc .plan-letter-body {
+    white-space: pre-wrap; word-wrap: break-word;
+    font-family: 'Inter', -apple-system, Helvetica, Arial, sans-serif;
+    font-size: 9pt; line-height: 1.6; color: #2a1f18;
+    border-left: 2.5pt solid #d4a5a5;
+    padding: 4pt 0 4pt 14pt; margin-top: 10pt;
+  }
+
+  /* ---- checklist + log ---- */
+  #action-plan-doc .plan-check { list-style: none; padding: 0; margin: 0; }
+  #action-plan-doc .plan-check li { margin-bottom: 8pt; padding-left: 20pt; position: relative; font-size: 9pt; }
+  #action-plan-doc .plan-check li::before {
+    content: ''; position: absolute; left: 0; top: 1pt;
+    width: 9pt; height: 9pt; border: 0.75pt solid #b76e79; border-radius: 2pt;
+  }
+  #action-plan-doc .plan-log { width: 100%; border-collapse: collapse; margin-top: 10pt; font-size: 8pt; }
+  #action-plan-doc .plan-log th, #action-plan-doc .plan-log td { border: 0.5pt solid #e8ddd6; padding: 7pt 5pt; text-align: left; vertical-align: top; }
+  #action-plan-doc .plan-log th { background: #fef5f5; font-size: 6.5pt; letter-spacing: 0.08em; text-transform: uppercase; color: #8d5058; }
+  #action-plan-doc .plan-log td { height: 24pt; }
+  #action-plan-doc .plan-log tr { page-break-inside: avoid; }
+  #action-plan-doc .plan-log thead { display: table-header-group; }
+
+  #action-plan-doc .plan-contact p { margin: 0 0 3pt; font-size: 9pt; }
+  #action-plan-doc .plan-note { font-size: 7.5pt; color: #7d6a5c; line-height: 1.45; margin-top: 14pt; }
+  #action-plan-doc h2.plain { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 17pt; color: #2a1f18; margin: 0 0 10pt; }
+  #action-plan-doc .mt { margin-top: 24pt; }
 }
 
 </style>
@@ -1256,6 +1398,7 @@ section { padding: var(--space-20) 0; }
     </a>
     <div style="display:flex;gap:var(--space-3);align-items:center;">
       <button class="btn btn-ghost btn-sm" onclick="showView('disclosures')">Disclosures</button>
+      <button class="btn btn-secondary btn-sm hidden" id="nav-plan-btn" onclick="downloadActionPlan()">My Action Plan</button>
       <button class="btn btn-primary btn-sm" onclick="startFlow()">Begin</button>
     </div>
   </div>
@@ -1489,7 +1632,7 @@ section { padding: var(--space-20) 0; }
       <div id="letters-content"></div>
       <div class="flow-nav">
         <button class="btn btn-ghost" onclick="showStep('analysis')">← Back to analysis</button>
-        <button class="btn btn-primary" onclick="window.print()">Print everything</button>
+        <button class="btn btn-primary" onclick="downloadActionPlan()">Build my MGC Action Plan →</button>
       </div>
     </div>
   </div>
@@ -4923,6 +5066,9 @@ function runAnalysis() {
   analysis.action_plan = buildActionPlan(analysis);
   
   state.analysis = analysis;
+  // The plan is downloadable from the moment there is something to put in it.
+  const navBtn = document.getElementById('nav-plan-btn');
+  if (navBtn) navBtn.classList.remove('hidden');
   renderAnalysis(analysis);
   return analysis;
 }
@@ -5737,6 +5883,14 @@ function renderAnalysis(analysis) {
   });
   html += '</div></section>';
 
+  html += `<section style="margin-top:var(--space-10);">
+    <div class="card" style="border:1px solid var(--rose-gold-light);text-align:center;">
+      <h3 style="margin-bottom:var(--space-2);">Your MGC Action Plan is ready</h3>
+      <p style="font-size:0.9375rem;color:var(--text-secondary);margin-bottom:var(--space-5);">Everything above plus your letters, mailing checklist and tracking log, as one branded document prepared for you. Add your name and address on the next screen first if you want the letters filled in.</p>
+      <button class="btn btn-primary" onclick="downloadActionPlan()">Build my MGC Action Plan →</button>
+    </div>
+  </section>`;
+
   html += humanHelpCard('analysis');
   
   html += '</div>';
@@ -5778,6 +5932,7 @@ function renderLetterPacket() {
   html += '<p class="eyebrow">Step 4 of 4</p>';
   html += '<h1 style="margin-top:var(--space-2);">Your letters & action plan.</h1>';
   html += '<p style="font-size:1.125rem;color:var(--text-secondary);margin-top:var(--space-3);">Every letter below is written uniquely for you. Click to expand, then copy the format you need.</p>';
+  html += '<p style="margin-top:var(--space-5);"><button class="btn btn-primary" onclick="downloadActionPlan()">Build my MGC Action Plan (PDF) →</button></p>';
   html += '</div>';
   
   // User info form for personalization
@@ -5796,9 +5951,10 @@ function renderLetterPacket() {
 
   // Whole packet as one document
   html += `<div class="card" style="margin-bottom:var(--space-10);border:1px solid var(--rose-gold-light);">
-    <h3 style="margin-bottom:var(--space-3);">Download your MGC Action Plan</h3>
-    <p style="font-size:0.9375rem;margin-bottom:var(--space-5);color:var(--text-secondary);">One document with everything: what we found, your phased plan, every letter in full, and where to send them. Fill in your details above first so the letters come out complete. Your browser's print dialog will open — choose <strong>Save as PDF</strong> as the destination. Nothing is uploaded; the file is built on your device.</p>
-    <button class="btn btn-primary" onclick="downloadActionPlan()">Download the MGC Action Plan (PDF) →</button>
+    <h3 style="margin-bottom:var(--space-3);">Your MGC Action Plan</h3>
+    <p style="font-size:0.9375rem;margin-bottom:var(--space-3);color:var(--text-secondary);">One prepared document, with a cover, everything we found, your phased plan, all ${analysis.letters.length} letters in full, a mailing checklist and a tracking log. Fill in your details above first so the letters come out complete.</p>
+    <p style="font-size:0.875rem;margin-bottom:var(--space-5);color:var(--text-tertiary);">Your browser's print dialog opens — choose <strong>Save as PDF</strong> as the destination. Nothing is uploaded; the document is built on your device.</p>
+    <button class="btn btn-primary" onclick="downloadActionPlan()">Build my MGC Action Plan (PDF) →</button>
   </div>`;
   
   // Mailing instructions
@@ -6311,18 +6467,53 @@ function planEsc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function planRef() {
+  // Stable per session. Printed on the cover, on every letter, and in the
+  // closing note so a consumer can point at "the plan you gave me" later.
+  const seed = Math.abs(seedRand()) % 1000000;
+  const d = new Date();
+  const ymd = '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  return 'MGC-' + ymd + '-' + String(seed).padStart(6, '0');
+}
+
+function planHead(section) {
+  // The plan reference rides here because it is the only element that reliably
+  // repeats across pages — see the note on running footers in the print CSS.
+  const ref = state.planRef || '';
+  return `<div class="plan-head"><img src="${planLogoSrc()}" alt=""><span>${planEsc(section)}${ref ? ' &nbsp;·&nbsp; ' + planEsc(ref) : ''}</span></div>`;
+}
+
+function planTitle(title, sub) {
+  return `<div class="plan-h"><h2>${planEsc(title)}</h2>${sub ? `<p>${planEsc(sub)}</p>` : ''}</div>`;
+}
+
+function planTile(label, value, small) {
+  return `<div class="plan-tile"><em>${planEsc(label)}</em><b${small ? ' class="sm"' : ''}>${planEsc(value)}</b></div>`;
+}
+
 function buildActionPlanDoc() {
   const analysis = state.analysis;
   if (!analysis) return false;
 
-  // Make sure the letters reflect whatever is currently typed into the form.
-  updateUserInfo && updateUserInfo();
+  if (typeof updateUserInfo === 'function') updateUserInfo();
   if (!state.letterOutputs || !Object.keys(state.letterOutputs).length) regenerateAllLetters();
 
   const u = userHeader();
   const parsed = (state.upload && state.upload.parsed) || {};
   const bureaus = parsed.bureaus || [];
-  const scores = (parsed.scores || []).filter(s => s.reported);
+  const scores = (parsed.scores || []).filter(x => x.reported);
+  const accounts = parsed.accounts || [];
+  const inquiries = parsed.inquiries || [];
+  const collections = parsed.collections || [];
+  const records = parsed.publicRecords || [];
+  const ref = state.planRef || (state.planRef = planRef());
+  const named = (state.userInfo && state.userInfo.name) ? state.userInfo.name : null;
+
+  const letters = analysis.letters || [];
+  const findings = analysis.findings || [];
+  const warnings = analysis.warnings || [];
+  const phases = analysis.action_plan || [];
+  const derog = accounts.filter(a => a.has_late_payments || a.is_charge_off || a.is_collection || a.is_repossession || a.in_bankruptcy);
 
   let doc = document.getElementById('action-plan-doc');
   if (!doc) {
@@ -6333,97 +6524,260 @@ function buildActionPlanDoc() {
 
   let h = '';
 
-  // ---- Cover ----
+
+  // ================= COVER =================
+  const headline = derog.length
+    ? 'A clear plan for<br>your credit file'
+    : (accounts.length ? 'Your file is clean.<br>Here is what to build' : 'A clear plan for<br>your credit file');
+  const summaryTitle = derog.length
+    ? `${derog.length} item${derog.length === 1 ? '' : 's'} worth working on`
+    : (accounts.length ? 'Nothing derogatory to dispute' : 'Plan built from your intake answers');
+  const summaryBody = derog.length
+    ? `Your report shows ${derog.length} account${derog.length === 1 ? '' : 's'} carrying a late payment, charge-off, collection or public record. This plan works them in order, starting with the ones that come off on the calendar rather than on argument.`
+    : (accounts.length
+      ? 'Every account read from your report is reporting without a late payment, charge-off or collection. There is nothing here to dispute on accuracy grounds, so this plan is about building positive history rather than removing negatives.'
+      : 'No credit report was uploaded, so this plan is built from your intake answers. Pull all three reports and come back — the plan gets far more specific once it can read them.');
+
   h += `<section class="plan-cover">
-    <img class="plan-logo" src="${planLogoSrc()}" alt="Making Good Choices">
-    <h1 class="plan-title">MGC Action Plan</h1>
-    <p class="plan-sub">Your credit rights, your report, your next steps.</p>
-    <div class="plan-meta">
-      <p><strong>Prepared for:</strong> ${planEsc(u.name)}</p>
-      <p><strong>Date:</strong> ${planEsc(u.date)}</p>
-      ${bureaus.length ? `<p><strong>Bureaus reviewed:</strong> ${planEsc(bureaus.join(', '))}</p>` : ''}
-      ${scores.length ? `<p><strong>Scores on file:</strong> ${scores.map(s => planEsc(s.bureau + ' ' + s.score)).join(' · ')}</p>` : ''}
-      <p><strong>Letters in this packet:</strong> ${analysis.letters.length}</p>
+    <div class="plan-band">
+      <div class="plan-band-top">
+        <div class="plan-logocard"><img src="${planLogoSrc()}" alt="Making Good Choices"></div>
+        <div class="plan-band-tag">MGC Action Plan</div>
+      </div>
+      <h1>${headline}</h1>
+      <div class="plan-band-meta">
+        <p>Prepared for ${planEsc(named || 'you')} &nbsp;|&nbsp; ${planEsc(u.date)}</p>
+        <p>Prepared by Making Good Choices &nbsp;|&nbsp; Dave Ivery, Certified Credit Score Consultant</p>
+        <p>Document ${planEsc(ref)}</p>
+      </div>
     </div>
-    <p class="plan-note">This packet is for information purposes only. Making Good Choices is a self-service tool, not a credit repair organization. You keep your report, you send your own letters, and everything here is something you can do yourself for free.</p>
+
+    <div class="plan-cover-body">
+      <div class="plan-scorecard">
+        <div class="plan-dial"><b>${letters.length}</b><span>Letters ready</span></div>
+        <div>
+          <p class="plan-scorecard-label">What this plan does</p>
+          <h3>${planEsc(summaryTitle)}</h3>
+          <p>${planEsc(summaryBody)}</p>
+        </div>
+      </div>
+
+      <p class="plan-sublabel">Reported bureau scores</p>
+      <div class="plan-tiles">
+        ${['Equifax', 'Experian', 'TransUnion'].map(b => {
+          const sc = scores.find(x => x.bureau === b);
+          return planTile(b, sc ? String(sc.score) : 'Not reported', !sc);
+        }).join('')}
+      </div>
+
+      <div class="plan-rule">
+        <b>The ground rule</b>
+        <p>Prepared for you from the report you provided, for information purposes only. Making Good Choices is a self-service tool — not a credit repair organization, not a law firm, not your representative. You keep your report and send your own letters. No outcome is promised.</p>
+      </div>
+    </div>
   </section>`;
 
-  // ---- Findings ----
-  if (analysis.findings && analysis.findings.length) {
-    h += `<section class="plan-section"><h2>What we found</h2>`;
-    analysis.findings.forEach(f => {
-      h += `<div class="plan-item"><h3>${planEsc(f.title)}</h3>${f.detail ? `<p>${planEsc(f.detail)}</p>` : ''}</div>`;
-    });
-    h += `</section>`;
-  }
-
-  // ---- Warnings ----
-  if (analysis.warnings && analysis.warnings.length) {
-    h += `<section class="plan-section"><h2>Read these first</h2>`;
-    analysis.warnings.forEach(w => {
-      h += `<div class="plan-item plan-warn"><h3>${planEsc(w.title)}</h3><p>${planEsc(w.detail)}</p></div>`;
-    });
-    h += `</section>`;
-  }
-
-  // ---- Action plan ----
-  if (analysis.action_plan && analysis.action_plan.length) {
-    h += `<section class="plan-section"><h2>Your action plan</h2>`;
-    analysis.action_plan.forEach(phase => {
-      h += `<div class="plan-phase">
-        <h3>${planEsc(phase.name)}</h3>
-        <p class="plan-timeline">${planEsc(phase.timeline || '')}</p>
-        <ol>${(phase.steps || []).map(st => `<li>${planEsc(st)}</li>`).join('')}</ol>
-      </div>`;
-    });
-    h += `</section>`;
-  }
-
-  // ---- Where to send ----
-  if (bureaus.length) {
-    h += `<section class="plan-section"><h2>Where to send your disputes</h2>
-      <p>Each bureau keeps its own file and investigates separately, so an item deleted at one can keep reporting at the others. Send to every bureau showing the item, by certified mail with return receipt.</p>
-      <ul class="plan-addr">`;
-    bureaus.forEach(b => {
-      const a = bureauAddresses[b.toLowerCase()];
-      if (a) h += `<li><strong>${planEsc(a.name)}</strong><br>${planEsc(a.addr).replace(/\n/g, '<br>')}</li>`;
-    });
-    h += `</ul></section>`;
-  }
-
-  // ---- Letters ----
-  h += `<section class="plan-section plan-break"><h2>Your letters</h2>
-    <p>Put these in your own words before you send them. A furnisher may treat a dispute as frivolous when it looks like a form supplied by a credit repair organization (12 CFR § 1022.43). Keep the citations and the dates exactly as they are — change everything around them so it sounds like you wrote it, because you did.</p>
+  // ================= WHAT THE REPORT SHOWS =================
+  h += `<section class="plan-sheet">
+    ${planHead('What your report shows')}
+    ${planTitle('What your report shows', 'Facts read from your file. Anything we could not verify is labelled as such.')}
+    <div class="plan-tiles">
+      ${planTile('Accounts read', accounts.length ? String(accounts.length) : 'None')}
+      ${planTile('Derogatory accounts', accounts.length ? String(derog.length) : 'Not measured', !accounts.length)}
+      ${planTile('Collections', String(collections.length))}
+      ${planTile('Hard inquiries', String(inquiries.length))}
+      ${planTile('Public records', String(records.length))}
+      ${planTile('Bureaus reporting', bureaus.length ? bureaus.join(', ') : 'Unknown', true)}
+    </div>
+    <div class="plan-rule">
+      <b>How to read this</b>
+      <p>These counts come from the report you uploaded, not from an estimate. Where a bureau reports an account and another does not, the account still appears once here — the bureaus it is reporting at are named in the findings.</p>
+    </div>
   </section>`;
 
-  analysis.letters.forEach(tmpl => {
+  // ================= FINDINGS =================
+  if (findings.length) {
+    h += `<section class="plan-sheet">
+      ${planHead('What we found')}
+      ${planTitle('What we found', `${findings.length} finding${findings.length === 1 ? '' : 's'} from your report and your intake answers.`)}
+      ${findings.map(f => `<div class="plan-row sev-${planEsc(f.severity || 'low')}">
+        ${f.severity ? `<span class="plan-chip">${planEsc(f.severity)}</span>` : ''}
+        <h3>${planEsc(f.title)}</h3>
+        ${f.detail ? `<p>${planEsc(f.detail)}</p>` : ''}
+      </div>`).join('')}
+    </section>`;
+  }
+
+  // ================= WARNINGS =================
+  if (warnings.length) {
+    h += `<section class="plan-sheet">
+      ${planHead('Read these first')}
+      ${planTitle('Read these first', 'Time-critical. Handle these before anything else in this packet.')}
+      ${warnings.map(w => `<div class="plan-row warn">
+        <h3>${planEsc(w.title)}</h3><p>${planEsc(w.detail)}</p>
+      </div>`).join('')}
+    </section>`;
+  }
+
+  // ================= ACTION PLAN =================
+  if (phases.length) {
+    h += `<section class="plan-sheet">
+      ${planHead('Your action plan')}
+      ${planTitle('Your action plan', 'In order. Each phase has one owner and one clear result.')}
+      ${phases.map((phase, i) => `<div class="plan-step">
+        <div class="plan-num">${i}</div>
+        <div>
+          <em>You &nbsp;·&nbsp; ${planEsc(phase.timeline || '')}</em>
+          <h3>${planEsc(phase.name)}</h3>
+          <ol>${(phase.steps || []).map(st => `<li>${planEsc(st)}</li>`).join('')}</ol>
+        </div>
+      </div>`).join('')}
+      <div class="plan-dark">
+        <b>Before you escalate</b>
+        <h3>Dispute sent. Clock run. Response in hand.</h3>
+        <p>Skipping ahead to a CFPB complaint before the bureau has answered, or before 45 days have passed, gets the complaint discontinued and costs you the leverage.</p>
+      </div>
+    </section>`;
+  }
+
+  // ================= WHERE TO SEND =================
+  const addrList = bureaus.length ? bureaus.map(b => b.toLowerCase()) : ['equifax', 'experian', 'transunion'];
+  h += `<section class="plan-sheet">
+    ${planHead('Where to send everything')}
+    ${planTitle('Where to send everything', bureaus.length
+      ? 'Each bureau keeps its own file and investigates separately.'
+      : 'No report was uploaded, so send to whichever bureaus show the item.')}
+    <p style="font-size:9pt;color:#55494a;margin:0 0 14pt;">An item deleted at one bureau can keep reporting at the other two. Send your dispute to every bureau showing it, by certified mail with return receipt requested.</p>
+    <ul class="plan-addr">
+      ${addrList.map(k => {
+        const a = bureauAddresses[k];
+        return a ? `<li><strong>${planEsc(a.name)}</strong><br>${planEsc(a.addr).replace(/\n/g, '<br>')}</li>` : '';
+      }).join('')}
+    </ul>
+  </section>`;
+
+  // ================= LETTERS INDEX =================
+  h += `<section class="plan-sheet">
+    ${planHead('Your letters')}
+    ${planTitle('Your letters', `${letters.length} letter${letters.length === 1 ? '' : 's'}, each on its own page, ready to sign.`)}
+    <ol class="plan-list">
+      ${letters.map(t => `<li><strong>${planEsc(t.title)}</strong> — ${planEsc(t.subtitle || '')}${t.gated ? ` <em>(day ${planEsc(t.gate_day)}+ only)</em>` : ''}</li>`).join('')}
+    </ol>
+    <div class="plan-rule">
+      <b>Put these in your own words first</b>
+      <p>A furnisher may treat a dispute as frivolous when it reads like a form supplied by a credit repair organization (12 CFR § 1022.43). Keep the statute citations, account numbers and dates exactly as printed — change the sentences around them so the letter sounds like you wrote it, because you did.</p>
+    </div>
+  </section>`;
+
+  letters.forEach((tmpl, idx) => {
     const out = (state.letterOutputs || {})[tmpl.id] || {};
     h += `<section class="plan-letter">
+      <p class="plan-letter-num">Letter ${idx + 1} of ${letters.length} &nbsp;·&nbsp; ${planEsc(ref)}</p>
       <h2>${planEsc(tmpl.title)}</h2>
       <p class="plan-letter-sub">${planEsc(tmpl.subtitle || '')}</p>
-      ${tmpl.gated ? `<p class="plan-gate">Do not send before day ${planEsc(tmpl.gate_day)}.</p>` : ''}
+      ${tmpl.gated ? `<p class="plan-gate">Do not send before day ${planEsc(tmpl.gate_day)}</p>` : ''}
       ${tmpl.when_to_use ? `<p class="plan-when"><strong>When to use:</strong> ${planEsc(tmpl.when_to_use)}</p>` : ''}
       ${tmpl.what_to_expect ? `<p class="plan-when"><strong>What to expect:</strong> ${planEsc(tmpl.what_to_expect)}</p>` : ''}
       <pre class="plan-letter-body">${planEsc(out.mail || '')}</pre>
     </section>`;
   });
 
-  // ---- Close ----
-  h += `<section class="plan-section plan-break">
-    <h2>If you want a human to look at this with you</h2>
-    <p>Dave Ivery is a certified credit score consultant and can go through your report with you, or connect you with a certified partner if your situation calls for one. Booking: <strong>ownlyfunds.myfundalytics.com/book</strong></p>
-    <h2 style="margin-top:24px;">Free resources</h2>
-    <ul>
-      <li>AnnualCreditReport.com — all three reports, free every week</li>
-      <li>IdentityTheft.gov — FTC identity theft reports and recovery plans</li>
-      <li>consumerfinance.gov/complaint — CFPB complaints, after you have disputed with the bureau and either 45 days have passed or the dispute is no longer pending</li>
+  // ================= CHECKLIST =================
+  h += `<section class="plan-sheet">
+    ${planHead('Before you mail')}
+    ${planTitle('Before you mail', 'Run this list for every letter you send.')}
+    <ul class="plan-check">
+      <li>Letter rewritten in my own words, citations and dates left intact</li>
+      <li>Signed in blue or black ink</li>
+      <li>Copy of photo ID enclosed</li>
+      <li>Proof of address enclosed — utility bill or bank statement</li>
+      <li>Only the last four digits of my SSN appear in the letter</li>
+      <li>Copy kept for my records</li>
+      <li>Sent certified mail, return receipt requested</li>
+      <li>Certified number written in the tracking log</li>
     </ul>
-    <p class="plan-note">Making Good Choices — for information purposes only. Not legal advice, not a credit repair organization, and no outcome is guaranteed. Everything in this packet is something you have the right to do yourself, for free.</p>
+    <div class="plan-dark mt">
+      <b>The one rule that matters most</b>
+      <h3>Certified mail, return receipt requested.</h3>
+      <p>The green card is your proof of delivery and it starts the 30-day clock. Without it you have no way to show what you sent or when.</p>
+    </div>
+  </section>`;
+
+  // ================= TRACKING LOG =================
+  h += `<section class="plan-sheet">
+    ${planHead('Tracking log')}
+    ${planTitle('Tracking log', 'Fill this in as you go. If you ever need to prove what you sent and when, this page is the record.')}
+    <table class="plan-log">
+      <thead><tr><th>Letter</th><th>Sent to</th><th>Date sent</th><th>Certified #</th><th>Response due</th><th>Result</th></tr></thead>
+      <tbody>
+        ${letters.map(t => `<tr><td>${planEsc(t.title)}</td><td></td><td></td><td></td><td></td><td></td></tr>`).join('')}
+        ${'<tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>'.repeat(4)}
+      </tbody>
+    </table>
+  </section>`;
+
+  // ================= HELP =================
+  h += `<section class="plan-sheet">
+    ${planHead('If you want help')}
+    ${planTitle('If you want a human to look at this with you', 'Clear responsibilities. You stay in control of your own file.')}
+    <div class="plan-step">
+      <div class="plan-num">1</div>
+      <div>
+        <em>You</em>
+        <h3>Work the plan</h3>
+        <p>Rewrite the letters in your own words, send them certified, and record every send in the tracking log. Everything in this packet is yours to do at no cost.</p>
+      </div>
+    </div>
+    <div class="plan-step">
+      <div class="plan-num">2</div>
+      <div>
+        <em>Making Good Choices</em>
+        <h3>Read the report with you, if you want that</h3>
+        <p>Dave Ivery is a certified credit score consultant and can go through this report and this plan with you, or connect you with a certified partner if your situation calls for one. Booking a call does not change how any of this works — you still keep your report and send your own letters.</p>
+      </div>
+    </div>
+
+    <div class="plan-dark mt">
+      <b>Book a call</b>
+      <h3>ownlyfunds.myfundalytics.com/book</h3>
+      <p>Making Good Choices &nbsp;·&nbsp; Dave Ivery, Certified Credit Score Consultant</p>
+    </div>
+
+    <h2 class="plain mt">Free resources</h2>
+    <ul class="plan-list">
+      <li><strong>AnnualCreditReport.com</strong> — all three reports, free every week, no credit card.</li>
+      <li><strong>IdentityTheft.gov</strong> — FTC identity theft reports and recovery plans.</li>
+      <li><strong>consumerfinance.gov/complaint</strong> — CFPB complaints. File only after you have disputed with the bureau and either 45 days have passed or the dispute is no longer pending; earlier filings are discontinued.</li>
+      <li><strong>SoloSuit.com</strong> — free help drafting a response if you have been sued over a debt.</li>
+    </ul>
+
+    <div class="plan-rule">
+      <b>Important</b>
+      <p>This document is for educational and planning purposes. It is based on the credit data available on the report date. It is not legal, tax or credit-repair advice, and it does not guarantee a deletion, a score change, an approval or a timeline. Bureaus and furnishers make their own determinations under their own procedures. Prepared ${planEsc(u.date)} · ${planEsc(ref)}</p>
+    </div>
   </section>`;
 
   doc.innerHTML = h;
   return true;
 }
+
+// Any print at all should produce the Action Plan, never a screenshot of the
+// app. The button, Cmd/Ctrl+P and the browser's own menu all land here.
+let planPrintArmed = false;
+window.addEventListener('beforeprint', () => {
+  if (document.body.classList.contains('printing-plan')) return;
+  if (!state.analysis) return;
+  if (buildActionPlanDoc()) {
+    document.body.classList.add('printing-plan');
+    planPrintArmed = true;
+  }
+});
+window.addEventListener('afterprint', () => {
+  if (planPrintArmed) {
+    document.body.classList.remove('printing-plan');
+    planPrintArmed = false;
+  }
+});
 
 function downloadActionPlan() {
   if (!buildActionPlanDoc()) {
