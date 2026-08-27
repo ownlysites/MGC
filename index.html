@@ -433,33 +433,22 @@ section { padding: var(--space-20) 0; }
 }
 
 /* ========== MGC ACTION PLAN (print / save-as-PDF) ========== */
-/* Screen: hidden. Print: the app disappears and this is the whole document.
-   Page margins are ZERO so the cover band can bleed to the paper edge and the
-   running footer can sit at the true page bottom; every content sheet supplies
-   its own padding instead. print-color-adjust:exact forces the colour panels to
-   render even when the viewer leaves "Background graphics" unticked. */
+/* The document's own styling lives OUTSIDE @media print so the same rules apply
+   when the page is measured off-screen to work out real page numbers for the
+   letter index. It is display:none on screen, so nothing shows either way.
+   Only the rules that reshape the app for printing stay inside @media print. */
 #action-plan-doc { display: none; }
 
-@media print {
-  @page { margin: 0.5in; }
+/* Off-screen at exact print metrics: 8.5in - 1in of margins = 7.5in of column. */
+#action-plan-doc.plan-measuring {
+  display: block;
+  position: absolute;
+  left: -20000px;
+  top: 0;
+  width: 7.5in;
+}
 
-  /* The page's own body margin left a white strip above the full-bleed cover
-     band, so zero it while the plan is printing. */
-  html, body.printing-plan { margin: 0 !important; padding: 0 !important; border: 0 !important; }
-  body.printing-plan #action-plan-doc { margin: 0 !important; padding: 0 !important; }
-  body.printing-plan #action-plan-doc > section:first-of-type { margin-top: 0 !important; }
-  body.printing-plan #action-plan-doc .plan-cover,
-  body.printing-plan #action-plan-doc .plan-band { margin: 0 !important; }
-  body.printing-plan > *:not(#action-plan-doc) { display: none !important; }
-  body.printing-plan #action-plan-doc {
-    display: block !important;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-    color: #2a1f18;
-    font-size: 9.5pt;
-    line-height: 1.55;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
+
   #action-plan-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
   /* No running footer. Chrome's print engine would not repeat one: a fixed
@@ -494,13 +483,16 @@ section { padding: var(--space-20) 0; }
     background: #8d5058;
     color: #ffffff;
     border-radius: 10pt;
-    padding: 0.3in 0.36in 0.32in;
+    padding: 0.26in 0.3in 0.28in;
   }
-  #action-plan-doc .plan-band-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.24in; }
-  #action-plan-doc .plan-logocard { background: #ffffff; border-radius: 7pt; padding: 9pt 14pt; }
-  #action-plan-doc .plan-logocard img { height: 54pt; width: auto; display: block; mix-blend-mode: multiply; }
+  #action-plan-doc .plan-band-tag { text-align: right; }
+  /* Logo carries the cover: big on the left, all the wording to its right. */
+  #action-plan-doc .plan-band-split { display: flex; align-items: center; gap: 0.26in; margin-top: 0.1in; }
+  #action-plan-doc .plan-band-copy { flex: 1 1 auto; min-width: 0; }
+  #action-plan-doc .plan-logocard { background: #ffffff; border-radius: 12pt; padding: 14pt; flex: 0 0 3.05in; }
+  #action-plan-doc .plan-logocard img { width: 100%; height: auto; display: block; mix-blend-mode: multiply; }
   #action-plan-doc .plan-band-tag { font-size: 7.5pt; letter-spacing: 0.13em; text-transform: uppercase; color: #fbd5d5; padding-top: 6pt; }
-  #action-plan-doc .plan-band h1 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 34pt; line-height: 1.12; font-weight: 700; margin: 0 0 0.26in; letter-spacing: -0.015em; color: #ffffff; }
+  #action-plan-doc .plan-band h1 { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 31pt; line-height: 1.12; font-weight: 700; margin: 0 0 0.2in; letter-spacing: -0.015em; color: #ffffff; }
   #action-plan-doc .plan-band-meta p { font-size: 9pt; color: #fbd5d5; margin: 0 0 5pt; }
 
   /* Chrome mis-measures the flex tile row in paged media and pushed the ground
@@ -622,12 +614,43 @@ section { padding: var(--space-20) 0; }
   #action-plan-doc .plan-log tr { page-break-inside: avoid; }
   #action-plan-doc .plan-log thead { display: table-header-group; }
 
+  /* ---- back cover ---- */
+  #action-plan-doc .plan-backcover {
+    page-break-before: always;
+    height: 9.4in;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  #action-plan-doc .plan-backmark img { width: 2.6in; height: auto; display: block; margin: 0 auto 0.3in; mix-blend-mode: multiply; }
+  #action-plan-doc .plan-backmark p { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 13pt; font-style: italic; color: #8d5058; margin: 0; }
+  #action-plan-doc .plan-backmark .plan-backref { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 7pt; font-style: normal; letter-spacing: 0.1em; color: #a89688; margin-top: 0.34in; }
+
   #action-plan-doc .plan-contact p { margin: 0 0 3pt; font-size: 9pt; }
   #action-plan-doc .plan-note { font-size: 7.5pt; color: #7d6a5c; line-height: 1.45; margin-top: 14pt; }
   #action-plan-doc h2.plain { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 17pt; color: #2a1f18; margin: 0 0 10pt; }
   #action-plan-doc .mt { margin-top: 24pt; }
-}
+@media print {
+  @page { margin: 0.5in; }
 
+  /* The page's own body margin left a white strip above the full-bleed cover
+     band, so zero it while the plan is printing. */
+  html, body.printing-plan { margin: 0 !important; padding: 0 !important; border: 0 !important; }
+  body.printing-plan #action-plan-doc { margin: 0 !important; padding: 0 !important; }
+  body.printing-plan #action-plan-doc > section:first-of-type { margin-top: 0 !important; }
+  body.printing-plan #action-plan-doc .plan-cover,
+  body.printing-plan #action-plan-doc .plan-band { margin: 0 !important; }
+  body.printing-plan > *:not(#action-plan-doc) { display: none !important; }
+  body.printing-plan #action-plan-doc {
+    display: block !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #2a1f18;
+    font-size: 9.5pt;
+    line-height: 1.55;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }}
 </style>
 <style>
 /* ========== NAVIGATION ========== */
@@ -6492,7 +6515,9 @@ function buildActionPlanDoc() {
   const analysis = state.analysis;
   if (!analysis) return false;
 
-  if (typeof updateUserInfo === 'function') updateUserInfo();
+  // Only meaningful once the letters screen has rendered its form; calling it
+  // before that throws on the missing inputs and kills the whole build.
+  if (typeof updateUserInfo === 'function' && document.getElementById('ui-name')) updateUserInfo();
   if (!state.letterOutputs || !Object.keys(state.letterOutputs).length) regenerateAllLetters();
 
   const u = userHeader();
@@ -6537,15 +6562,17 @@ function buildActionPlanDoc() {
 
   h += `<section class="plan-cover">
     <div class="plan-band">
-      <div class="plan-band-top">
+      <div class="plan-band-tag">MGC Action Plan</div>
+      <div class="plan-band-split">
         <div class="plan-logocard"><img src="${planLogoSrc()}" alt="Making Good Choices"></div>
-        <div class="plan-band-tag">MGC Action Plan</div>
-      </div>
-      <h1>${headline}</h1>
-      <div class="plan-band-meta">
-        <p>Prepared for ${planEsc(named || 'you')} &nbsp;|&nbsp; ${planEsc(u.date)}</p>
-        <p>Prepared by Making Good Choices &nbsp;|&nbsp; Dave Ivery, Certified Credit Score Consultant</p>
-        <p>Document ${planEsc(ref)}</p>
+        <div class="plan-band-copy">
+          <h1>${headline}</h1>
+          <div class="plan-band-meta">
+            <p>Prepared for ${planEsc(named || 'you')} &nbsp;|&nbsp; ${planEsc(u.date)}</p>
+            <p>Prepared by Making Good Choices &nbsp;|&nbsp; Dave Ivery, Certified Credit Score Consultant</p>
+            <p>Document ${planEsc(ref)}</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -6663,7 +6690,7 @@ function buildActionPlanDoc() {
     </div>
     <p class="plan-sublabel">Every page after this one is a finished letter. Sign it, add your enclosures, and mail it — nothing on those pages is a note to you.</p>
     ${letters.map((t, i) => `<div class="plan-row">
-      <span class="plan-chip">Page ${i + 1}</span>
+      <span class="plan-chip">Letter ${i + 1} of ${letters.length}</span>
       <h3>${planEsc(t.title)}</h3>
       <p style="color:#7d6a5c;margin-bottom:5pt;">${planEsc(t.subtitle || '')}</p>
       ${t.gated ? `<p style="color:#8d5058;font-weight:700;margin-bottom:4pt;">Do not send before day ${planEsc(t.gate_day)}.</p>` : ''}
@@ -6755,7 +6782,19 @@ function buildActionPlanDoc() {
     </div>
   </section>`;
 
+  // Back cover. Printed as a booklet and posted, the last sheet is the one
+  // facing out, so it carries the mark and nothing else — no content that would
+  // read oddly out of context.
+  h += `<section class="plan-backcover">
+    <div class="plan-backmark">
+      <img src="${planLogoSrc()}" alt="Making Good Choices">
+      <p>Know your rights. Defend your data. Clean your credit.</p>
+      <p class="plan-backref">${planEsc(ref)}</p>
+    </div>
+  </section>`;
+
   doc.innerHTML = h;
+
   return true;
 }
 
