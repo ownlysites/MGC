@@ -1059,6 +1059,60 @@ section { padding: var(--space-20) 0; }
 }
 .flag-danger { background: var(--danger-bg); color: var(--danger); }
 .flag-warning { background: var(--warning-bg); color: var(--warning); }
+.flag-good { background: var(--success-bg); color: var(--success); }
+
+/* ========== IDENTITY REVIEW ========== */
+/* Addresses, former names and employers, each with its own verdict. Rows read
+   as a list rather than a table so the long two-line addresses wrap cleanly on
+   a phone, where a table would force a horizontal scroll. */
+.flag-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.id-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--white);
+}
+.id-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+.id-list .id-row:last-child { border-bottom: 0; }
+.id-row-flagged {
+  background: var(--danger-bg);
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.id-row-main { min-width: 0; }
+.id-row-label { font-weight: 600; line-height: 1.4; }
+.id-row-sub {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
+}
+.id-row-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .id-row { flex-direction: column; align-items: stretch; }
+  .id-row-actions { justify-content: flex-start; flex-wrap: wrap; }
+}
+/* The whole review is a decision aid, not part of the letter. It must never
+   print into a packet that gets mailed to a bureau. */
+@media print {
+  .id-list, .id-row-actions { display: none !important; }
+}
 
 /* ========== MODAL ========== */
 .modal-backdrop {
@@ -1861,7 +1915,16 @@ const state = {
   },
   intake_step: 0,
   current_breach: null,
-  generated_letters: {}
+  generated_letters: {},
+  // Which addresses / aliases / employers the consumer says are not theirs, and
+  // whether any unfamiliar address turned out to be an authorized-user account.
+  identityReview: {
+    addresses: {},      // index -> 'mine' | 'not_mine'
+    aka: {},
+    employers: {},
+    au_explains: null,  // 'yes' | 'no' | null
+    reviewed: false
+  }
 };
 
 // ========== INTAKE QUESTIONS ==========
@@ -1997,6 +2060,17 @@ const intakeQuestions = [
       {v:'WI', t:'Wisconsin'},{v:'WY', t:'Wyoming'},{v:'DC', t:'District of Columbia'}
     ],
     note: '★ indicates states with enhanced consumer protection statutes we cite specifically — a stronger debt collection or credit reporting act, a medical debt reporting law, or both.'
+  },
+  {
+    id: 'recent_move',
+    q: 'Have you moved in the last 12 months?',
+    help: 'This is not about removing old addresses — the ones you actually lived at belong on your report. It is about your dispute being read at all: when the address on your letter does not match the address on file, bureaus routinely send the whole thing back as "unable to verify your identity" instead of investigating it, and you lose thirty days finding out.',
+    type: 'single',
+    options: [
+      {v:'yes', t:'Yes — I\'ve moved in the last year', d:'We\'ll tell you exactly what to enclose so your dispute gets read the first time.'},
+      {v:'no', t:'No — same address for over a year'},
+      {v:'unsure', t:'I\'m not sure'}
+    ]
   },
   {
     id: 'primary_goal',
@@ -2419,7 +2493,7 @@ function mergeParsedReports(parts) {
         t.is_collection = t.is_collection || a.is_collection;
         t.is_repossession = t.is_repossession || a.is_repossession;
         t.in_bankruptcy = t.in_bankruptcy || a.in_bankruptcy;
-        ['balance', 'credit_limit', 'high_credit', 'past_due', 'date_opened', 'dofd', 'account_type'].forEach(f => {
+        ['balance', 'credit_limit', 'high_credit', 'past_due', 'date_opened', 'dofd', 'account_type', 'responsibility'].forEach(f => {
           if (!t[f] && a[f]) t[f] = a[f];
         });
         (a.comments || []).forEach(c => { if (t.comments.indexOf(c) === -1) t.comments.push(c); });
@@ -2441,6 +2515,29 @@ function mergeParsedReports(parts) {
     (p.publicRecords || []).forEach(r => merged.publicRecords.push(r));
     (p.scores || []).forEach(sc => merged.scores.push(sc));
     if (!merged.personal.name_raw && p.personal && p.personal.name_raw) merged.personal.name_raw = p.personal.name_raw;
+    if (!merged.personal.name && p.personal && p.personal.name) merged.personal.name = p.personal.name;
+    if (!merged.personal.year_of_birth && p.personal && p.personal.year_of_birth) merged.personal.year_of_birth = p.personal.year_of_birth;
+
+    // Addresses, aliases and employers are per-bureau. Union them, and where the
+    // same address comes from more than one bureau, keep one row listing all of
+    // them — which bureau reports what is exactly the thing worth seeing here.
+    ((p.personal || {}).addresses || []).forEach(a => {
+      const key = String(a.address || '').replace(/\s+/g, ' ').toUpperCase();
+      merged.personal.addresses = merged.personal.addresses || [];
+      const hit = merged.personal.addresses.find(m => String(m.address || '').replace(/\s+/g, ' ').toUpperCase() === key);
+      if (hit) {
+        (a.bureaus || []).forEach(b => { if (!hit.bureaus.includes(b)) hit.bureaus.push(b); });
+        if (a.status === 'current') hit.status = 'current';
+      } else {
+        merged.personal.addresses.push({address: a.address, bureaus: (a.bureaus || []).slice(), status: a.status || null});
+      }
+    });
+    ['aka', 'employers'].forEach(f => {
+      ((p.personal || {})[f] || []).forEach(v => {
+        merged.personal[f] = merged.personal[f] || [];
+        if (!merged.personal[f].some(x => String(x).toUpperCase() === String(v).toUpperCase())) merged.personal[f].push(v);
+      });
+    });
   });
 
   merged.bureaus = ['Equifax', 'Experian', 'TransUnion'].filter(b => merged.bureaus.indexOf(b) !== -1);
@@ -2791,12 +2888,9 @@ function parseThreeBureauReport(text) {
     if (nameRow) result.personal.name_raw = nameRow.trim();
     const dobRow = tbRow(piBlock, 'Date Of Birth');
     if (dobRow) result.personal.dob = tbDate(dobRow);
-    const addrs = [];
-    piBlock.forEach((l, i) => {
-      const m = l.match(/^Address\s+(.+)$/i);
-      if (m && !/^N\/A/i.test(m[1])) addrs.push(m[1].trim());
-    });
-    if (addrs.length) result.personal.addresses = addrs;
+    const akaRow = tbRow(piBlock, 'Formerly Known As');
+    if (akaRow) result.personal.aka_raw = akaRow.trim();
+    result.personal.addresses = tbParseAddresses(piBlock);
   }
 
   // ---------- Scores ----------
@@ -2829,6 +2923,105 @@ function parseThreeBureauReport(text) {
   result.bureau = result.bureaus[0] || result.provider || (/equifax/i.test(text) ? 'Equifax' : null);
 
   return result;
+}
+
+// Addresses in this format are a tri-column group, and the naive read — take
+// whatever follows "Address" on one line — returns a fragment of the Equifax
+// address with the other two bureaus' streets mashed onto it.
+//
+// The real shape is a repeating group:
+//
+//   Information Reported  Yes  Yes  Yes        <- which bureaus report this one
+//   Address               <street EQ>          <- then every street/city line,
+//                         <city, ST ZIP EQ>       one bureau after another, in
+//                         <street EX>             EQ / EX / TU order, N/A for
+//                         <city, ST ZIP EX>       any bureau marked No
+//                         ...
+//   Status                Current  Current  Current
+//   Date Reported         8/1/26  8/5/26  2/8/25
+//
+// So the bureaus are read from the Yes/No row rather than guessed from position,
+// and the address lines are paired street-with-city by looking for the
+// "CITY, ST ZIP" shape. A ZIP split across a line break is rejoined.
+const TB_CITY_LINE = /^[A-Za-z][A-Za-z .'\-]*,\s*[A-Z]{2}\s*\d{5}(-\s*\d{0,4})?$/;
+const TB_BUREAU_ORDER = ['Equifax', 'Experian', 'TransUnion'];
+
+function tbParseAddresses(block) {
+  const out = [];
+  for (let i = 0; i < block.length; i++) {
+    if (!/^Information Reported\s+/i.test(block[i])) continue;
+
+    // Which bureaus report this address, in EQ / EX / TU order.
+    const flags = block[i].replace(/^Information Reported\s+/i, '').trim().split(/\s+/);
+    const bureaus = [];
+    flags.forEach((f, n) => { if (/^Yes$/i.test(f) && TB_BUREAU_ORDER[n]) bureaus.push(TB_BUREAU_ORDER[n]); });
+
+    // The Address row runs until Status.
+    let a = -1, b = -1;
+    for (let k = i + 1; k < block.length; k++) {
+      if (/^Address\s*/i.test(block[k]) && a < 0) { a = k; continue; }
+      if (a >= 0 && /^Status\s*/i.test(block[k])) { b = k; break; }
+      if (/^Information Reported\s+/i.test(block[k])) break;
+    }
+    if (a < 0 || b < 0) continue;
+
+    // Statuses (Current / Former) sit in the same bureau order, N/A for the
+    // bureaus that do not report this address at all.
+    const statuses = block[b].replace(/^Status\s*/i, '').trim().split(/\s+/).filter(v => !/^N\/A$/i.test(v));
+
+    // Flatten the address lines, dropping the inline N/A placeholders, and
+    // rejoin any ZIP that wrapped onto its own line.
+    let raw = [];
+    raw.push(block[a].replace(/^Address\s*/i, ''));
+    for (let k = a + 1; k < b; k++) raw.push(block[k]);
+    raw = raw.join('\n').split('\n')
+      .map(l => l.replace(/^(N\/A\s*)+/i, '').trim())
+      .filter(l => l && !/^N\/A$/i.test(l));
+    const lines = [];
+    raw.forEach(l => {
+      // "WOODBRIDGE, VA 22193-" followed by "2661"
+      if (lines.length && /-$/.test(lines[lines.length - 1]) && /^\d{1,4}$/.test(l)) {
+        lines[lines.length - 1] += l;
+      } else {
+        lines.push(l);
+      }
+    });
+
+    // Pair each street line with the city line that follows it.
+    const found = [];
+    for (let k = 0; k < lines.length; k++) {
+      if (TB_CITY_LINE.test(lines[k])) continue;
+      if (lines[k + 1] && TB_CITY_LINE.test(lines[k + 1])) {
+        found.push(lines[k] + '\n' + lines[k + 1]);
+        k++;
+      } else {
+        found.push(lines[k]);
+      }
+    }
+
+    found.forEach((addr, n) => {
+      out.push({
+        address: addr,
+        bureaus: bureaus[n] ? [bureaus[n]] : bureaus.slice(),
+        status: (statuses[n] || '').toLowerCase() === 'former' ? 'former' : 'current'
+      });
+    });
+  }
+
+  // The same address is reported by more than one bureau — collapse those into
+  // one row carrying every bureau, so the consumer sees one address, not three.
+  const merged = [];
+  out.forEach(a => {
+    const key = a.address.replace(/\s+/g, ' ').toUpperCase();
+    const hit = merged.find(m => m.key === key);
+    if (hit) {
+      a.bureaus.forEach(b => { if (!hit.bureaus.includes(b)) hit.bureaus.push(b); });
+      if (a.status === 'current') hit.status = 'current';
+    } else {
+      merged.push({key: key, address: a.address, bureaus: a.bureaus.slice(), status: a.status});
+    }
+  });
+  return merged.map(m => ({address: m.address, bureaus: m.bureaus, status: m.status}));
 }
 
 function tbParseInquiries(blk) {
@@ -3001,6 +3194,10 @@ const EXP_FIELDS = [
   ['Balance', 'balance']
 ];
 
+function expBureauName(key) {
+  return {experian: 'Experian', equifax: 'Equifax', transunion: 'TransUnion'}[String(key || '').toLowerCase()] || (key || 'this bureau');
+}
+
 function parseExperianPrintable(text) {
   const result = {accounts: [], inquiries: [], collections: [], personal: {}, publicRecords: [], scores: [], format: 'experian_printable'};
   const bureau = expBureau(text);
@@ -3165,6 +3362,59 @@ function parseExperianPrintable(text) {
         type: 'hard'
       });
     }
+  }
+
+  // ---------- Personal information ----------
+  // Labels sit on their own line and every line after one is a value until the
+  // next label. The consumer's own addresses live here — these are the ones an
+  // unfamiliar entry would show up in, so they are read the same way the
+  // tradelines are: by structure, not by guessing.
+  const PI_LABELS = /^(Personal statements|Name|Also known as|Year of birth|Date of birth|Addresses|Address|Employers|Employer)$/i;
+  const piStart = lines.findIndex(l => /^Personal information$/i.test(l));
+  if (piStart >= 0) {
+    const pi = {};
+    let label = null;
+    for (let i = piStart + 1; i < lines.length; i++) {
+      const l = lines[i];
+      if (/^(Open accounts|Closed accounts|Account info|Collection accounts|Public records|Inquiries|Credit scores)$/i.test(l)) break;
+      if (PI_LABELS.test(l)) { label = l.toLowerCase(); pi[label] = pi[label] || []; continue; }
+      if (label && l) pi[label].push(l);
+    }
+
+    if (pi['name'] && pi['name'][0]) result.personal.name = pi['name'][0];
+    const yob = pi['year of birth'] || pi['date of birth'];
+    if (yob && yob[0]) result.personal.year_of_birth = yob[0];
+
+    const aka = (pi['also known as'] || []).filter(v => v && !/^-$/.test(v));
+    if (aka.length) result.personal.aka = aka;
+
+    const emp = (pi['employers'] || pi['employer'] || []).filter(v => v && !/^(-|NA|N\/A)$/i.test(v));
+    if (emp.length) result.personal.employers = emp;
+
+    // Street line then "CITY, ST ZIP". A ZIP that wrapped onto its own line is
+    // rejoined — the sample has "WOODBRIDGE, VA 22193-" followed by "2661".
+    const rawAddr = (pi['addresses'] || pi['address'] || []).filter(v => v && !/^-$/.test(v));
+    const addrLines = [];
+    rawAddr.forEach(l => {
+      if (addrLines.length && /-$/.test(addrLines[addrLines.length - 1]) && /^\d{1,4}$/.test(l)) {
+        addrLines[addrLines.length - 1] += l;
+      } else {
+        addrLines.push(l);
+      }
+    });
+    const addrs = [];
+    for (let i = 0; i < addrLines.length; i++) {
+      if (TB_CITY_LINE.test(addrLines[i])) continue;
+      if (addrLines[i + 1] && TB_CITY_LINE.test(addrLines[i + 1])) {
+        addrs.push({address: addrLines[i] + '\n' + addrLines[i + 1], bureaus: [expBureauName(bureau)], status: null});
+        i++;
+      } else {
+        addrs.push({address: addrLines[i], bureaus: [expBureauName(bureau)], status: null});
+      }
+    }
+    // This layout does not say which address is current and which is former.
+    // Say nothing rather than assume the first one is where they live now.
+    if (addrs.length) result.personal.addresses = addrs;
   }
 
   // ---------- Collections / public records sections ----------
@@ -3577,6 +3827,30 @@ const letterTemplates = {
     compile: (ctx) => compileBureauDispute(ctx)
   },
   
+  // ========== MIXED FILE / FILE SPLIT ==========
+  mixed_file: {
+    id: 'mixed_file',
+    title: 'Mixed File — Demand for File Split',
+    subtitle: 'FCRA §§ 611 & 607(b) — someone else\'s data is on your file',
+    description: 'For when addresses, names or accounts belonging to another person are attached to your credit file. Disputing the tradelines one at a time cannot fix this — the error is the match itself, so this letter attacks the match.',
+    recipient: 'bureau',
+    when_to_use: 'When your report shows an address you have never lived at, a name that is not a version of yours, or accounts you have no connection to — and no authorized-user relationship explains them.',
+    what_to_expect: '30 days. Bureaus handle these outside the normal e-OSCAR flow because a split cannot be coded. Expect to send proof of identity and address. If the same data comes back after a split, that repetition is itself strong evidence of an unreasonable procedure under § 607(b).',
+    compile: (ctx) => compileMixedFile(ctx)
+  },
+
+  // ========== PERSONAL INFORMATION CORRECTION ==========
+  personal_info_correction: {
+    id: 'personal_info_correction',
+    title: 'Correction of Personal Information',
+    subtitle: 'FCRA § 611 — identifying information only',
+    description: 'A narrow letter for identifying details that are genuinely wrong: a misspelled name, wrong Social Security digits, a date of birth that is not yours, an employer you never worked for.',
+    recipient: 'bureau',
+    when_to_use: 'When identifying information is wrong — not when it is merely old. Addresses you actually lived at are history and belong on the report.',
+    what_to_expect: '30 days. These are usually corrected without argument. Wrong identifiers are also what let a bureau match someone else to you, so correcting them prevents the next mixed file.',
+    compile: (ctx) => compilePersonalInfoCorrection(ctx)
+  },
+
   // ========== CORE LETTER 2: 609 INFORMATION REQUEST ==========
   '609_request': {
     id: '609_request',
@@ -3968,6 +4242,17 @@ function voiceClosing() {
   return v ? v.close : null;
 }
 
+// A recent move is the quiet reason disputes come back untouched: the address
+// on the letter does not match the address on file, so the bureau returns it as
+// unable to verify identity rather than investigating anything, and thirty days
+// are gone. Naming both addresses in the envelope is what prevents it.
+function enclosureLine() {
+  if (state.intake.recent_move === 'yes') {
+    return 'Enclosures: Copy of photo ID; Proof of my current address; Proof of my previous address; Supporting documentation';
+  }
+  return 'Enclosures: Copy of photo ID; Proof of address; Supporting documentation';
+}
+
 function mailEnvelope(bodyLines, recipientBlock, ctx = {}) {
   const u = userHeader();
   return [
@@ -3993,7 +4278,7 @@ function mailEnvelope(bodyLines, recipientBlock, ctx = {}) {
     '_______________________________',
     u.name,
     '',
-    'Enclosures: Copy of photo ID; Proof of address; Supporting documentation'
+    enclosureLine()
   ].filter(l => l !== null).join('\n');
 }
 
@@ -4069,6 +4354,153 @@ function compileBureauDispute(ctx) {
   // Short copy-paste — for chat/email
   const short = `I am disputing ${items.length > 0 ? items.map(i=>i.creditor).join(', ') : 'the items indicated'} on my credit file as inaccurate under FCRA § 611. Please investigate within the statutory 30 days and delete if unverifiable. Willful violations carry statutory damages of $100-$1,000 under 15 U.S.C. § 1681n. — ${u.name}`;
   
+  return {mail, portal, short};
+}
+
+// ========== COMPILER: MIXED FILE / FILE SPLIT ==========
+// This letter deliberately does NOT ask for a list of tradelines to be deleted.
+// A mixed file is not a set of bad tradelines — it is one bad identity match,
+// and asking for deletions invites the bureau to verify each account with its
+// furnisher (who will confirm it, because the account is real; it just belongs
+// to someone else) and close the dispute. The demand here is the split itself,
+// plus the identifiers used to make the match, because that is the thing that
+// has to change for the data to stay off.
+function compileMixedFile(ctx) {
+  const bureau = ctx.bureau || 'experian';
+  const u = userHeader();
+  const flagged = ctx.identity || {addresses: [], aka: [], employers: []};
+
+  const addrList = (flagged.addresses || []).length
+    ? flagged.addresses.map((a, i) => `${i + 1}. ${String(a.address || a).replace(/\n/g, ', ')}${a.bureaus && a.bureaus.length ? '  (reported by ' + a.bureaus.join(', ') + ')' : ''}`).join('\n')
+    : '[List each address on your report that you have never lived at]';
+
+  const akaList = (flagged.aka || []).length
+    ? (flagged.aka || []).map((v, i) => `${i + 1}. ${v}`).join('\n')
+    : null;
+
+  const empList = (flagged.employers || []).length
+    ? (flagged.employers || []).map((v, i) => `${i + 1}. ${v}`).join('\n')
+    : null;
+
+  const body = [
+    'I am writing because my consumer file contains identifying information that does not belong to me, and I believe my file has been mixed with the file of another person.',
+    '',
+    'I have never lived at the following address(es), and I have no connection to them of any kind:',
+    '',
+    addrList,
+    ''
+  ];
+
+  if (akaList) {
+    body.push('My file also carries the following name(s), which are not mine and are not variations of my name:', '', akaList, '');
+  }
+  if (empList) {
+    body.push('My file also lists the following employer(s), for whom I have never worked:', '', empList, '');
+  }
+
+  body.push(
+    'This is not a dispute about the accuracy of individual accounts. It is a dispute about identity. Information belonging to another consumer has been attached to my file, and I am asking you to separate the two files.',
+    '',
+    'I therefore request the following, specifically:',
+    '',
+    '1. Remove the address(es), name(s) and employer(s) listed above from my file, together with every tradeline, inquiry, collection and public record that entered my file through them.',
+    '',
+    '2. Perform a file split — sometimes recorded internally as a mixed file correction — so that the information belonging to the other consumer is restored to that consumer\'s own file and is not re-attached to mine.',
+    '',
+    '3. Disclose to me the identifying information you used to associate this data with me: the name, address, date of birth and Social Security number on the incoming records, and which fields you treated as a match.',
+    '',
+    'Item 3 is not optional courtesy. Under FCRA § 611 (15 U.S.C. § 1681i) you must conduct a reasonable reinvestigation, and under FCRA § 607(b) (15 U.S.C. § 1681e(b)) you must follow reasonable procedures to assure maximum possible accuracy of the information you report about me. A matching procedure that attaches another person\'s records to my file on a partial or approximate identifier is not a reasonable procedure, and I am entitled to know which identifiers were used.',
+    '',
+    'Please note that a response confirming these items as "verified" would not resolve this dispute. The accounts and addresses are real — they simply belong to someone else. Verification with the furnisher confirms only that the underlying record exists, not that it is mine. What must be corrected is the association with me.',
+    '',
+    'I have enclosed proof of my identity and proof of my address. If you require anything further to complete the split, tell me exactly what, in writing, rather than closing the dispute.',
+    '',
+    pickFrom(fragments.timeline_30, 41),
+    '',
+    pickFrom(fragments.damages_closing, 42)
+  );
+
+  const mail = mailEnvelope(body, bureauHeader(bureau), {
+    re: 'Mixed File — Request for File Split and Correction — ' + u.name,
+    ssnLine: true
+  });
+
+  const portalLines = [
+    'My credit file has been mixed with another person\'s file.',
+    '',
+    'Addresses on my report that I have never lived at:',
+    (flagged.addresses || []).length ? (flagged.addresses || []).map((a, i) => `${i + 1}) ${String(a.address || a).replace(/\n/g, ', ')}`).join('\n') : '[list them]',
+    '',
+    'I am requesting a file split / mixed file correction — not verification of individual accounts. The accounts are real but they belong to another consumer.',
+    '',
+    'Please also disclose the identifying information used to attach this data to me (name, address, DOB, SSN on the incoming records, and which fields matched).',
+    '',
+    'FCRA § 611 requires a reasonable reinvestigation. FCRA § 607(b) requires reasonable procedures to assure maximum possible accuracy. Matching on partial identifiers is neither.',
+    '',
+    `— ${u.name}`
+  ];
+  let portal = portalLines.join('\n');
+  if (portal.length > 2000) portal = portal.substring(0, 1990) + '…';
+
+  const short = `My file has been mixed with another consumer's. I have never lived at ${(flagged.addresses || []).length ? String(flagged.addresses[0].address || flagged.addresses[0]).replace(/\n/g, ', ') : 'the address(es) indicated'}. I am requesting a file split under FCRA § 611, removal of everything that entered my file through it, and disclosure of the identifiers used to match this data to me under § 607(b). — ${u.name}`;
+
+  return {mail, portal, short};
+}
+
+// ========== COMPILER: PERSONAL INFORMATION CORRECTION ==========
+function compilePersonalInfoCorrection(ctx) {
+  const bureau = ctx.bureau || 'experian';
+  const u = userHeader();
+  const flagged = ctx.identity || {addresses: [], aka: [], employers: []};
+
+  const lines = [];
+  (flagged.aka || []).forEach(v => lines.push(`Name reported: ${v} — this is not my name and is not a variation of my name.`));
+  (flagged.employers || []).forEach(v => lines.push(`Employer reported: ${v} — I have never worked for this employer.`));
+  (flagged.addresses || []).forEach(a => lines.push(`Address reported: ${String(a.address || a).replace(/\n/g, ', ')} — I have never lived at this address.`));
+
+  const itemsList = lines.length
+    ? lines.map((l, i) => `${i + 1}. ${l}`).join('\n')
+    : '[List each piece of identifying information that is wrong, and say plainly what is wrong with it. Only include details that are genuinely incorrect — a former address you really did live at is accurate history and belongs on your report.]';
+
+  const body = [
+    'I am writing to correct identifying information in my consumer file. This letter concerns identifying details only — it is not a dispute about any account, balance or payment history.',
+    '',
+    'The following information in my file is inaccurate:',
+    '',
+    itemsList,
+    '',
+    'Under FCRA § 611 (15 U.S.C. § 1681i), the dispute right extends to the completeness and accuracy of any item of information contained in my file, which includes identifying information. Under FCRA § 607(b) (15 U.S.C. § 1681e(b)), you must follow reasonable procedures to assure maximum possible accuracy of the information you report about me.',
+    '',
+    'Inaccurate identifying information is not a cosmetic problem. Identifiers are what you use to decide which records belong to which consumer. Wrong details in this section are how another person\'s accounts end up on my report, and I would rather they were corrected now than after that happens.',
+    '',
+    'Please correct or remove each item listed above and send me an updated copy of my file showing the correction.',
+    '',
+    pickFrom(fragments.timeline_30, 43),
+    '',
+    pickFrom(fragments.damages_closing, 44)
+  ];
+
+  const mail = mailEnvelope(body, bureauHeader(bureau), {
+    re: 'Correction of Inaccurate Personal Information — ' + u.name,
+    ssnLine: true
+  });
+
+  const portalLines = [
+    'I am requesting correction of identifying information in my file (not an account dispute).',
+    '',
+    lines.length ? lines.map((l, i) => `${i + 1}) ${l}`).join('\n') : '[list the incorrect details]',
+    '',
+    'FCRA § 611 covers the accuracy of any item of information in my file, including identifying information. FCRA § 607(b) requires reasonable procedures to assure maximum possible accuracy.',
+    '',
+    'Please correct these and send an updated file copy.',
+    '',
+    `— ${u.name}`
+  ];
+  let portal = portalLines.join('\n');
+  if (portal.length > 2000) portal = portal.substring(0, 1990) + '…';
+
+  const short = `Requesting correction of identifying information in my file under FCRA § 611 — ${lines.length ? lines.length + ' item(s)' : 'the items indicated'}. These are identifying details only, not account disputes. Inaccurate identifiers are how another consumer's data gets matched to my file. — ${u.name}`;
+
   return {mail, portal, short};
 }
 
@@ -5242,6 +5674,97 @@ function tbBureauBreakdown(items, key) {
   return parts.length ? ` (${parts.join(', ')})` : '';
 }
 
+// ========== AUTHORIZED-USER ACCOUNTS ==========
+// An authorized-user tradeline belongs to somebody else. It reports on this
+// consumer's file, and the other person's address can come with it — which is
+// why an address someone does not recognise is not automatically a stranger's
+// data. It may be their mother's, on a card they are an AU on.
+//
+// That distinction decides what they should do. Dispute the address, get the
+// file split, and the AU tradeline can go with it. If that tradeline is the
+// oldest account on the file with a perfect history, losing it costs real
+// points. If it is delinquent or maxed out, losing it is the goal.
+//
+// Only the single-bureau format carries a responsibility field. Tri-merge
+// reports have no equivalent row anywhere, so on those the consumer has to be
+// asked instead of told.
+function moneyNum(v) {
+  if (v === null || v === undefined) return null;
+  const m = String(v).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+
+function isAuthorizedUser(a) {
+  return /authorized\s*user/i.test(String(a.responsibility || ''));
+}
+
+function reportHasResponsibilityData(parsed) {
+  return (parsed.accounts || []).some(a => a.responsibility);
+}
+
+function acctOpenedYear(a) {
+  const m = String(a.date_opened || '').match(/(19|20)\d{2}/);
+  return m ? parseInt(m[0], 10) : null;
+}
+
+function judgeAuthorizedUser(a, allAccounts) {
+  const reasons = [];
+  let verdict = 'neutral';
+
+  const derog = a.has_late_payments || a.is_charge_off || a.is_collection || a.is_repossession || a.in_bankruptcy;
+  const bal = moneyNum(a.balance);
+  const lim = moneyNum(a.credit_limit) || moneyNum(a.high_credit);
+  const util = (bal !== null && lim) ? Math.round((bal / lim) * 100) : null;
+
+  const year = acctOpenedYear(a);
+  const ownYears = allAccounts.filter(x => !isAuthorizedUser(x)).map(acctOpenedYear).filter(Boolean);
+  const oldestOwn = ownYears.length ? Math.min(...ownYears) : null;
+  const isOldest = year && oldestOwn && year < oldestOwn;
+  const age = year ? (new Date().getFullYear() - year) : null;
+
+  if (derog) {
+    verdict = 'hurts';
+    if (a.is_charge_off) reasons.push('it is reporting as a charge-off');
+    else if (a.is_collection) reasons.push('it is reporting as a collection');
+    else if (a.is_repossession) reasons.push('it is reporting a repossession');
+    else if (a.in_bankruptcy) reasons.push('it is reporting as included in bankruptcy');
+    else if (a.has_late_payments) reasons.push('it carries late payments that are not yours');
+  } else if (util !== null && util > 50) {
+    verdict = 'hurts';
+    reasons.push(`it is ${util}% used, which counts against your utilization even though the balance is not yours`);
+  } else {
+    verdict = 'helps';
+    if (isOldest) reasons.push(`it was opened in ${year} — earlier than any account of your own, so it is carrying the age of your whole file`);
+    else if (age !== null && age >= 2) reasons.push(`it has been open ${age} years with no late payments`);
+    else reasons.push('it is reporting clean');
+    if (util !== null && util <= 30) reasons.push(`it is only ${util}% used`);
+    if (lim) reasons.push(`it adds $${lim.toLocaleString()} of available credit to your file`);
+  }
+
+  return {
+    creditor: a.creditor,
+    account: a.account_number || '',
+    responsibility: a.responsibility,
+    opened: a.date_opened || null,
+    verdict: verdict,
+    utilization: util,
+    limit: lim,
+    is_oldest: !!isOldest,
+    reasons: reasons
+  };
+}
+
+function analyzeAuthorizedUsers(parsed) {
+  const accounts = parsed.accounts || [];
+  if (!reportHasResponsibilityData(parsed)) {
+    return {known: false, accounts: []};
+  }
+  return {
+    known: true,
+    accounts: accounts.filter(isAuthorizedUser).map(a => judgeAuthorizedUser(a, accounts))
+  };
+}
+
 function analyzeReport(parsed, analysis) {
   const accounts = parsed.accounts || [];
   const inquiries = parsed.inquiries || [];
@@ -5278,6 +5801,40 @@ function analyzeReport(parsed, analysis) {
     }
   }
   
+  // Identity: authorized-user accounts, and anything the consumer has told us is
+  // not theirs. Both belong in the printed plan, not just on screen.
+  const auInfo = analyzeAuthorizedUsers(parsed);
+  if (auInfo.known && auInfo.accounts.length) {
+    const helps = auInfo.accounts.filter(a => a.verdict === 'helps');
+    const hurts = auInfo.accounts.filter(a => a.verdict !== 'helps');
+    const parts = [];
+    if (helps.length) parts.push(`${helps.length} ${helps.length === 1 ? 'is helping you' : 'are helping you'} — ${helps.map(a => a.creditor).join(', ')}. Leave ${helps.length === 1 ? 'it' : 'them'} alone.`);
+    if (hurts.length) parts.push(`${hurts.length} ${hurts.length === 1 ? 'is working against you' : 'are working against you'} — ${hurts.map(a => a.creditor).join(', ')}. The fastest way off is asking the primary account holder to remove you as an authorized user, not a dispute.`);
+    analysis.findings.push({
+      type: 'authorized_user',
+      severity: hurts.length ? 'medium' : 'low',
+      title: `${auInfo.accounts.length} authorized-user account${auInfo.accounts.length === 1 ? '' : 's'} on this report`,
+      detail: `These accounts belong to someone else and report on your file because you were added to them. ${parts.join(' ')} They also matter for a second reason: the account holder's address can appear on your report through them, so an address you do not recognise is not automatically a stranger's data.`
+    });
+  }
+
+  const idFlagged = unrecognizedIdentityItems();
+  if (idFlagged.addresses.length || idFlagged.aka.length || idFlagged.employers.length) {
+    const bits = [];
+    if (idFlagged.addresses.length) bits.push(`${idFlagged.addresses.length} address${idFlagged.addresses.length === 1 ? '' : 'es'}`);
+    if (idFlagged.aka.length) bits.push(`${idFlagged.aka.length} name${idFlagged.aka.length === 1 ? '' : 's'}`);
+    if (idFlagged.employers.length) bits.push(`${idFlagged.employers.length} employer${idFlagged.employers.length === 1 ? '' : 's'}`);
+    const explained = state.identityReview.au_explains === 'yes';
+    analysis.findings.push({
+      type: 'mixed_file',
+      severity: explained ? 'low' : 'high',
+      title: `You flagged ${bits.join(', ')} as not yours`,
+      detail: explained
+        ? 'You told us an authorized-user account explains this. That means it is not another person\'s data loose on your file — it arrived with an account that legitimately reports on you. Decide about the account on its own merits; do not dispute the address, because splitting the file can take the account with it.'
+        : `Identifying information with no connection to you is the signature of a mixed file — your records and another consumer's held as one person, because the bureaus matched you on a similar name or a partial Social. Disputing the resulting accounts one by one does not fix it; the furnisher confirms each account is real, because it is, and the dispute closes. Your packet includes a letter that names ${idFlagged.addresses.length ? 'the address(es)' : 'the details'}, demands a file split, and asks which identifiers were used to attach the data to you.`
+    });
+  }
+
   // Nothing derogatory is itself a finding worth stating plainly.
   const derog = accounts.filter(a => a.has_late_payments || a.is_charge_off || a.is_collection || a.is_repossession || a.in_bankruptcy);
   if (accounts.length > 0 && derog.length === 0 && collections.length === 0) {
@@ -5645,6 +6202,17 @@ function determineLetterPacket(analysis) {
     }
   }
   
+  // Mixed file — only once the consumer has actually flagged something they do
+  // not recognise, and only when an authorized-user account does not explain it.
+  // Generating this letter off a guess would put an accusation of another
+  // person's data in an envelope on no evidence at all.
+  const flaggedId = unrecognizedIdentityItems();
+  const anyFlagged = flaggedId.addresses.length || flaggedId.aka.length || flaggedId.employers.length;
+  if (anyFlagged && state.identityReview.au_explains !== 'yes') {
+    if (flaggedId.addresses.length) packet.push(letterTemplates.mixed_file);
+    packet.push(letterTemplates.personal_info_correction);
+  }
+
   // Identity theft
   if (f.identity_theft || analysis.situation === 'idtheft') {
     packet.push(letterTemplates.idtheft_block);
@@ -5831,6 +6399,187 @@ function buildActionPlan(analysis) {
 </script>
 <script>
 // ========== ANALYSIS DISPLAY ==========
+// ========== IDENTITY REVIEW ==========
+// The addresses, former names and employers on a report are the part almost
+// nobody reads, and they are the part that gives away a mixed file — somebody
+// else's data merged onto this consumer's because the bureaus matched on weak
+// identifiers. An address they have never lived at is the classic tell.
+//
+// Two rules govern everything in this section, and both are stated on screen:
+//
+//  1. An old address you really did live at is NOT an error. It is history, it
+//     belongs there, and disputing it is the form-letter behaviour that gets a
+//     whole dispute thrown out as frivolous under 12 CFR 1022.43. We do not
+//     offer to remove those and we say why.
+//  2. An unfamiliar address is not automatically a stranger's. It may have
+//     arrived attached to an account they are an authorized user on. Splitting
+//     the file can take that tradeline with it, so the AU accounts get judged
+//     before anything gets disputed.
+function idEsc(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function identityData() {
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const pi = parsed.personal || {};
+  return {
+    parsed: parsed,
+    addresses: pi.addresses || [],
+    aka: pi.aka || [],
+    employers: pi.employers || [],
+    au: analyzeAuthorizedUsers(parsed)
+  };
+}
+
+function unrecognizedAddresses() {
+  const d = identityData();
+  const r = state.identityReview.addresses || {};
+  return d.addresses.filter((a, i) => r[i] === 'not_mine');
+}
+
+function unrecognizedIdentityItems() {
+  const d = identityData();
+  return {
+    addresses: unrecognizedAddresses(),
+    aka: d.aka.filter((v, i) => (state.identityReview.aka || {})[i] === 'not_mine'),
+    employers: d.employers.filter((v, i) => (state.identityReview.employers || {})[i] === 'not_mine')
+  };
+}
+
+function setIdentityFlag(kind, idx, value) {
+  state.identityReview[kind] = state.identityReview[kind] || {};
+  state.identityReview[kind][idx] = value;
+  state.identityReview.reviewed = true;
+  if (state.analysis) renderAnalysis(state.analysis);
+  regenerateAllLetters();
+}
+
+function setAuExplains(v) {
+  state.identityReview.au_explains = v;
+  if (state.analysis) renderAnalysis(state.analysis);
+  regenerateAllLetters();
+}
+
+function renderIdentityRow(kind, idx, label, sub) {
+  const chosen = (state.identityReview[kind] || {})[idx] || null;
+  const btn = (val, text) => {
+    const on = chosen === val;
+    return `<button type="button" class="btn btn-sm ${on ? 'btn-primary' : 'btn-ghost'}" onclick="setIdentityFlag('${kind}',${idx},'${val}')">${text}</button>`;
+  };
+  return `<div class="id-row${chosen === 'not_mine' ? ' id-row-flagged' : ''}">
+    <div class="id-row-main">
+      <div class="id-row-label">${label}</div>
+      ${sub ? `<div class="id-row-sub">${sub}</div>` : ''}
+    </div>
+    <div class="id-row-actions">${btn('mine', 'This is mine')}${btn('not_mine', 'I don\'t recognize this')}</div>
+  </div>`;
+}
+
+function renderIdentitySection() {
+  const d = identityData();
+  if (!d.addresses.length && !d.aka.length && !d.employers.length) return '';
+
+  let html = '<section style="margin-top:var(--space-10);">';
+  html += '<h2 style="margin-bottom:var(--space-3);">Who your report says you are</h2>';
+  html += `<p style="color:var(--text-secondary);margin-bottom:var(--space-6);">These are the addresses, names and employers the bureaus have attached to your file. Almost nobody reads this part, and it is where the most serious error on a credit report hides: someone else's information merged onto your file because the bureaus matched you on a similar name or a partial Social. Read every line. Tell us which ones aren't you.</p>`;
+
+  // Rule one, before they touch anything.
+  html += `<div class="card card-pink" style="margin-bottom:var(--space-6);">
+    <p style="margin:0;font-size:0.9375rem;"><strong>An old address you did live at is not an error.</strong> Moving does not make a previous address wrong — your report is a history, and every place you actually lived belongs on it. There is nothing to gain by disputing one, and real damage in trying: a dispute that reads like a form letter can be dismissed as frivolous under 12 CFR § 1022.43, and that judgment can follow the rest of your disputes. Only flag an address you have <em>never lived at</em>.</p>
+  </div>`;
+
+  if (d.addresses.length) {
+    html += '<h3 style="margin-bottom:var(--space-3);font-size:1.0625rem;">Addresses on file</h3>';
+    html += '<div class="id-list">';
+    d.addresses.forEach((a, i) => {
+      const bits = [];
+      if (a.bureaus && a.bureaus.length) bits.push('Reported by ' + a.bureaus.join(', '));
+      if (a.status) bits.push(a.status === 'current' ? 'Listed as your current address' : 'Listed as a former address');
+      html += renderIdentityRow('addresses', i, idEsc(a.address).replace(/\n/g, '<br>'), bits.join(' · '));
+    });
+    html += '</div>';
+
+    // Cross-bureau divergence is worth naming — it is why an item deleted at one
+    // bureau can sit untouched at another.
+    const allB = [];
+    d.addresses.forEach(a => (a.bureaus || []).forEach(b => { if (!allB.includes(b)) allB.push(b); }));
+    if (allB.length > 1) {
+      const counts = allB.map(b => `${b} ${d.addresses.filter(a => (a.bureaus || []).includes(b)).length}`);
+      html += `<p style="font-size:0.875rem;color:var(--text-tertiary);margin-top:var(--space-3);">Address count by bureau — ${counts.join(' · ')}. Bureaus rarely hold the same set. An address corrected at one is not corrected at the others.</p>`;
+    }
+  }
+
+  if (d.aka.length) {
+    html += '<h3 style="margin-top:var(--space-8);margin-bottom:var(--space-2);font-size:1.0625rem;">Other names on your file</h3>';
+    html += '<p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:var(--space-3);">Misspellings and maiden names are normal. A name belonging to a different person is not — that is how two files get merged.</p>';
+    html += '<div class="id-list">';
+    d.aka.forEach((v, i) => { html += renderIdentityRow('aka', i, idEsc(v), ''); });
+    html += '</div>';
+  }
+
+  if (d.employers.length) {
+    html += '<h3 style="margin-top:var(--space-8);margin-bottom:var(--space-2);font-size:1.0625rem;">Employers on your file</h3>';
+    html += '<p style="font-size:0.875rem;color:var(--text-secondary);margin-bottom:var(--space-3);">Employers do not affect your score. They are here because an employer you never worked for is another sign of a mixed file.</p>';
+    html += '<div class="id-list">';
+    d.employers.forEach((v, i) => { html += renderIdentityRow('employers', i, idEsc(v), ''); });
+    html += '</div>';
+  }
+
+  html += renderAuthorizedUserBlock(d);
+  html += '</section>';
+  return html;
+}
+
+function renderAuthorizedUserBlock(d) {
+  const flagged = unrecognizedAddresses();
+  if (!flagged.length) return '';
+
+  let html = `<div class="alert alert-warning" style="margin-top:var(--space-8);">
+    <h3 style="margin-bottom:var(--space-3);">Before you dispute ${flagged.length === 1 ? 'that address' : 'those addresses'} — one question</h3>
+    <p>An address you have never lived at usually means somebody else's information is on your file. But there is a second explanation, and it is common: <strong>an account you are an authorized user on.</strong> When you are added to someone else's card — a parent's, a spouse's — that account reports on your credit, and their address can come onto your file with it.</p>
+    <p style="margin-top:var(--space-3);">This matters because of what happens next. Disputing the address and asking the bureaus to split the file can take that account off your report along with it. Sometimes that is exactly what you want. Sometimes it costs you more points than anything else on this page.</p>`;
+
+  if (d.au.known && d.au.accounts.length) {
+    html += `<p style="margin-top:var(--space-4);"><strong>Your report shows ${d.au.accounts.length} authorized-user account${d.au.accounts.length === 1 ? '' : 's'}.</strong> Here is what ${d.au.accounts.length === 1 ? 'it is' : 'they are'} worth to you:</p>`;
+    html += '<div class="id-list" style="margin-top:var(--space-3);">';
+    d.au.accounts.forEach(a => {
+      const helps = a.verdict === 'helps';
+      html += `<div class="id-row">
+        <div class="id-row-main">
+          <div class="id-row-label">${idEsc(a.creditor)}${a.account ? ' <span style="font-weight:400;color:var(--text-tertiary);">••••' + idEsc(String(a.account).slice(-4)) + '</span>' : ''}</div>
+          <div class="id-row-sub">${a.opened ? 'Opened ' + idEsc(a.opened) + ' · ' : ''}${idEsc(a.responsibility)}</div>
+        </div>
+        <div class="id-row-actions"><span class="flag-badge ${helps ? 'flag-good' : 'flag-danger'}">${helps ? 'Keep it' : 'Removing it helps you'}</span></div>
+      </div>
+      <p style="font-size:0.875rem;color:var(--text-secondary);margin:0 0 var(--space-4);padding-left:var(--space-1);">${helps
+        ? 'Leave this one alone — ' + a.reasons.join(', ') + '. If the unfamiliar address belongs to whoever owns this card, disputing the address can cost you this tradeline, and with it that history and that available credit.'
+        : 'This one is working against you — ' + a.reasons.join(', ') + '. You do not need a dispute to get rid of it. The fastest route by far is asking the primary account holder to call their card issuer and remove you as an authorized user; it usually drops off your report at the next reporting cycle, with no investigation and no thirty-day wait.'}</p>`;
+    });
+    html += '</div>';
+  } else if (!d.au.known) {
+    html += `<p style="margin-top:var(--space-4);"><strong>This report does not say which accounts are authorized-user accounts.</strong> Three-bureau reports in this format leave that field out entirely, so we cannot check it for you — you will have to answer from memory. A single-bureau report from any of the three does carry it, if you want us to read one.</p>`;
+  }
+
+  html += `<p style="margin-top:var(--space-4);font-weight:600;">Is the address you flagged connected to an account you're an authorized user on?</p>
+    <p style="margin-top:var(--space-2);">
+      <button type="button" class="btn btn-sm ${state.identityReview.au_explains === 'yes' ? 'btn-primary' : 'btn-ghost'}" onclick="setAuExplains('yes')">Yes — that explains it</button>
+      <button type="button" class="btn btn-sm ${state.identityReview.au_explains === 'no' ? 'btn-primary' : 'btn-ghost'}" onclick="setAuExplains('no')">No — I have no connection to it</button>
+    </p>`;
+
+  if (state.identityReview.au_explains === 'yes') {
+    html += `<div class="card" style="margin-top:var(--space-4);background:var(--white);">
+      <p style="margin:0;font-size:0.9375rem;"><strong>Then leave the address alone for now.</strong> It is not a stranger's data — it arrived with an account that is legitimately on your report, and disputing it puts that account at risk. Decide about the account first, on its own merits: if it is helping you, keep both. If it is hurting you, have the primary holder remove you as an authorized user rather than disputing anything. The address will age off on its own.</p>
+    </div>`;
+  } else if (state.identityReview.au_explains === 'no') {
+    html += `<div class="card" style="margin-top:var(--space-4);background:var(--white);">
+      <p style="margin:0;font-size:0.9375rem;"><strong>Then this is worth a real letter.</strong> An address with no connection to you, and no authorized-user account behind it, is the signature of a mixed file — your data and someone else's held as one person. Disputing the accounts one at a time will not fix it, because the cause is the match, not the tradelines. Your packet now includes a letter that names the addresses, asks for the file to be split, and demands the identifiers the bureau used to attach them to you.</p>
+    </div>`;
+  }
+
+  html += '</div>';
+  return html;
+}
+
 function renderAnalysis(analysis) {
   const content = document.getElementById('analysis-content');
   let html = '<div class="container-narrow" style="margin:0 auto;">';
@@ -5889,6 +6638,8 @@ function renderAnalysis(analysis) {
     html += '</div></section>';
   }
   
+  html += renderIdentitySection();
+
   // Findings
   if (analysis.findings.length > 0) {
     html += '<section style="margin-top:var(--space-10);">';
@@ -6254,6 +7005,10 @@ function buildLetterContext(tmpl) {
   const analysis = state.analysis || {};
   const upload = state.upload || {};
   const parsed = upload.parsed || {};
+
+  // Whatever the consumer marked as not theirs in the identity review. Only
+  // what they explicitly flagged — never everything we parsed.
+  ctx.identity = unrecognizedIdentityItems();
   
   // Collect disputable items from findings
   const disputableItems = [];
