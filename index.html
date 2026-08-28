@@ -3442,6 +3442,131 @@ function expBureauName(key) {
   return {experian: 'Experian', equifax: 'Equifax', transunion: 'TransUnion'}[String(key || '').toLowerCase()] || (key || 'this bureau');
 }
 
+// ========== PAYMENT-HISTORY GRID ==========
+// The single-bureau layout prints a month-by-month grid, and it is the only
+// place on any of these reports where the DATES of the delinquencies survive.
+// The "Date Of First Delinquency" field is blank on every sample report we
+// have — 35 of 35 accounts on the tri-merge — which is exactly the field the
+// seven-year clock runs from. The grid lets us derive it.
+//
+// Layout inside an account block:
+//
+//   Payment history
+//   2026 2025 2024 2023 2022      <- years, newest first, one line each
+//   Jan  CO CO CO <ok> -          <- month, then one cell per year, same order
+//   Feb  CO CO CO <ok> <ok>
+//
+// Cells are a number of days late, CO for charged off, "-" or "ND" for no data,
+// and a private-use glyph (U+E902) for "Current / Terms met". Blank cells come
+// through as empty strings and MUST be preserved — filtering them would shift
+// every column and put the delinquency in the wrong month, which is how a
+// letter ends up asserting a date that is not on the report.
+const EXP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const EXP_OK_GLYPH = '';
+
+function expGridMark(v) {
+  const t = String(v == null ? '' : v).trim();
+  if (t === '' || t === EXP_OK_GLYPH) return 'ok';
+  if (/^(30|60|90|120|150|180)$/.test(t)) return parseInt(t, 10);
+  if (/^CO$/i.test(t)) return 'CO';
+  return null; // "-", "ND", anything unrecognised: unknown, never assumed good
+}
+
+function expParseGrid(blk) {
+  const i = blk.findIndex(l => /^Payment history$/i.test(String(l).trim()));
+  if (i < 0) return null;
+
+  const years = [];
+  let k = i + 1;
+  while (k < blk.length && /^(19|20)\d{2}$/.test(String(blk[k]).trim())) { years.push(parseInt(blk[k], 10)); k++; }
+  if (!years.length) return null;
+
+  const cells = {};
+  let months = 0;
+  while (k < blk.length) {
+    const label = String(blk[k]).trim();
+    const mi = EXP_MONTHS.findIndex(m => m.toLowerCase() === label.toLowerCase());
+    if (mi < 0) break;
+    k++;
+    const vals = [];
+    for (let n = 0; n < years.length; n++) {
+      if (k >= blk.length) return null;
+      const cell = String(blk[k]).trim();
+      // Alignment check. If a month name turns up where a cell should be, the
+      // columns have shifted and every date after this point would be wrong.
+      // Abandon the whole grid rather than publish a date we cannot stand behind.
+      if (EXP_MONTHS.some(m => m.toLowerCase() === cell.toLowerCase())) return null;
+      vals.push(cell);
+      k++;
+    }
+    years.forEach((y, n) => {
+      const mark = expGridMark(vals[n]);
+      if (mark !== null) cells[y + '-' + String(mi + 1).padStart(2, '0')] = mark;
+    });
+    months++;
+  }
+
+  if (months < 12) return null;
+  return {years: years, cells: cells};
+}
+
+// FCRA § 605(a) runs the seven-year clock from the date of first delinquency —
+// the delinquency after which the account never again became current. Not the
+// first late payment ever, and emphatically not the date the furnisher last
+// reported, which is what re-aging quietly substitutes.
+function expDeriveDofd(grid) {
+  if (!grid) return null;
+  const keys = Object.keys(grid.cells).sort();
+  let runStart = null;
+  let sawDerog = false;
+  keys.forEach(key => {
+    const m = grid.cells[key];
+    if (m === 'ok') { runStart = null; return; }
+    if (m === 'CO' || typeof m === 'number') {
+      sawDerog = true;
+      if (runStart === null) runStart = key;
+    }
+  });
+  if (!sawDerog || !runStart) return null;
+  const [y, mo] = runStart.split('-').map(Number);
+  return {key: runStart, year: y, month: mo, label: EXP_MONTHS[mo - 1] + ' ' + y, date: new Date(y, mo - 1, 1)};
+}
+
+// An account that went late and then recovered has no current date of first
+// delinquency — the run was broken — but each individual late payment still
+// reports for seven years from the month it happened. That is the answer to the
+// question people actually ask: when does this come off?
+function expLateMarks(grid) {
+  if (!grid) return [];
+  return Object.keys(grid.cells).sort().filter(k => {
+    const m = grid.cells[k];
+    return m === 'CO' || typeof m === 'number';
+  }).map(k => {
+    const [y, mo] = k.split('-').map(Number);
+    return {key: k, mark: grid.cells[k], date: new Date(y, mo - 1, 1), label: EXP_MONTHS[mo - 1] + ' ' + y};
+  });
+}
+
+function expFallOff(dofdInfo, isChargeOffOrCollection) {
+  if (!dofdInfo) return null;
+  const d = new Date(dofdInfo.date.getTime());
+  d.setFullYear(d.getFullYear() + 7);
+  // A charged-off or collection account is reportable for seven years plus 180
+  // days from the DOFD.
+  if (isChargeOffOrCollection) d.setDate(d.getDate() + 180);
+  return d;
+}
+
+function monthsUntil(d) {
+  if (!d) return null;
+  const now = new Date();
+  return Math.round((d - now) / (1000 * 60 * 60 * 24 * 30.44));
+}
+
+function fmtMonthYear(d) {
+  return d ? EXP_MONTHS[d.getMonth()] + ' ' + d.getFullYear() : null;
+}
+
 function parseExperianPrintable(text) {
   const result = {accounts: [], inquiries: [], collections: [], personal: {}, publicRecords: [], scores: [], format: 'experian_printable'};
   const bureau = expBureau(text);
@@ -3468,6 +3593,9 @@ function parseExperianPrintable(text) {
       if (SECTION_HEAD.test(lines[i])) { end = i; break; }
     }
     const blk = lines.slice(start + 1, end);
+    const grid = expParseGrid(blk);
+    const derivedDofd = expDeriveDofd(grid);
+    const lateMarks = expLateMarks(grid);
 
     const fields = {};
     let statusExtra = [];
@@ -3552,6 +3680,12 @@ function parseExperianPrintable(text) {
       past_due: fields.past_due && fields.past_due !== '-' ? fields.past_due : null,
       credit_usage: fields.credit_usage && fields.credit_usage !== '-' ? fields.credit_usage : null,
       responsibility: fields.responsibility || null,
+      grid: grid,
+      derived_dofd: derivedDofd ? derivedDofd.key : null,
+      derived_dofd_label: derivedDofd ? derivedDofd.label : null,
+      late_marks: lateMarks.map(m => ({key: m.key, mark: m.mark, label: m.label})),
+      first_late_label: lateMarks.length ? lateMarks[0].label : null,
+      last_late_label: lateMarks.length ? lateMarks[lateMarks.length - 1].label : null,
       dofd: null,
       comments: comments,
       reported_by: bureau ? [bureau] : [],
@@ -3611,6 +3745,44 @@ function parseExperianPrintable(text) {
         type: 'hard'
       });
     }
+  }
+
+  // ---------- Score factors ----------
+  // The bureau prints its own reason codes — what the scoring model says is
+  // costing this consumer points, in priority order, with the model's own
+  // figures attached. This is the one part of the report that is not our
+  // inference or the furnisher's claim: it is the score's own explanation.
+  // Reading it lets the analysis agree or disagree with the model out loud
+  // instead of guessing at it.
+  const sfStart = lines.findIndex(l => /^What's hurting$/i.test(l));
+  if (sfStart >= 0) {
+    const factors = [];
+    let cur = null;
+    for (let i = sfStart + 1; i < lines.length; i++) {
+      const l = lines[i];
+      if (/^(What's helping|Credit scores|Personal information|Open accounts|Closed accounts|Account info|Inquiries)$/i.test(l)) break;
+      // Factor headings are prefixed with a bullet glyph in the private-use area.
+      const m = l.match(/^[-]\s*(.+)$/);
+      if (m) {
+        const name = m[1].trim();
+        // The report prints the same reason codes again for each additional
+        // scoring model, and only the first block carries the model's figures.
+        // A repeat means we have left the block that matters.
+        if (factors.some(f => f.factor.toLowerCase() === name.toLowerCase())) break;
+        cur = {factor: name, detail: null, figure: null};
+        factors.push(cur);
+        continue;
+      }
+      if (!cur || !l) continue;
+      if (!cur.detail) { cur.detail = l; continue; }
+      // The quantified line is the one worth keeping — "Ratio of your revolving
+      // balances to your credit limits: 63%".
+      // Anything without a number on the end of it is prose about FICO High
+      // Achievers, not a fact about this consumer.
+      if (!cur.figure && /:\s*\S/.test(l) && !/High Achievers/i.test(l) &&
+          /:\s*[^:]*\d[^:]*$/.test(l)) cur.figure = l;
+    }
+    if (factors.length) result.scoreFactors = factors;
   }
 
   // ---------- Personal information ----------
@@ -5975,6 +6147,16 @@ function buildPriorityActions(analysis, parsed) {
 
   // 2. Calendar deletions — no argument required, so they cost one letter and
   //    almost always work.
+  const outOfTime = (analysis.fall_off || []).filter(c => c.months !== null && c.months <= 0);
+  if (outOfTime.length) {
+    acts.push({
+      score: 900,
+      label: `Dispute ${outOfTime.length} item${outOfTime.length === 1 ? '' : 's'} already past the seven-year limit`,
+      why: `${outOfTime.map(c => c.creditor).join(', ')}. These are out of time under FCRA § 605(a) — no argument required about whether the reporting was fair, because the reporting period has simply run out. Nothing else on this list is this easy to win.`,
+      tag: 'Free win'
+    });
+  }
+
   const expired = (analysis.findings || []).find(f => f.type === 'inquiry_expired');
   if (expired) {
     acts.push({
@@ -6425,6 +6607,89 @@ function analyzeReport(parsed, analysis) {
     }
   }
   
+  // The seven-year clock. Every other tool tells the consumer to "check the date
+  // of first delinquency" — this one works it out. The DOFD field is blank on
+  // every sample report we have, so it is derived from the month-by-month grid,
+  // and the fall-off dates come from FCRA § 605(a): seven years from the DOFD,
+  // plus 180 days for a charge-off or collection.
+  //
+  // Knowing this changes what a person should do more than almost anything else
+  // on the page. An item with four months left will fall off by itself whatever
+  // you send; an item with five years left is worth a real fight. Spending a
+  // dispute on the first one is the most common wasted effort in credit repair.
+  const clocked = [];
+  accounts.forEach(a => {
+    const derog = a.is_charge_off || a.is_collection || a.has_late_payments;
+    if (!derog) return;
+    const serious = a.is_charge_off || a.is_collection;
+    let when = null, basis = null;
+
+    if (a.derived_dofd) {
+      const [y, mo] = a.derived_dofd.split('-').map(Number);
+      when = expFallOff({date: new Date(y, mo - 1, 1)}, serious);
+      basis = `first delinquency ${a.derived_dofd_label}, read from the month-by-month grid on your report`;
+    } else if ((a.late_marks || []).length) {
+      const last = a.late_marks[a.late_marks.length - 1];
+      const [y, mo] = last.key.split('-').map(Number);
+      const d = new Date(y, mo - 1, 1);
+      d.setFullYear(d.getFullYear() + 7);
+      when = d;
+      basis = `most recent late payment ${last.label}; the account recovered afterwards, so each late ages off on its own date rather than dragging the whole account with it`;
+    }
+    if (!when) return;
+    clocked.push({creditor: a.creditor, account: a.account_number || '', when: when, months: monthsUntil(when), basis: basis, serious: serious, reported_dofd: a.dofd || null, derived: a.derived_dofd_label});
+  });
+
+  if (clocked.length) {
+    clocked.sort((x, y) => x.when - y.when);
+    analysis.fall_off = clocked;
+
+    const soon = clocked.filter(c => c.months !== null && c.months <= 12 && c.months > 0);
+    const gone = clocked.filter(c => c.months !== null && c.months <= 0);
+    const far = clocked.filter(c => c.months !== null && c.months > 12);
+
+    const bits = [];
+    bits.push('No credit report we have seen fills in the date-of-first-delinquency field, so these dates are derived from the month-by-month payment grid printed on your own report. That grid is the only place the dates survive.');
+
+    if (gone.length) {
+      bits.push(`${gone.length} item${gone.length === 1 ? ' is' : 's are'} already past the seven-year limit and should not be on your report at all: ${gone.map(c => `${c.creditor} (should have come off ${fmtMonthYear(c.when)})`).join('; ')}. This needs no argument about whether the reporting was fair — the item is simply out of time under FCRA § 605(a). Dispute it on obsolescence.`);
+    }
+    if (soon.length) {
+      bits.push(`${soon.length} item${soon.length === 1 ? '' : 's'} will fall off on ${soon.length === 1 ? 'its' : 'their'} own within a year: ${soon.map(c => `${c.creditor} — ${fmtMonthYear(c.when)}, about ${c.months} month${c.months === 1 ? '' : 's'} away`).join('; ')}. Think hard before spending a letter here. If it comes off by itself in five months, a dispute costs you a month of waiting and gets you what the calendar was going to give you anyway.`);
+    }
+    if (far.length) {
+      bits.push(`${far.length} item${far.length === 1 ? ' has' : 's have'} more than a year to run: ${far.map(c => `${c.creditor} — ${fmtMonthYear(c.when)}`).join('; ')}. ${far.length === 1 ? 'This is' : 'These are'} where a dispute is worth the effort, because time is not going to solve ${far.length === 1 ? 'it' : 'them'} for you.`);
+    }
+
+    analysis.findings.push({
+      type: 'fall_off_clock',
+      severity: gone.length ? 'high' : 'medium',
+      title: `When each negative item comes off — ${clocked.length} dated`,
+      detail: bits.join(' '),
+      fall_off: clocked
+    });
+
+    // Re-aging: the furnisher's stated DOFD is later than the grid's own first
+    // delinquency. That resets the clock and keeps the item on the file longer
+    // than the law allows, and it is one of the clearest FCRA violations there is.
+    const reaged = clocked.filter(c => {
+      if (!c.reported_dofd || !c.derived) return false;
+      const rep = new Date(c.reported_dofd);
+      const der = new Date(c.derived);
+      if (isNaN(rep.getTime()) || isNaN(der.getTime())) return false;
+      return (rep - der) / (1000 * 60 * 60 * 24 * 30.44) > 2;
+    });
+    if (reaged.length) {
+      analysis.findings.push({
+        type: 're_aging',
+        severity: 'high',
+        title: `${reaged.length} account${reaged.length === 1 ? ' appears' : 's appear'} to have been re-aged`,
+        detail: `${reaged.map(c => `${c.creditor} reports a date of first delinquency of ${c.reported_dofd}, but the payment grid on the same report shows the delinquency beginning ${c.derived}`).join('; ')}. Moving the date of first delinquency forward keeps an item on your report past the seven years FCRA § 605(a) allows. It is not a clerical matter — the furnisher is required to report the DOFD accurately under § 623(a)(5), and the report contradicts itself here. Quote both dates in your dispute and ask which one the furnisher certifies.`,
+        letter: 'furnisher_dispute'
+      });
+    }
+  }
+
   // Cross-bureau contradictions — only possible on a three-bureau report.
   const contradictions = findContradictions(parsed);
   if (contradictions.length) {
@@ -6496,6 +6761,34 @@ function analyzeReport(parsed, analysis) {
       title: `Revolving utilization: ${util.overall}% across ${util.cards.length} card${util.cards.length === 1 ? '' : 's'}`,
       detail: bits.join(' '),
       utilization: util
+    });
+  }
+
+  // What the scoring model itself says is costing points. This is the only part
+  // of a credit report that is neither our inference nor the furnisher's claim
+  // — it is the score's own explanation, in its own priority order. Where it
+  // disagrees with our arithmetic, say so rather than quietly picking one.
+  const sf = parsed.scoreFactors || [];
+  if (sf.length) {
+    analysis.score_factors = sf;
+    const lines = sf.map((f, i) => `${i + 1}. ${f.factor}${f.figure ? ' — ' + f.figure : ''}`).join(' ');
+    let cross = '';
+    const stated = sf.map(f => (f.figure || '').match(/balances to your credit limits:\s*(\d+)%/)).find(Boolean);
+    if (stated && analysis.utilization) {
+      const theirs = parseInt(stated[1], 10);
+      const ours = analysis.utilization.overall;
+      if (Math.abs(theirs - ours) >= 5) {
+        cross = ` One cross-check worth knowing about: the model puts your revolving ratio at ${theirs}%, and our own arithmetic from the tradelines makes it ${ours}%. The difference is almost certainly the ${analysis.utilization.skipped_no_data.length ? 'card' + (analysis.utilization.skipped_no_data.length === 1 ? '' : 's') + ' we had to leave out because the report gives no balance' : 'accounts each side counts as revolving'}. Where the two disagree, believe the model's number for where you stand and use ours for what to pay — the per-card dollar figures are still the actionable part.`;
+      } else {
+        cross = ` Our own arithmetic agrees with it: we make your revolving ratio ${ours}% against the model's ${theirs}%.`;
+      }
+    }
+    analysis.findings.push({
+      type: 'score_factors',
+      severity: 'medium',
+      title: `What the scoring model says is costing you, in its own words`,
+      detail: `Your report carries the score's own reason codes, listed in the order the model weights them: ${lines} This is worth more than any outside opinion about your file, because it is the model explaining itself. Read it as the running order for your effort — the first item on that list is the first thing to fix.${cross}`,
+      score_factors: sf
     });
   }
 
@@ -6754,7 +7047,10 @@ function analyzeReport(parsed, analysis) {
       type: 'missing_dofd',
       severity: 'medium',
       title: 'No date of first delinquency reported on any account',
-      detail: `${lateAccts.length} account${lateAccts.length === 1 ? ' is' : 's are'} showing delinquency, but no account on this report carries a date of first delinquency. The DOFD is what sets the date an item must age off your file, so ask each furnisher and bureau to report it. If a furnisher cannot supply one for a delinquent account, that is worth raising in your dispute.`
+      detail: `${lateAccts.length} account${lateAccts.length === 1 ? ' is' : 's are'} showing delinquency, but not one account on this report carries a date of first delinquency in the field meant for it. The DOFD is what sets the date an item must age off your file — leaving it blank is how an item quietly outstays the seven years FCRA § 605(a) allows.` +
+        ((analysis.fall_off || []).length
+          ? ` We worked the dates out anyway, from the month-by-month payment grid printed on your own report — that is where the "when each negative item comes off" list above comes from. Ask each furnisher and bureau to report the DOFD properly regardless: our dates are a reconstruction from the grid, and theirs is the one that governs. If a furnisher cannot produce a DOFD for an account it is reporting as delinquent, say so in your dispute — a furnisher that cannot date the delinquency cannot show the item is still inside its reporting window.`
+          : ` Ask each furnisher and bureau to report it. If a furnisher cannot supply one for a delinquent account, that is worth raising in your dispute.`)
     });
   }
 
