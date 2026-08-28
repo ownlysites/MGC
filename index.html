@@ -1084,6 +1084,20 @@ section { padding: var(--space-20) 0; }
 .flag-warning { background: var(--warning-bg); color: var(--warning); }
 .flag-good { background: var(--success-bg); color: var(--success); }
 
+/* ========== UPLOAD FORMAT COMPARISON ========== */
+.upload-compare { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+.upload-compare-h {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--rose-gold-dark);
+  margin: 0 0 var(--space-2);
+}
+.upload-compare ul { margin: 0; padding-left: var(--space-5); }
+.upload-compare li { font-size: 0.875rem; color: var(--text-secondary); margin-bottom: var(--space-2); line-height: 1.6; }
+@media (max-width: 640px) { .upload-compare { grid-template-columns: 1fr; gap: var(--space-4); } }
+
 /* ========== PRIORITY ACTIONS ========== */
 .prio-list { display: grid; gap: var(--space-4); }
 .prio-item {
@@ -1820,6 +1834,32 @@ section { padding: var(--space-20) 0; }
           <p style="font-size:0.875rem;color:var(--text-tertiary);">PDF only. One tri-merge report, or pick all three single-bureau PDFs at once — we'll combine them.</p>
           <p style="font-size:0.8125rem;color:var(--text-tertiary);margin-top:var(--space-4);">Nothing leaves your browser.</p>
           <input type="file" id="file-input" accept=".pdf,application/pdf" multiple onchange="handleFileUpload(event)" style="display:none;">
+        </div>
+
+        <!-- Each format carries something the other does not, and which one a
+             person uploads changes what this tool can tell them. Worth saying
+             before they choose, not after. -->
+        <div class="card" style="margin-top:var(--space-6);border:1px solid var(--rose-gold-light);">
+          <h3 style="margin-bottom:var(--space-3);font-size:1.0625rem;">Upload both formats if you can — they show different things</h3>
+          <p style="font-size:0.9375rem;margin-bottom:var(--space-4);color:var(--text-secondary);">Neither report is simply better. They carry different data, and we use whatever we are given.</p>
+          <div class="upload-compare">
+            <div>
+              <p class="upload-compare-h">A tri-merge report shows</p>
+              <ul>
+                <li><strong>Where the bureaus contradict each other</strong> — one reporting an account as paid as agreed while another reports it late or in collection. That is the hardest kind of dispute to refuse, and a single-bureau pull can never reveal it.</li>
+                <li>Which bureaus carry each account, so you know who to write to.</li>
+              </ul>
+            </div>
+            <div>
+              <p class="upload-compare-h">A single-bureau report shows</p>
+              <ul>
+                <li><strong>The month-by-month payment grid</strong> — the only place the dates of your delinquencies survive. It is how we work out when each negative item falls off your report, and whether a date has been re-aged.</li>
+                <li><strong>The scoring model's own reason codes</strong>, in its order, with its figures.</li>
+                <li>Which accounts are authorized-user accounts, which decides whether an unfamiliar address is worth disputing.</li>
+              </ul>
+            </div>
+          </div>
+          <p style="font-size:0.875rem;color:var(--text-tertiary);margin-top:var(--space-4);margin-bottom:0;">One report still produces a full plan. Two produce a better one. You can add more later — nothing is stored either way.</p>
         </div>
 
         <div id="upload-status" class="hidden" style="margin-top:var(--space-6);"></div>
@@ -3122,6 +3162,22 @@ function parseThreeBureauReport(text) {
   // ---------- Public records ----------
   const prBlock = sectionBlock(/^Public Records$/i);
   if (prBlock) result.publicRecords = tbParsePublicRecords(prBlock);
+
+  // ---------- Reported averages ----------
+  // The report states each bureau's own average account age. Ours is computed
+  // across every account on the merged file, so the two legitimately differ —
+  // each bureau averages only what it holds. Keep theirs: where the report
+  // states a figure, that figure is what a lender pulling that bureau sees.
+  const avgRow = tbRow(body, 'Average Account Age');
+  if (avgRow) {
+    const parts = avgRow.match(/(\d+\s+Years?(?:,\s*\d+\s+Months?)?|\d+\s+Months?|N\/A)/gi) || [];
+    const reported = [];
+    parts.slice(0, 3).forEach((v, i) => {
+      if (/^N\/A$/i.test(v)) return;
+      reported.push({bureau: TB_BUREAU_COLS[i], age: v.replace(/\s+/g, ' ').trim()});
+    });
+    if (reported.length) result.reportedAverageAge = reported;
+  }
 
   // ---------- Personal information ----------
   const piBlock = sectionBlock(/^Personal Information$/i);
@@ -6343,6 +6399,49 @@ function contradictionSentence(c) {
   return `${said}. The bureaus disagree about how far behind this account went. At most one of those figures is correct.`;
 }
 
+// ========== AGE OF FILE ==========
+// Length of credit history is roughly 15% of a FICO score, and it is the one
+// factor nobody can shortcut — it only moves in one direction, at one speed.
+// The reason it earns a place here is the advice that hangs off it. Two of the
+// most commonly given pieces of credit advice ("open a secured card", "close
+// the cards you don't use") both damage this factor, and whether they are worth
+// it depends entirely on numbers this report contains.
+function analyzeFileAge(parsed) {
+  const now = new Date();
+  const dated = (parsed.accounts || []).map(a => {
+    const d = inqDate(a.date_opened);
+    return d ? {creditor: a.creditor, opened: d, years: (now - d) / (1000 * 60 * 60 * 24 * 365.25), closed: /closed|paid/i.test(String(a.open_closed || '') + ' ' + String(a.status || ''))} : null;
+  }).filter(Boolean);
+  if (!dated.length) return null;
+
+  dated.sort((x, y) => x.opened - y.opened);
+  const oldest = dated[0];
+  const newest = dated[dated.length - 1];
+  const avg = dated.reduce((n, a) => n + a.years, 0) / dated.length;
+
+  // What one more account would do to the average. This is the number that
+  // makes "should I open a secured card" answerable instead of a matter of
+  // opinion.
+  const avgAfterOne = (dated.reduce((n, a) => n + a.years, 0)) / (dated.length + 1);
+
+  return {
+    count: dated.length,
+    average_years: avg,
+    oldest: oldest,
+    newest: newest,
+    average_after_new_account: avgAfterOne,
+    drop_from_new_account: avg - avgAfterOne,
+    open_count: dated.filter(a => !a.closed).length
+  };
+}
+
+function yearsPhrase(y) {
+  const whole = Math.floor(y);
+  const months = Math.round((y - whole) * 12);
+  if (whole < 1) return months + ' month' + (months === 1 ? '' : 's');
+  return whole + ' year' + (whole === 1 ? '' : 's') + (months ? ' ' + months + ' month' + (months === 1 ? '' : 's') : '');
+}
+
 // ========== REVOLVING UTILIZATION ==========
 // Utilization is the largest thing on a credit report that a consumer can
 // change this month without anyone's permission. Every other lever here — a
@@ -6761,6 +6860,38 @@ function analyzeReport(parsed, analysis) {
       title: `Revolving utilization: ${util.overall}% across ${util.cards.length} card${util.cards.length === 1 ? '' : 's'}`,
       detail: bits.join(' '),
       utilization: util
+    });
+  }
+
+  // Age of file.
+  const age = analyzeFileAge(parsed);
+  if (age) {
+    analysis.file_age = age;
+    const bits = [];
+    bits.push(`Your ${age.count} dated account${age.count === 1 ? '' : 's'} average ${yearsPhrase(age.average_years)} old. Your oldest is ${age.oldest.creditor}, opened ${age.oldest.opened.getFullYear()} — ${yearsPhrase(age.oldest.years)} of history.`);
+
+    // Where the report states each bureau's own figure, print it. Ours averages
+    // every account on the file; each bureau averages only what it holds, so
+    // the numbers differ for a real reason and both are worth seeing.
+    const reportedAges = parsed.reportedAverageAge || [];
+    if (reportedAges.length) {
+      bits.push(`The report states its own figures: ${reportedAges.map(r => `${r.bureau} ${r.age}`).join(', ')}. Those differ from ours because each bureau averages only the accounts it holds, while we average everything on the merged file. Theirs is what a lender pulling that bureau sees; ours is the shape of your whole history.`);
+    }
+    bits.push(`Length of history is around 15% of the score and it is the one factor that cannot be hurried: it moves in one direction at one speed, and nothing you send in an envelope changes it.`);
+
+    const drop = age.drop_from_new_account;
+    bits.push(`This is also the number that answers whether to open a new account. One more tradeline would take your average from ${yearsPhrase(age.average_years)} to ${yearsPhrase(age.average_after_new_account)} — a drop of about ${Math.round(drop * 12)} month${Math.round(drop * 12) === 1 ? '' : 's'}. ${drop * 12 < 6
+      ? 'That is a small price. With a file this size a new account barely moves the average, so if a secured card or a credit-builder account would help you in other ways, the age cost is not a reason to avoid it.'
+      : 'That is a real cost on a file with few accounts. It is not necessarily wrong — a new account also adds available credit and, in time, more history — but do it deliberately rather than because someone told you to open something.'}`);
+
+    bits.push(`And the reverse: closing a card does not remove its history, but it does remove its limit from your utilization straight away. Never close your oldest account. If you are closing anything, close a newer one.`);
+
+    analysis.findings.push({
+      type: 'file_age',
+      severity: 'low',
+      title: `Average age of your accounts: ${yearsPhrase(age.average_years)}`,
+      detail: bits.join(' '),
+      file_age: age
     });
   }
 
