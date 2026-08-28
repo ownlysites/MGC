@@ -529,7 +529,30 @@ section { padding: var(--space-20) 0; }
   #action-plan-doc .plan-tile b.sm { font-size: 10.5pt; }
 
   /* ---- callouts ---- */
-  #action-plan-doc .plan-rule {
+  #action-plan-doc .plan-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+  margin: 10pt 0 4pt;
+}
+#action-plan-doc .plan-table th,
+#action-plan-doc .plan-table td {
+  padding: 4pt 6pt;
+  text-align: left;
+  border-bottom: 0.5pt solid #e6dcd4;
+}
+#action-plan-doc .plan-table thead th {
+  font-size: 7.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8a7568;
+  border-bottom: 1pt solid #c9a9a6;
+}
+#action-plan-doc .plan-table .num { text-align: right; white-space: nowrap; }
+#action-plan-doc .plan-table i { color: #8a7568; font-size: 8pt; }
+#action-plan-doc .plan-table tr { page-break-inside: avoid; }
+
+#action-plan-doc .plan-rule {
     background: #fef5f5; border-radius: 7pt; padding: 12pt 14pt; margin-top: 0.18in;
     page-break-inside: avoid;
   }
@@ -1060,6 +1083,100 @@ section { padding: var(--space-20) 0; }
 .flag-danger { background: var(--danger-bg); color: var(--danger); }
 .flag-warning { background: var(--warning-bg); color: var(--warning); }
 .flag-good { background: var(--success-bg); color: var(--success); }
+
+/* ========== PRIORITY ACTIONS ========== */
+.prio-list { display: grid; gap: var(--space-4); }
+.prio-item {
+  display: flex;
+  gap: var(--space-4);
+  background: var(--white);
+  border: 1px solid var(--rose-gold-light);
+  border-left: 4px solid var(--rose-gold);
+  border-radius: var(--radius);
+  padding: var(--space-5);
+}
+.prio-num {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--rose-gold);
+  color: var(--white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+.prio-body { min-width: 0; }
+.prio-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.prio-head h3 { font-size: 1.0625rem; margin: 0; }
+.prio-tag {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--pink-soft);
+  color: var(--rose-gold-dark);
+  white-space: nowrap;
+}
+.prio-body p { margin: 0; font-size: 0.9375rem; color: var(--text-secondary); }
+
+/* ========== UTILIZATION ========== */
+.util-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+.util-summary > div {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+}
+.util-summary-label {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+.util-summary-value {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 1.375rem;
+  font-weight: 600;
+}
+/* Wide tables scroll inside their own box — the page itself must never scroll
+   sideways on a phone. */
+.util-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--white); }
+.util-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; min-width: 620px; }
+.util-table th, .util-table td { padding: var(--space-3) var(--space-4); text-align: left; border-bottom: 1px solid var(--border); }
+.util-table thead th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.util-table .num { text-align: right; white-space: nowrap; }
+.util-table tbody tr:last-child td { border-bottom: 0; }
+.util-table tfoot th { border-top: 2px solid var(--border); border-bottom: 0; font-weight: 600; }
+.util-pill {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.util-ok { background: var(--success-bg); color: var(--success); }
+.util-warn { background: var(--warning-bg); color: var(--warning); }
+.util-bad { background: var(--danger-bg); color: var(--danger); }
+.util-over { background: var(--danger); color: var(--white); }
 
 /* ========== IDENTITY REVIEW ========== */
 /* Addresses, former names and employers, each with its own verdict. Rows read
@@ -2733,6 +2850,120 @@ function tbDate(s) {
   const m = s.match(/[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
   return m ? m[0] : null;
 }
+// Money rows are tri-column too, and reading them with tbMoney took the first
+// figure and called it the balance. On a row reading "Balance $0 $614 $614"
+// that returned $0 — Equifax's column — and a card that is two thirds used
+// scored as empty. Balances and limits are now read per bureau, like statuses.
+function tbMoneyTriple(row) {
+  if (!row) return [null, null, null];
+  const toks = row.trim().split(/\s+/);
+  const out = [];
+  for (const t of toks) {
+    if (out.length >= 3) break;
+    if (/^N\/A$/i.test(t) || /^-$/.test(t)) { out.push(null); continue; }
+    const m = t.match(/^\$\s?-?[\d,]+(?:\.\d{2})?$/);
+    if (m) { out.push(parseFloat(t.replace(/[$,]/g, ''))); continue; }
+  }
+  while (out.length < 3) out.push(null);
+  return out;
+}
+
+// ---- Tri-column status ----
+// Values are multi-word phrases from a fixed vocabulary, laid out in
+// Equifax / Experian / TransUnion order with N/A for a bureau that does not
+// report the account. Longest phrases match first, so "Late 120 Days" is never
+// read as "Late 30 Days" plus stray tokens, and "Over 120 Days Past Due" is
+// never split.
+const TB_STATUS_WORDS = [
+  'Over 120 Days Past Due', 'Included in Bankruptcy', 'No Data Available',
+  'Collection Account', 'Account Charged Off', 'Too New to Rate',
+  'Pays as Agreed', 'Late 150 Days', 'Late 120 Days', 'Late 90 Days',
+  'Late 60 Days', 'Late 30 Days', 'Charged Off', 'Charge Off', 'Repossession',
+  'Foreclosure', 'Delinquent', 'Derogatory', 'Current', 'Closed', 'Paid',
+  'Former', 'Open', 'N/A'
+];
+
+// Severity order decides which of three disagreeing bureaus is the one to
+// believe for the file's overall picture: the worst of them. A derogatory at
+// one bureau is real even when another reports the account clean — it is being
+// reported to anyone who pulls that bureau.
+const TB_STATUS_RANK = {
+  'n/a': -1, 'no data available': -1, 'too new to rate': 0,
+  'pays as agreed': 1, 'current': 1, 'paid': 1, 'closed': 1, 'open': 1, 'former': 1,
+  'late 30 days': 2, 'late 60 days': 3, 'late 90 days': 4, 'late 120 days': 5,
+  'late 150 days': 6, 'over 120 days past due': 6, 'delinquent': 6, 'derogatory': 7,
+  'repossession': 8, 'foreclosure': 8, 'collection account': 9,
+  'charge off': 10, 'charged off': 10, 'account charged off': 10,
+  'included in bankruptcy': 10
+};
+
+// A block carries more than one status-bearing row — a coarse "Account Status"
+// in the payment summary (Closed / Open) and a detailed "Status" further down
+// (Pays as Agreed / Collection Account / Late 30 Days). Reading only the first
+// one that parses would take "Closed Closed N/A" and miss that Experian is
+// reporting the same account as a collection, so every status row is parsed and
+// merged column by column, worst value winning per bureau.
+//
+// "Status Date Jul 01, 2026" and "Status Court Liability ..." begin with the
+// same word and are not statuses; they drop out because none of their tokens is
+// in the vocabulary.
+function tbStatusRows(lines) {
+  const rows = [];
+  for (const l of lines) {
+    const m = l.match(/^(?:Account Status|Status)\s+(.+)$/i);
+    if (!m) continue;
+    const r = m[1].trim();
+    if (/^(Date|Court)\b/i.test(r)) continue;
+    const t = tbSplitTriple(r);
+    if (t.some(v => v && TB_STATUS_RANK[v.toLowerCase()] !== undefined)) rows.push(t);
+  }
+  return rows;
+}
+
+function tbStatusTripleFromBlock(lines) {
+  const rows = tbStatusRows(lines);
+  const out = [null, null, null];
+  rows.forEach(t => {
+    for (let i = 0; i < 3; i++) {
+      if (!t[i]) continue;
+      const cur = out[i] ? (TB_STATUS_RANK[out[i].toLowerCase()] ?? -2) : -2;
+      const next = TB_STATUS_RANK[t[i].toLowerCase()] ?? -2;
+      if (next > cur) out[i] = t[i];
+    }
+  });
+  return out;
+}
+
+function tbSplitTriple(row) {
+  if (!row) return [null, null, null];
+  const out = [];
+  let rest = row.trim();
+  let guard = 0;
+  while (rest && out.length < 3 && guard++ < 12) {
+    let hit = null;
+    for (const w of TB_STATUS_WORDS) {
+      const re = new RegExp('^' + tbEsc(w) + '(?=\\s|$)', 'i');
+      if (re.test(rest)) { hit = w; break; }
+    }
+    if (!hit) break;
+    out.push(/^n\/a$/i.test(hit) ? null : hit);
+    rest = rest.slice(hit.length).trim();
+  }
+  while (out.length < 3) out.push(null);
+  return out;
+}
+
+function tbWorstStatus(triple) {
+  let best = null, rank = -2;
+  (triple || []).forEach(v => {
+    if (!v) return;
+    const r = TB_STATUS_RANK[v.toLowerCase()];
+    if (r === undefined || r < 0) return;
+    if (r > rank) { rank = r; best = v; }
+  });
+  return best;
+}
+
 // Counts appear once per bureau; take the worst case across all three.
 function tbMaxInt(s) {
   if (!s) return 0;
@@ -2816,8 +3047,17 @@ function parseThreeBureauReport(text) {
     const repoCount = tbMaxInt(tbRow(blk, 'Repossession'));
     const bkCount = tbMaxInt(tbRow(blk, 'Included in Bankruptcy'));
 
-    const statusRow = tbRow(blk, 'Account Status') || tbRow(blk, 'Status');
-    const status = tbWord(statusRow, ['Pays as Agreed', 'Charge Off', 'Collection', 'Repossession', 'Closed', 'Open', 'Current', 'Paid', 'Delinquent', 'Derogatory']) ||
+    // The Status row is tri-column, and reading it with tbWord took whichever
+    // status appeared first and threw the other two away. On a row reading
+    // "Pays as Agreed  Collection Account  N/A" that returned "Pays as Agreed"
+    // — Equifax's value — and lost the fact that Experian is reporting the same
+    // account as a collection. That cost accuracy (a derogatory at one bureau
+    // read as clean) and it discarded the single most useful thing a
+    // three-bureau report contains: the places where the bureaus contradict
+    // each other.
+    const statusTriple = tbStatusTripleFromBlock(blk);
+    const status = tbWorstStatus(statusTriple) ||
+                   tbWord(tbRow(blk, 'Account Status') || tbRow(blk, 'Status'), ['Pays as Agreed', 'Charge Off', 'Collection', 'Repossession', 'Closed', 'Open', 'Current', 'Paid', 'Delinquent', 'Derogatory']) ||
                    (closedFlag ? 'Closed' : 'unknown');
 
     // "Reported Yes No No" — which bureaus carry this tradeline. Column order
@@ -2850,6 +3090,10 @@ function parseThreeBureauReport(text) {
       status: status,
       closed: closedFlag,
       account_type: tbWord(tbRow(blk, 'Account Type'), ['Installment', 'Revolving', 'Mortgage', 'Open', 'Other']),
+      per_bureau_status: statusTriple,
+      per_bureau_balance: tbMoneyTriple(tbRow(blk, 'Balance')),
+      per_bureau_limit: tbMoneyTriple(tbRow(blk, 'Credit Limit')),
+      per_bureau_high: tbMoneyTriple(tbRow(blk, 'High Credit')),
       date_opened: tbDate(tbRow(blk, 'Date Opened')),
       date_reported: tbDate(tbRow(blk, 'Date Reported')),
       dofd: tbDate(tbRow(blk, 'Date Of First Delinquency')),
@@ -3347,10 +3591,14 @@ function parseExperianPrintable(text) {
       }
       if (!creditor || /^Inquired on/i.test(creditor)) continue;
       const addr = [];
+      let bizType = null;
       for (let k = i + 1; k < lines.length && addr.length < 3; k++) {
         const l = lines[k];
         if (/^Inquired on/i.test(l) || /^This inquiry is scheduled/i.test(l)) break;
-        if (/^Business Type:/i.test(l)) continue;
+        // The business type says what kind of credit was applied for. It is what
+        // separates a rate-shopping cluster (same type, scored as one) from four
+        // separate applications (scored separately).
+        if (/^Business Type:/i.test(l)) { bizType = l.replace(/^Business Type:\s*/i, '').trim(); continue; }
         if (/^\(\d{3}\)/.test(l)) break;
         if (l) addr.push(l);
       }
@@ -3359,6 +3607,7 @@ function parseExperianPrintable(text) {
         address: addr.join('\n'),
         date: m[1].replace(/\.$/, '').trim(),
         bureau: bureau,
+        business_type: bizType,
         type: 'hard'
       });
     }
@@ -5573,6 +5822,9 @@ function runAnalysis() {
   
   // Build action plan
   analysis.action_plan = buildActionPlan(analysis);
+
+  // Ranked last, so it can weigh everything the analysis produced.
+  analysis.priority_actions = buildPriorityActions(analysis, upload.parsed || {});
   
   state.analysis = analysis;
   // The plan is downloadable from the moment there is something to put in it.
@@ -5672,6 +5924,378 @@ function tbBureauBreakdown(items, key) {
   items.forEach(it => { const b = it[key]; if (b) counts[b] = (counts[b] || 0) + 1; });
   const parts = Object.keys(counts).map(b => `${b} ${counts[b]}`);
   return parts.length ? ` (${parts.join(', ')})` : '';
+}
+
+// Business-type strings vary by bureau; fold them into the categories that
+// actually decide whether rate-shopping treatment applies.
+function inqCategory(q) {
+  const t = String(q.business_type || '');
+  if (!t) return null;
+  if (/mortgage|real estate/i.test(t)) return 'mortgage';
+  if (/automobile|auto/i.test(t)) return 'auto';
+  if (/student|education/i.test(t)) return 'student';
+  if (/credit card|bank credit/i.test(t)) return 'credit card';
+  if (/bank/i.test(t)) return 'bank';
+  return 'other';
+}
+
+function inqDate(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// ========== WHAT TO DO FIRST ==========
+// A list of twenty-three findings is more complete than a list of three, and
+// far less likely to be acted on. This ranks by leverage rather than by
+// severity, because they are not the same thing: the most serious item on a
+// report is often the one least worth touching this month.
+//
+// Leverage here means three different things, weighted deliberately:
+//   - a deadline someone else controls (a lawsuit, a statute running out)
+//   - work that produces a result without anyone's agreement (paying a balance
+//     down, an item that is simply out of time)
+//   - an argument that is unusually hard to refuse (the report contradicting
+//     itself)
+// Everything else waits its turn.
+function buildPriorityActions(analysis, parsed) {
+  const goal = state.intake.primary_goal;
+  const acts = [];
+  const util = analysis.utilization;
+
+  // 1. Anything on a clock somebody else set.
+  if (analysis.flags && analysis.flags.in_lawsuit) {
+    acts.push({
+      score: 1000,
+      label: 'Answer the lawsuit before anything else',
+      why: 'A response deadline is the only thing on this report that expires whether you act or not. Most states allow 14 to 30 days from service, and missing it hands the plaintiff a default judgment — which becomes wage garnishment without a second hearing. Nothing else in this plan matters until this is filed.',
+      tag: 'Deadline'
+    });
+  }
+
+  // 2. Calendar deletions — no argument required, so they cost one letter and
+  //    almost always work.
+  const expired = (analysis.findings || []).find(f => f.type === 'inquiry_expired');
+  if (expired) {
+    acts.push({
+      score: 700,
+      label: expired.title,
+      why: 'These need no argument about whether the entry was fair. The reporting period has simply run out, which is a matter of the calendar rather than a matter of opinion — the cheapest deletions available to you and the ones most likely to succeed on the first letter.',
+      tag: 'Free win'
+    });
+  }
+
+  // 3. The report contradicting itself.
+  if ((analysis.contradictions || []).length) {
+    acts.push({
+      score: 650,
+      label: `Dispute the ${analysis.contradictions.length} account${analysis.contradictions.length === 1 ? '' : 's'} where the bureaus contradict each other`,
+      why: 'Ordinary disputes are your word against the furnisher\'s, and the furnisher confirms its own record. These are different: your own report shows two bureaus reporting different things about one account, so at least one is wrong by arithmetic. That is the hardest kind of dispute to answer with a form response.',
+      tag: 'Strongest argument'
+    });
+  }
+
+  // 4. Over-limit cards — the worst revolving state short of delinquency, and
+  //    usually the cheapest points on the page.
+  if (util && util.over_limit.length) {
+    const cost = util.over_limit.reduce((n, c) => n + c.to_under_limit, 0);
+    acts.push({
+      score: 620,
+      label: `Get ${util.over_limit.length === 1 ? 'one card' : util.over_limit.length + ' cards'} back under the limit — ${usd(cost)}`,
+      why: `${util.over_limit.map(c => `${c.creditor} at ${c.utilization}%`).join(', ')}. Over-limit is the worst state a revolving account can be in short of missing payments, and unlike everything else here it needs nobody's permission — no investigation, no thirty-day wait. Pay before the statement closing date so the lower balance is the one that gets reported.`,
+      tag: 'You control this'
+    });
+  }
+
+  // 5. Utilization generally.
+  if (util && util.overall > UTIL_GOOD && !(util.over_limit || []).length) {  // eslint-disable-line
+    acts.push({
+      score: goal === 'raise_score' ? 600 : 480,
+      label: `Pay revolving balances down ${usd(util.overall_to_good)} to reach ${UTIL_GOOD}%`,
+      why: `You are at ${util.overall}% across ${util.cards.length} cards. Utilization is recalculated every month from the balance your issuer reports, which means it is the only major factor on your report that can change this billing cycle. It also carries no memory — a paid-down balance stops counting against you immediately.`,
+      tag: 'You control this'
+    });
+  }
+
+  // 6. Somebody else's data on the file.
+  const mixed = (analysis.findings || []).find(f => f.type === 'mixed_file' && f.severity === 'high');
+  if (mixed) {
+    acts.push({
+      score: 800,
+      label: 'Get the other person\'s information off your file',
+      why: 'Identifying information that is not yours means your file has been mixed with someone else\'s. Every dispute you send about individual accounts is wasted effort until the files are separated, because the furnisher keeps confirming records that are real — they just belong to somebody else.',
+      tag: 'Fix this first'
+    });
+  }
+
+  // 7. Collector contact — the FDCPA clock is short and the consumer starts it.
+  if (analysis.flags && analysis.flags.any_collector) {
+    acts.push({
+      score: 560,
+      label: 'Send debt validation before you pay or promise anything',
+      why: 'A validation request sent in writing freezes collection activity until the collector produces proof of the debt. It is one of the few places in consumer law where you set the timing rather than reacting to it — and once you make a payment or acknowledge the debt, some of that leverage is gone for good.',
+      tag: 'Time-sensitive'
+    });
+  }
+
+  // 8. Charge-offs and collections.
+  const collections = (analysis.findings || []).find(f => f.type === 'collections_found');
+  if (collections) {
+    acts.push({
+      score: goal === 'remove_items' ? 590 : 500,
+      label: collections.title,
+      why: 'Collections are the heaviest negative items on most reports. They are also the slowest to move, which is why they sit below the work above rather than at the top: start them now because they take the longest, not because they pay off first.',
+      tag: 'Start now, finishes late'
+    });
+  }
+
+  // 9. A clean report deserves the honest answer.
+  if (!acts.length) {
+    acts.push({
+      score: 100,
+      label: 'There is nothing here worth disputing',
+      why: 'Every account on this report is reporting accurately, and no item is out of time. Disputing something accurate would burn credibility you may need later. Your work now is building positive history — on-time payments, low reported balances, and time.',
+      tag: 'Leave it alone'
+    });
+  }
+
+  return acts.sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
+function renderPrioritySection(analysis) {
+  const acts = analysis.priority_actions || [];
+  if (!acts.length) return '';
+  let html = '<section style="margin-top:var(--space-10);">';
+  html += '<h2 style="margin-bottom:var(--space-3);">Do these three first</h2>';
+  html += `<p style="color:var(--text-secondary);margin-bottom:var(--space-6);">Everything we found is below, and it is a long list. These are the three worth your attention this week — ranked by what actually moves, not by what looks worst.</p>`;
+  html += '<div class="prio-list">';
+  acts.forEach((a, i) => {
+    html += `<div class="prio-item">
+      <div class="prio-num">${i + 1}</div>
+      <div class="prio-body">
+        <div class="prio-head"><h3>${idEsc(a.label)}</h3><span class="prio-tag">${idEsc(a.tag)}</span></div>
+        <p>${a.why}</p>
+      </div>
+    </div>`;
+  });
+  html += '</div></section>';
+  return html;
+}
+
+// ========== CROSS-BUREAU CONTRADICTIONS ==========
+// The single most useful thing a three-bureau report contains, and the thing no
+// single-bureau pull can ever show you: the places where the bureaus flatly
+// disagree about the same account.
+//
+// It is a better dispute than an ordinary one. An ordinary dispute is the
+// consumer's word against the furnisher's, and the furnisher confirms its own
+// record. Here the contradiction is on the face of the report: two bureaus
+// received data about one account and are reporting different things. They
+// cannot both be right, so at least one is inaccurate by arithmetic, and the
+// question stops being whether there is an error and becomes which one it is.
+//
+// The rules below are deliberately conservative, because this ends up in a
+// letter. "Closed" is a state, not a payment claim, so Closed-versus-Late is not
+// treated as a contradiction — an account really can be closed and have had a
+// late payment. Only genuine conflicts qualify.
+const TB_CLEAN_WORDS = ['pays as agreed', 'current', 'paid'];
+const TB_NEUTRAL_WORDS = ['closed', 'open', 'former', 'no data available', 'too new to rate'];
+
+function statusClass(v) {
+  const k = String(v || '').toLowerCase();
+  if (!k) return null;
+  if (TB_CLEAN_WORDS.includes(k)) return 'clean';
+  if (TB_NEUTRAL_WORDS.includes(k)) return 'neutral';
+  return (TB_STATUS_RANK[k] !== undefined && TB_STATUS_RANK[k] >= 2) ? 'derogatory' : null;
+}
+
+const TB_BUREAU_COLS = ['Equifax', 'Experian', 'TransUnion'];
+
+function findContradictions(parsed) {
+  const out = [];
+  (parsed.accounts || []).forEach(a => {
+    const t = a.per_bureau_status;
+    if (!t || t.filter(Boolean).length < 2) return;
+
+    const entries = [];
+    t.forEach((v, i) => { if (v) entries.push({bureau: TB_BUREAU_COLS[i], status: v, cls: statusClass(v), rank: TB_STATUS_RANK[String(v).toLowerCase()] ?? -2}); });
+
+    const clean = entries.filter(e => e.cls === 'clean');
+    const derog = entries.filter(e => e.cls === 'derogatory');
+    const neutral = entries.filter(e => e.cls === 'neutral');
+    if (!derog.length) return;
+
+    let kind = null;
+    if (clean.length) {
+      kind = 'clean_vs_derogatory';
+    } else if (neutral.length && derog.some(e => e.rank >= 9)) {
+      // A collection or charge-off is a substantive claim that "Closed" does
+      // not imply, so this one does count.
+      kind = 'neutral_vs_serious';
+    } else {
+      const ranks = derog.map(e => e.rank).filter((v, i, arr) => arr.indexOf(v) === i);
+      if (ranks.length > 1) kind = 'severity_mismatch';
+    }
+    if (!kind) return;
+
+    out.push({
+      creditor: a.creditor,
+      account: a.account_number || '',
+      entries: entries,
+      kind: kind,
+      worst: derog.sort((x, y) => y.rank - x.rank)[0],
+      account_ref: a
+    });
+  });
+  return out;
+}
+
+function contradictionSentence(c) {
+  const said = c.entries.map(e => `${e.bureau} reports it as "${e.status}"`).join(', ');
+  if (c.kind === 'clean_vs_derogatory') {
+    return `${said}. One bureau is calling this account current while another is reporting it derogatory. Both cannot be accurate.`;
+  }
+  if (c.kind === 'neutral_vs_serious') {
+    return `${said}. A collection or charge-off is a specific claim about what happened to this debt, and it is not something the other bureau's entry implies. Both cannot be accurate.`;
+  }
+  return `${said}. The bureaus disagree about how far behind this account went. At most one of those figures is correct.`;
+}
+
+// ========== REVOLVING UTILIZATION ==========
+// Utilization is the largest thing on a credit report that a consumer can
+// change this month without anyone's permission. Every other lever here — a
+// dispute, a goodwill request, a validation demand — depends on somebody else
+// agreeing. This one does not.
+//
+// So it gets stated in dollars. "Lower your utilization" is advice nobody can
+// act on; "pay this card down $237 before the statement closes" is an
+// instruction. The thresholds below are the ones scoring models actually break
+// at. They are thresholds, not a promise: no honest tool predicts a point gain,
+// because the models are proprietary and every file reacts differently.
+const UTIL_GOOD = 30;   // the widely-used break point
+const UTIL_BEST = 9;    // where the strongest files sit
+
+function isRevolvingAccount(a) {
+  const t = String(a.account_type || '');
+  if (!t) return false;
+  return /credit card|charge card|secured card|revolving|line of credit/i.test(t);
+}
+
+function isOpenAccount(a) {
+  const closed = /closed|paid/i.test(String(a.open_closed || '')) || /closed/i.test(String(a.status || ''));
+  return !closed;
+}
+
+// Ceiling to the dollar — a target that rounds down leaves the card a cent over
+// the line, which is the one place rounding actually costs the consumer.
+function payDownTo(balance, limit, pct) {
+  const target = Math.floor(limit * (pct / 100));
+  return Math.max(0, Math.ceil(balance - target));
+}
+
+function analyzeUtilization(parsed) {
+  const cards = [];
+  const skippedNoData = [];
+  let excludedChargedOff = 0;
+
+  (parsed.accounts || []).forEach(a => {
+    if (!isRevolvingAccount(a) || !isOpenAccount(a)) return;
+
+    const bal = moneyNum(a.balance);
+    // A charged-off card is not a utilization problem to solve by paying it to
+    // 30% — it is a derogatory to resolve on its own terms, and it is handled
+    // elsewhere in this analysis. Counting it here would send someone to pay
+    // down a charge-off for a utilization gain that does not arrive.
+    if (a.is_charge_off || a.is_collection) { if (bal) excludedChargedOff++; return; }
+
+    // On a three-bureau report each bureau has its own balance and its own
+    // limit, and they frequently disagree. Score each bureau's pair on its own
+    // and take the worst — that is the number a lender pulling that bureau
+    // actually sees. Averaging them would describe a file nobody is looking at.
+    let stated = null, high = null, balUsed = bal, perBureau = null;
+    if (a.per_bureau_balance && a.per_bureau_limit) {
+      const rows = [];
+      for (let i = 0; i < 3; i++) {
+        const bb = a.per_bureau_balance[i];
+        const ll = (a.per_bureau_limit[i] && a.per_bureau_limit[i] > 0)
+          ? a.per_bureau_limit[i]
+          : ((a.per_bureau_high || [])[i] && a.per_bureau_high[i] > 0 ? a.per_bureau_high[i] : null);
+        if (bb === null || !ll) continue;
+        rows.push({bureau: TB_BUREAU_COLS[i], balance: bb, limit: ll, util: (bb / ll) * 100,
+                   estimated: !(a.per_bureau_limit[i] && a.per_bureau_limit[i] > 0)});
+      }
+      if (rows.length) {
+        rows.sort((x, y) => y.util - x.util);
+        balUsed = rows[0].balance;
+        stated = rows[0].estimated ? null : rows[0].limit;
+        high = rows[0].estimated ? rows[0].limit : null;
+        perBureau = rows;
+      }
+    }
+    if (stated === null && high === null) {
+      stated = moneyNum(a.credit_limit);
+      high = moneyNum(a.high_credit);
+    }
+    const limit = (stated && stated > 0) ? stated : ((high && high > 0) ? high : null);
+    // A card with no balance figure cannot be scored, and its limit cannot be
+    // counted either without assuming the balance is zero. Both would be a
+    // guess, so it is left out — and counted, because leaving out a card with a
+    // large limit makes the ratio look worse than it is, and the consumer is
+    // entitled to know that before they act on the number.
+    if (!limit || balUsed === null) {
+      if (limit || balUsed !== null) skippedNoData.push({creditor: a.creditor, limit: limit});
+      return;
+    }
+
+    const util = Math.round((balUsed / limit) * 100);
+    cards.push({
+      creditor: a.creditor,
+      account: a.account_number || '',
+      per_bureau: perBureau,
+      balance: balUsed,
+      limit: limit,
+      limit_estimated: !(stated && stated > 0),
+      utilization: util,
+      over_limit: balUsed > limit,
+      to_good: payDownTo(balUsed, limit, UTIL_GOOD),
+      to_best: payDownTo(balUsed, limit, UTIL_BEST),
+      to_under_limit: balUsed > limit ? Math.ceil(balUsed - limit) : 0
+    });
+  });
+
+  if (!cards.length) return null;
+
+  cards.sort((x, y) => y.utilization - x.utilization);
+
+  const totalBal = cards.reduce((n, c) => n + c.balance, 0);
+  const totalLim = cards.reduce((n, c) => n + c.limit, 0);
+  const overall = totalLim ? Math.round((totalBal / totalLim) * 100) : null;
+
+  // Cheapest route to getting every card individually under each threshold.
+  // Per-card matters as well as the aggregate: a single maxed card is visible to
+  // a manual underwriter even when the overall ratio looks fine.
+  const costAllGood = cards.reduce((n, c) => n + c.to_good, 0);
+  const costAllBest = cards.reduce((n, c) => n + c.to_best, 0);
+
+  return {
+    cards: cards,
+    total_balance: totalBal,
+    total_limit: totalLim,
+    overall: overall,
+    overall_to_good: payDownTo(totalBal, totalLim, UTIL_GOOD),
+    overall_to_best: payDownTo(totalBal, totalLim, UTIL_BEST),
+    cost_all_cards_good: costAllGood,
+    cost_all_cards_best: costAllBest,
+    over_limit: cards.filter(c => c.over_limit),
+    estimated_limits: cards.filter(c => c.limit_estimated).length,
+    excluded_charged_off: excludedChargedOff,
+    skipped_no_data: skippedNoData,
+    skipped_limit_total: skippedNoData.reduce((n, c) => n + (c.limit || 0), 0)
+  };
+}
+
+function usd(n) {
+  return '$' + Math.round(n).toLocaleString();
 }
 
 // ========== AUTHORIZED-USER ACCOUNTS ==========
@@ -5801,6 +6425,80 @@ function analyzeReport(parsed, analysis) {
     }
   }
   
+  // Cross-bureau contradictions — only possible on a three-bureau report.
+  const contradictions = findContradictions(parsed);
+  if (contradictions.length) {
+    analysis.contradictions = contradictions;
+    analysis.findings.push({
+      type: 'cross_bureau_conflict',
+      severity: 'high',
+      title: `${contradictions.length} account${contradictions.length === 1 ? '' : 's'} where the bureaus contradict each other`,
+      detail: `This is the strongest dispute on your report, and it only exists because you pulled all three bureaus. ${contradictions.map(c => `${c.creditor} — ${contradictionSentence(c)}`).join(' ')} An ordinary dispute is your word against the furnisher's, and the furnisher confirms its own record. This is different: the disagreement is on the face of your own report, so at least one entry is inaccurate as a matter of arithmetic, and the only question left is which. Dispute each of these at the bureau reporting the worse status, quote what the other bureau shows, and ask them to explain how the same account produced two different answers.`,
+      contradictions: contradictions,
+      letter: 'initial_bureau_dispute'
+    });
+  }
+
+  // Revolving utilization — the one lever that needs nobody's permission.
+  const util = analyzeUtilization(parsed);
+  if (util) {
+    analysis.utilization = util;
+    const worst = util.cards[0];
+    const bits = [];
+
+    bits.push(`You are carrying ${usd(util.total_balance)} against ${usd(util.total_limit)} of revolving credit — ${util.overall}% overall.`);
+
+    if (util.over_limit.length) {
+      bits.push(`${util.over_limit.length === 1 ? 'One card is' : util.over_limit.length + ' cards are'} over the limit: ${util.over_limit.map(c => `${c.creditor} at ${c.utilization}%`).join(', ')}. Over-limit is the worst state a revolving account can be in short of delinquency, and ${util.over_limit.length === 1 ? 'it takes ' + usd(util.over_limit[0].to_under_limit) + ' to get that card merely back under its limit' : 'it takes ' + usd(util.over_limit.reduce((n, c) => n + c.to_under_limit, 0)) + ' to get them all merely back under their limits'}.`);
+    }
+
+    if (util.overall > UTIL_GOOD) {
+      bits.push(`Paying down ${usd(util.overall_to_good)} brings your overall ratio to ${UTIL_GOOD}%. ${usd(util.overall_to_best)} brings it to ${UTIL_BEST}%, where the strongest files sit.`);
+    } else if (util.overall > UTIL_BEST) {
+      bits.push(`You are already under ${UTIL_GOOD}%. ${usd(util.overall_to_best)} more brings you to ${UTIL_BEST}%.`);
+    } else if (util.over_limit.length) {
+      // Low aggregate, maxed individual cards. This is a specific and common
+      // shape — a few small cards run to the limit while a large unused line
+      // holds the total ratio down — and it is worth naming, because the
+      // aggregate number tells the consumer everything is fine when the cards a
+      // human underwriter will look at are not.
+      bits.push(`Your overall ratio of ${util.overall}% looks fine, and that number is hiding the problem: it is held down by large limits you are not using, while ${util.over_limit.length} smaller card${util.over_limit.length === 1 ? ' is' : 's are'} run past the limit. Scoring models look at both the total and each card on its own, and a human underwriter reading the report will see the maxed cards line by line. This is the cheapest situation on this page to fix — the balances involved are small.`);
+    } else {
+      bits.push(`At ${util.overall}% your revolving utilization is already where you want it. Do not pay these to zero — a small reported balance reads better than none at all.`);
+    }
+
+    if (worst.utilization > UTIL_GOOD) {
+      bits.push(`Per card matters separately from the total: one maxed card is visible to an underwriter reading the report by hand even when the overall number looks fine. ${worst.creditor} is your worst at ${worst.utilization}% and takes ${usd(worst.to_good)} to reach ${UTIL_GOOD}%. Getting every card under ${UTIL_GOOD}% costs ${usd(util.cost_all_cards_good)} in total.`);
+    }
+
+    // The timing rule. No credit report carries a statement closing date, so
+    // there is no honest way to print "best pay date: Aug 14" from this file —
+    // but the rule behind that date is worth more than the date anyway.
+    bits.push('One timing point worth more than any single payment: the balance your card issuer reports is the balance on your statement closing date, not the balance after you pay the bill. Paying in full every month and still showing 90% utilization is the most common version of this. Find the closing date on your statement, and make the payment a few days before it — same money, different reported number.');
+
+    if (util.skipped_no_data.length) {
+      const names = util.skipped_no_data.map(c => c.creditor).join(', ');
+      const extra = util.skipped_limit_total
+        ? ` ${util.skipped_no_data.length === 1 ? 'It carries' : 'They carry'} about ${usd(util.skipped_limit_total)} of limit between ${util.skipped_no_data.length === 1 ? 'it' : 'them'}, so if the balance on ${util.skipped_no_data.length === 1 ? 'it is' : 'those is'} low, your true ratio is meaningfully better than the ${util.overall}% above.`
+        : '';
+      bits.push(`${util.skipped_no_data.length === 1 ? 'One card is' : util.skipped_no_data.length + ' cards are'} missing from this calculation because the report gives no balance for ${util.skipped_no_data.length === 1 ? 'it' : 'them'} — ${names}. We will not assume a balance we cannot see.${extra}`);
+    }
+    if (util.estimated_limits) {
+      bits.push(`${util.estimated_limits === 1 ? 'One card has' : util.estimated_limits + ' cards have'} no credit limit reported, so the highest balance ever recorded was used in its place. That is what scoring models do too, which makes a missing limit worth disputing in its own right — the substitute is almost always less favourable than the real limit.`);
+    }
+    if (util.excluded_charged_off) {
+      bits.push(`${util.excluded_charged_off === 1 ? 'One charged-off card was' : util.excluded_charged_off + ' charged-off cards were'} left out of this calculation on purpose. A charge-off is not a utilization problem to pay down to 30% — it is a derogatory to resolve on its own terms, and it is dealt with separately in this analysis.`);
+    }
+
+    analysis.findings.push({
+      type: 'utilization',
+      severity: util.overall > 50 || util.over_limit.length ? 'high' : (util.overall > UTIL_GOOD ? 'medium' : 'low'),
+      title: `Revolving utilization: ${util.overall}% across ${util.cards.length} card${util.cards.length === 1 ? '' : 's'}`,
+      detail: bits.join(' '),
+      utilization: util
+    });
+  }
+
   // Identity: authorized-user accounts, and anything the consumer has told us is
   // not theirs. Both belong in the printed plan, not just on screen.
   const auInfo = analyzeAuthorizedUsers(parsed);
@@ -5936,11 +6634,52 @@ function analyzeReport(parsed, analysis) {
     const clusters = inqClusters(inquiries, 45);
     if (clusters.length) {
       const biggest = clusters.sort((a, b) => b.length - a.length)[0];
+      // Where the report says what each pull was for, we can settle the question
+      // instead of asking the consumer to remember. Rate-shopping treatment only
+      // applies within one kind of credit.
+      const types = biggest.map(q => inqCategory(q)).filter(Boolean);
+      const distinct = types.filter((v, i, a) => a.indexOf(v) === i);
+      let verdict;
+      if (types.length === biggest.length && distinct.length === 1 && distinct[0] !== 'other') {
+        verdict = `Every pull in this cluster is the same kind of credit — ${distinct[0]}. That is textbook rate shopping: scoring models fold the whole window into a single inquiry, so these ${biggest.length} are already costing you about what one costs. There is nothing to win here. Leave them alone and spend the effort on accounts.`;
+      } else if (types.length === biggest.length && distinct.length > 1) {
+        verdict = `These were not all the same kind of credit — the report shows ${distinct.join(', ')}. Rate-shopping protection only folds together pulls for the same product, so these count separately. That is worth knowing before you assume the cluster is harmless.`;
+      } else {
+        verdict = 'If those pulls were for the same kind of loan — auto, mortgage or student — scoring models treat the whole cluster as a single inquiry, so it is already costing you far less than the count suggests. If they were for different kinds of credit, they count separately. This report does not say which, so check what you were applying for before spending a letter on these.';
+      }
       analysis.findings.push({
         type: 'inquiry_rate_shopping',
         severity: 'low',
         title: `${biggest.length} inquiries fall inside one 45-day window`,
-        detail: `${biggest.map(q => q.creditor).join(', ')}. If those pulls were for the same kind of loan — auto, mortgage or student — scoring models treat the whole cluster as a single inquiry, so it is already costing you far less than the count suggests. If they were for different kinds of credit, they count separately. Check what you were applying for before spending a letter on these.`
+        detail: `${biggest.map(q => q.creditor + (inqCategory(q) ? ' (' + inqCategory(q) + ')' : '')).join(', ')}. ${verdict}`
+      });
+    }
+
+    // An inquiry with no account opened near it. This is the one inference on
+    // this page that genuinely cannot be resolved from the report alone, so it
+    // names all three explanations rather than picking the flattering one — the
+    // third is the only one worth money, and the consumer is the only person who
+    // knows which applies.
+    const recentNoAccount = inquiries.filter(q => {
+      const m = inqMonthsAgo(q.date);
+      if (m === null || m > 6) return false;
+      const qd = inqDate(q.date);
+      if (!qd) return false;
+      return !(accounts || []).some(a => {
+        const ad = inqDate(a.date_opened);
+        if (!ad) return false;
+        const days = (ad - qd) / 86400000;
+        return days >= -14 && days <= 75;
+      });
+    });
+    if (recentNoAccount.length) {
+      analysis.findings.push({
+        type: 'inquiry_no_account',
+        severity: 'medium',
+        title: `${recentNoAccount.length} recent inquir${recentNoAccount.length === 1 ? 'y has' : 'ies have'} no matching account on this report`,
+        detail: `${recentNoAccount.map(q => `${q.creditor} (${q.date})`).join('; ')} — pulled in the last six months, with no tradeline opened around the same time. There are exactly three explanations and they could not be more different. One: you were approved and the account has not started reporting yet, which takes 30 to 60 days — expect it to appear, and expect your average account age to drop when it does. Two: you applied and were declined, in which case the inquiry is legitimate and simply ages off in 24 months. Three: you never applied at all — and that is the one worth acting on, because a pull without permissible purpose is an FCRA violation with statutory damages of $100 to $1,000 under 15 U.S.C. § 1681n. Only you know which. Read the list and be honest with yourself about each name on it; if any of them is one you did not authorize, your packet already contains the letter that demands they produce their permissible purpose.`,
+        letter: 'inquiry_permissible_purpose',
+        inquiries: recentNoAccount
       });
     }
   }
@@ -6399,6 +7138,66 @@ function buildActionPlan(analysis) {
 </script>
 <script>
 // ========== ANALYSIS DISPLAY ==========
+// ========== UTILIZATION TABLE ==========
+// Deliberately a table of dollars, not a chart. The number a consumer needs off
+// this screen is what to transfer and to which card, and a bar chart makes that
+// harder to read, not easier.
+function renderUtilizationSection(analysis) {
+  const u = analysis.utilization;
+  if (!u) return '';
+
+  const band = pct => pct > 100 ? 'util-over' : pct > 50 ? 'util-bad' : pct > UTIL_GOOD ? 'util-warn' : 'util-ok';
+
+  let html = '<section style="margin-top:var(--space-10);">';
+  html += '<h2 style="margin-bottom:var(--space-3);">What you can change this month</h2>';
+  html += `<p style="color:var(--text-secondary);margin-bottom:var(--space-6);">Every other move in this plan needs somebody else to agree — a bureau to investigate, a creditor to be generous, a collector to take a deal. This one does not. These are your open revolving accounts and the exact dollars it takes to move each one under the lines scoring models break at.</p>`;
+
+  html += `<div class="util-summary">
+    <div><span class="util-summary-label">Total balance</span><span class="util-summary-value">${usd(u.total_balance)}</span></div>
+    <div><span class="util-summary-label">Total limit</span><span class="util-summary-value">${usd(u.total_limit)}</span></div>
+    <div><span class="util-summary-label">Overall</span><span class="util-summary-value ${band(u.overall)}">${u.overall}%</span></div>
+    ${u.over_limit.length
+      ? `<div><span class="util-summary-label">All cards under limit</span><span class="util-summary-value">${usd(u.over_limit.reduce((n, c) => n + c.to_under_limit, 0))}</span></div>`
+      : `<div><span class="util-summary-label">To reach ${UTIL_GOOD}%</span><span class="util-summary-value">${u.overall_to_good ? usd(u.overall_to_good) : 'Already there'}</span></div>`}
+    <div><span class="util-summary-label">Every card under ${UTIL_GOOD}%</span><span class="util-summary-value">${u.cost_all_cards_good ? usd(u.cost_all_cards_good) : 'Already there'}</span></div>
+  </div>`;
+
+  html += '<div class="util-table-wrap"><table class="util-table">';
+  html += `<thead><tr><th>Card</th><th class="num">Balance</th><th class="num">Limit</th><th class="num">Used</th><th class="num">Pay to hit ${UTIL_GOOD}%</th><th class="num">Pay to hit ${UTIL_BEST}%</th></tr></thead><tbody>`;
+  u.cards.forEach(c => {
+    html += `<tr>
+      <td><strong>${idEsc(c.creditor)}</strong>${c.account ? ' <span style="color:var(--text-tertiary);font-size:0.8125rem;">••••' + idEsc(String(c.account).slice(-4)) + '</span>' : ''}${c.limit_estimated ? '<br><span style="font-size:0.75rem;color:var(--text-tertiary);">limit not reported — highest balance used</span>' : ''}</td>
+      <td class="num">${usd(c.balance)}</td>
+      <td class="num">${usd(c.limit)}</td>
+      <td class="num"><span class="util-pill ${band(c.utilization)}">${c.utilization}%</span></td>
+      <td class="num">${c.to_good ? usd(c.to_good) : '<span style="color:var(--success);">done</span>'}</td>
+      <td class="num">${c.to_best ? usd(c.to_best) : '<span style="color:var(--success);">done</span>'}</td>
+    </tr>`;
+  });
+  html += `</tbody><tfoot><tr><th>All cards under the line</th><th class="num">${usd(u.total_balance)}</th><th class="num">${usd(u.total_limit)}</th><th class="num">${u.overall}%</th><th class="num">${usd(u.cost_all_cards_good)}</th><th class="num">${usd(u.cost_all_cards_best)}</th></tr></tfoot>`;
+  html += '</table></div>';
+
+  if (u.over_limit.length && u.overall <= UTIL_GOOD) {
+    html += `<div class="alert alert-warning" style="margin-top:var(--space-6);">
+      <h3 style="margin-bottom:var(--space-3);">Your overall number is hiding this</h3>
+      <p>${u.overall}% across the file looks healthy, and it is held there by large limits you are not using. Meanwhile ${u.over_limit.length} card${u.over_limit.length === 1 ? ' is' : 's are'} past the limit — ${u.over_limit.map(c => idEsc(c.creditor) + ' at ' + c.utilization + '%').join(', ')}. Scoring models read each card on its own as well as the total, and an underwriter going down the page by hand sees the maxed ones. The balances involved are small: ${usd(u.over_limit.reduce((n, c) => n + c.to_under_limit, 0))} gets every one of them back under its limit.</p>
+    </div>`;
+  }
+  html += `<div class="card card-pink" style="margin-top:var(--space-6);">
+    <h3 style="margin-bottom:var(--space-3);font-size:1.0625rem;">Pay before the statement closes, not before the bill is due</h3>
+    <p style="margin:0;font-size:0.9375rem;">Your card issuer reports the balance shown on your <strong>statement closing date</strong> — not what you owe after you pay. This is why people who pay in full every month still show 90% utilization on their credit report: the payment lands after the number has already been sent. Find the closing date on your statement and make the payment a few days before it. Same money, same month, different reported number.</p>
+    <p style="margin:var(--space-3) 0 0;font-size:0.875rem;color:var(--text-secondary);">We cannot print your closing dates here — no credit report contains them. They are on each statement and in your online account.</p>
+  </div>`;
+
+  if (u.skipped_no_data.length) {
+    html += `<p style="font-size:0.875rem;color:var(--text-secondary);margin-top:var(--space-4);"><strong>${u.skipped_no_data.length === 1 ? 'One card is' : u.skipped_no_data.length + ' cards are'} not in this table.</strong> ${u.skipped_no_data.map(c => idEsc(c.creditor)).join(', ')} — the report gives no balance, and we will not assume one.${u.skipped_limit_total ? ' ' + (u.skipped_no_data.length === 1 ? 'It holds' : 'They hold') + ' roughly ' + usd(u.skipped_limit_total) + ' of limit, so a low balance there would put your real ratio well below the ' + u.overall + '% shown.' : ''}</p>`;
+  }
+  html += `<p style="font-size:0.8125rem;color:var(--text-tertiary);margin-top:var(--space-4);">${UTIL_GOOD}% and ${UTIL_BEST}% are the thresholds scoring models are built around, not a promise of a result. We do not print a projected point gain, because the models are proprietary and no one outside them can honestly predict what your file will do.</p>`;
+
+  html += '</section>';
+  return html;
+}
+
 // ========== IDENTITY REVIEW ==========
 // The addresses, former names and employers on a report are the part almost
 // nobody reads, and they are the part that gives away a mixed file — somebody
@@ -6638,6 +7437,8 @@ function renderAnalysis(analysis) {
     html += '</div></section>';
   }
   
+  html += renderPrioritySection(analysis);
+  html += renderUtilizationSection(analysis);
   html += renderIdentitySection();
 
   // Findings
@@ -7012,6 +7813,17 @@ function buildLetterContext(tmpl) {
   
   // Collect disputable items from findings
   const disputableItems = [];
+
+  // Cross-bureau contradictions go in first and carry their own reason, because
+  // the argument is stronger than any generic one: the report contradicts
+  // itself, so the furnisher cannot resolve it by confirming its own record.
+  (analysis.contradictions || []).forEach(c => {
+    disputableItems.push({
+      creditor: c.creditor,
+      account: c.account,
+      reason: contradictionSentence(c) + ' I am asking you to identify which entry is correct, correct or delete the inaccurate one, and tell me what the other bureau was sent that produced a different result.'
+    });
+  });
   (analysis.findings || []).forEach(f => {
     if (f.account) {
       disputableItems.push({
@@ -7428,6 +8240,60 @@ function buildActionPlanDoc() {
       <p>These counts come from the report you uploaded, not from an estimate. Where a bureau reports an account and another does not, the account still appears once here — the bureaus it is reporting at are named in the findings.</p>
     </div>
   </section>`;
+
+  // ================= DO THESE THREE FIRST =================
+  // Placed ahead of the findings on purpose. A reader who gets no further than
+  // this page should still know what to do on Monday.
+  const prio = analysis.priority_actions || [];
+  if (prio.length) {
+    h += `<section class="plan-sheet">
+      ${planHead('Do these three first')}
+      ${planTitle('Do these three first', 'Ranked by what moves, not by what looks worst. The full list of findings follows.')}
+      ${prio.map((a, i) => `<div class="plan-row">
+        <span class="plan-chip">${planEsc(a.tag)}</span>
+        <h3>${i + 1}. ${planEsc(a.label)}</h3>
+        <p>${planEsc(a.why)}</p>
+      </div>`).join('')}
+    </section>`;
+  }
+
+  // ================= WHAT YOU CAN CHANGE THIS MONTH =================
+  const putil = analysis.utilization;
+  if (putil && putil.cards.length) {
+    h += `<section class="plan-sheet">
+      ${planHead('What you can change this month')}
+      ${planTitle('What you can change this month', 'Your open revolving accounts, and the dollars it takes to move each one under the line.')}
+      <div class="plan-tiles">
+        ${planTile('Total balance', usd(putil.total_balance))}
+        ${planTile('Total limit', usd(putil.total_limit))}
+        ${planTile('Overall used', putil.overall + '%')}
+        ${putil.over_limit.length
+          ? planTile('All cards under limit', usd(putil.over_limit.reduce((n, c) => n + c.to_under_limit, 0)))
+          : planTile('To reach ' + UTIL_GOOD + '%', putil.overall_to_good ? usd(putil.overall_to_good) : 'Already there')}
+        ${planTile('Every card under ' + UTIL_GOOD + '%', putil.cost_all_cards_good ? usd(putil.cost_all_cards_good) : 'Already there')}
+        ${planTile('Cards over limit', String(putil.over_limit.length), !!putil.over_limit.length)}
+      </div>
+      <table class="plan-table">
+        <thead><tr><th>Card</th><th class="num">Balance</th><th class="num">Limit</th><th class="num">Used</th><th class="num">Pay to ${UTIL_GOOD}%</th><th class="num">Pay to ${UTIL_BEST}%</th></tr></thead>
+        <tbody>${putil.cards.map(c => `<tr>
+          <td>${planEsc(c.creditor)}${c.limit_estimated ? ' <i>(limit not reported)</i>' : ''}</td>
+          <td class="num">${usd(c.balance)}</td>
+          <td class="num">${usd(c.limit)}</td>
+          <td class="num">${c.utilization}%</td>
+          <td class="num">${c.to_good ? usd(c.to_good) : '—'}</td>
+          <td class="num">${c.to_best ? usd(c.to_best) : '—'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      <div class="plan-rule">
+        <b>Pay before the statement closes, not before the bill is due</b>
+        <p>Your card issuer reports the balance shown on your statement closing date — not what you owe after you pay it. This is why people who pay in full every month still show high utilization. Find the closing date on your statement and pay a few days before it. Same money, different reported number. We cannot print your closing dates: no credit report contains them.</p>
+      </div>
+      <div class="plan-rule">
+        <b>These are thresholds, not a promise</b>
+        <p>${UTIL_GOOD}% and ${UTIL_BEST}% are the break points scoring models are built around. We do not print a projected point gain, because the models are proprietary and nobody outside them can honestly predict what your file will do.</p>
+      </div>
+    </section>`;
+  }
 
   // ================= FINDINGS =================
   if (findings.length) {
