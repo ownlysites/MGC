@@ -6016,12 +6016,16 @@ function renderLetterPacket() {
   html += '<div class="card" style="margin-bottom:var(--space-10);">';
   html += '<h3 style="margin-bottom:var(--space-3);">Personalize your letters</h3>';
   html += '<p style="font-size:0.9375rem;margin-bottom:var(--space-5);color:var(--text-secondary);">Fill in your info and all letters update automatically. Everything stays in your browser.</p>';
+  // Prefill from anything already given (the plan prompt collects the same fields),
+  // otherwise re-rendering this screen would blank them and updateUserInfo() would
+  // write the blanks back over the letters.
+  const uiv = k => ((state.userInfo || {})[k] || '').replace(/"/g, '&quot;');
   html += '<div class="user-info-grid">';
-  html += '<div><label>Full name</label><input type="text" id="ui-name" placeholder="Your full legal name" oninput="updateUserInfo()"></div>';
-  html += '<div><label>Street address</label><input type="text" id="ui-address" placeholder="123 Main St" oninput="updateUserInfo()"></div>';
-  html += '<div><label>City, State ZIP</label><input type="text" id="ui-city" placeholder="Anytown, NY 12345" oninput="updateUserInfo()"></div>';
-  html += '<div><label>Date of birth</label><input type="text" id="ui-dob" placeholder="MM/DD/YYYY" oninput="updateUserInfo()"></div>';
-  html += '<div><label>SSN (last 4 only)</label><input type="text" id="ui-ssn" placeholder="XXXX" maxlength="4" oninput="updateUserInfo()"></div>';
+  html += '<div><label>Full name</label><input type="text" id="ui-name" value="' + uiv('name') + '" placeholder="Your full legal name" oninput="updateUserInfo()"></div>';
+  html += '<div><label>Street address</label><input type="text" id="ui-address" value="' + uiv('address') + '" placeholder="123 Main St" oninput="updateUserInfo()"></div>';
+  html += '<div><label>City, State ZIP</label><input type="text" id="ui-city" value="' + uiv('city') + '" placeholder="Anytown, NY 12345" oninput="updateUserInfo()"></div>';
+  html += '<div><label>Date of birth</label><input type="text" id="ui-dob" value="' + uiv('dob') + '" placeholder="MM/DD/YYYY" oninput="updateUserInfo()"></div>';
+  html += '<div><label>SSN (last 4 only)</label><input type="text" id="ui-ssn" value="' + uiv('ssnLast4') + '" placeholder="XXXX" maxlength="4" oninput="updateUserInfo()"></div>';
   html += '</div>';
   html += '<p style="font-size:0.75rem;color:var(--text-tertiary);margin-top:var(--space-4);">⚠ Only include the last 4 digits of your SSN on letters — never the full number. The full number goes on your separate identity verification (photo ID + utility bill), not in the body of the letter.</p>';
   html += '</div>';
@@ -6105,8 +6109,10 @@ function renderLetterPacket() {
 
   content.innerHTML = html;
   
-  // Generate all letters with current (placeholder) user info
-  state.userInfo = {};
+  // Keep whatever details we already have (the plan prompt collects the same
+  // fields) — clearing them here would blank the inputs rendered just above and
+  // push placeholders back into every letter.
+  state.userInfo = state.userInfo || {};
   regenerateAllLetters();
 }
 
@@ -6882,6 +6888,19 @@ window.addEventListener('afterprint', () => {
 });
 
 function downloadActionPlan() {
+  if (!state.analysis) {
+    showToast('Build your analysis first.');
+    return;
+  }
+  // Ask for the details once. After that the plan builds straight away.
+  if (!planDetailsComplete()) {
+    promptPlanDetails();
+    return;
+  }
+  buildAndPrintPlan();
+}
+
+function buildAndPrintPlan() {
   if (!buildActionPlanDoc()) {
     showToast('Build your analysis first.');
     return;
@@ -6911,8 +6930,83 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove('show'), 2200);
 }
 
+// ========== DETAILS PROMPT BEFORE THE ACTION PLAN ==========
+// The personalisation form lives on the letters screen, but the plan can be
+// built from the analysis screen and the nav button too — so it was possible to
+// print a packet whose letters still said [YOUR FULL NAME]. Letters with
+// placeholders in them are not worth printing, so ask first.
+function showModal(title, bodyHTML, footerHTML) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = bodyHTML;
+  document.getElementById('modal-footer').innerHTML = footerHTML || '';
+  document.getElementById('modal-backdrop').classList.add('active');
+}
+
+function planDetailsComplete() {
+  const u = state.userInfo || {};
+  return !!(u.name && u.address && u.city);
+}
+
+function promptPlanDetails() {
+  const u = state.userInfo || {};
+  const v = k => (u[k] || '').replace(/"/g, '&quot;');
+  const body = `
+    <p style="margin-bottom:var(--space-5);color:var(--text-secondary);font-size:0.9375rem;">
+      Your letters go out over your name and address — bureaus and furnishers will not act on a letter without them. Fill these in and every letter in your plan comes out ready to sign and mail.
+    </p>
+    <div class="user-info-grid">
+      <div><label>Full legal name</label><input type="text" id="pd-name" value="${v('name')}" placeholder="Your full legal name"></div>
+      <div><label>Street address</label><input type="text" id="pd-address" value="${v('address')}" placeholder="123 Main St"></div>
+      <div><label>City, State ZIP</label><input type="text" id="pd-city" value="${v('city')}" placeholder="Anytown, NY 12345"></div>
+      <div><label>Date of birth <span style="font-weight:400;color:var(--text-tertiary);">(optional)</span></label><input type="text" id="pd-dob" value="${v('dob')}" placeholder="MM/DD/YYYY"></div>
+      <div><label>SSN — last 4 only <span style="font-weight:400;color:var(--text-tertiary);">(optional)</span></label><input type="text" id="pd-ssn" maxlength="4" value="${v('ssnLast4')}" placeholder="XXXX"></div>
+    </div>
+    <p id="pd-error" class="hidden" style="margin-top:var(--space-4);color:var(--danger);font-size:0.875rem;font-weight:600;"></p>
+    <div class="card card-pink" style="margin-top:var(--space-6);">
+      <p style="font-size:0.875rem;margin:0;"><strong>None of this leaves your computer.</strong> It is typed into this page, used to fill in your letters, and nothing more. There is no account, no server, and nothing saved — close this tab and it is gone. Never put your full Social Security number in a letter; the last four digits are all any bureau needs.</p>
+    </div>`;
+  const footer = `
+    <button class="btn btn-ghost" onclick="applyPlanDetails(true)">Print blanks — I'll fill them in by hand</button>
+    <button class="btn btn-primary" onclick="applyPlanDetails(false)">Use these details &nbsp;→</button>`;
+  showModal('Before we build your plan', body, footer);
+  setTimeout(() => { const el = document.getElementById('pd-name'); if (el) el.focus(); }, 50);
+}
+
+function applyPlanDetails(allowBlank) {
+  const get = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const name = get('pd-name'), address = get('pd-address'), city = get('pd-city');
+
+  if (!allowBlank && !(name && address && city)) {
+    const err = document.getElementById('pd-error');
+    if (err) {
+      err.textContent = 'Name, street address and city/state/ZIP are needed for a letter a bureau will act on. Or choose "print blanks" to fill them in by hand.';
+      err.classList.remove('hidden');
+    }
+    return;
+  }
+
+  state.userInfo = {
+    name: name || null,
+    address: address || null,
+    city: city || null,
+    dob: get('pd-dob') || null,
+    ssnLast4: get('pd-ssn') || null
+  };
+
+  // Keep the letters-screen form in step, otherwise updateUserInfo() would read
+  // its empty fields back over what was just entered here.
+  [['ui-name', 'name'], ['ui-address', 'address'], ['ui-city', 'city'], ['ui-dob', 'dob'], ['ui-ssn', 'ssnLast4']].forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.value = state.userInfo[key] || '';
+  });
+
+  regenerateAllLetters();
+  closeModal();
+  buildAndPrintPlan();
+}
+
 function closeModal() {
-  document.getElementById('modal-backdrop').classList.remove('show');
+  document.getElementById('modal-backdrop').classList.remove('active');
 }
 
 // ========== INITIALIZATION ==========
