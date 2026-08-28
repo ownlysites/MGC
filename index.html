@@ -6399,6 +6399,54 @@ function contradictionSentence(c) {
   return `${said}. The bureaus disagree about how far behind this account went. At most one of those figures is correct.`;
 }
 
+// ========== ONE DEBT, SEVERAL ENTRIES ==========
+// A collection list is almost never as long as it looks. The same debt appears
+// once per bureau, and each bureau abbreviates the agency name differently —
+// "MISSION LANE TAB BAN", "MISSIONLNTAB". Read literally, a person with three
+// collections believes they have nine, and the real damage is that some of them
+// pay the same debt more than once.
+//
+// Grouping is deliberately hard to trigger, because the opposite error is worse:
+// merging two debts that are genuinely different would hide one, and a hidden
+// collection is one nobody disputes. Two independent signals must agree, and
+// entries from the SAME bureau are never grouped — a true duplicate inside one
+// bureau is a different and rarer problem, and it is worth its own dispute
+// rather than being quietly folded away.
+function collNorm(v) {
+  return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function sharedPrefixLen(a, b) {
+  let n = 0;
+  while (n < a.length && n < b.length && a[n] === b[n]) n++;
+  return n;
+}
+
+function groupCollections(collections) {
+  const items = (collections || []).map((c, i) => ({idx: i, raw: c, key: collNorm(c.agency), bal: c.balance || null, bureau: c.bureau || null}));
+  const groups = [];
+
+  items.forEach(it => {
+    const hit = groups.find(g => g.members.some(m => {
+      if (m.bureau && it.bureau && m.bureau === it.bureau) return false;
+      const pre = sharedPrefixLen(m.key, it.key);
+      const sameBalance = m.bal && it.bal && m.bal === it.bal;
+      // Either the balances match to the dollar and the names begin the same
+      // way, or the names are so close that nothing else is needed.
+      return (sameBalance && pre >= 4) || pre >= 10;
+    }));
+    if (hit) hit.members.push(it);
+    else groups.push({members: [it]});
+  });
+
+  return groups.map(g => ({
+    names: g.members.map(m => m.raw.agency),
+    bureaus: g.members.map(m => m.bureau).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i),
+    balance: (g.members.find(m => m.bal) || {}).bal || null,
+    count: g.members.length
+  }));
+}
+
 // ========== AGE OF FILE ==========
 // Length of credit history is roughly 15% of a FICO score, and it is the one
 // factor nobody can shortcut — it only moves in one direction, at one speed.
@@ -7109,12 +7157,20 @@ function analyzeReport(parsed, analysis) {
   }
   
   // Collections section
+  const collGroups = groupCollections(collections);
+  if (collGroups.length) analysis.collection_groups = collGroups;
   if (collections.length > 0) {
     analysis.findings.push({
       type: 'collections_found',
       severity: 'high',
-      title: `${collections.length} collection entr${collections.length === 1 ? 'y' : 'ies'}${tbBureauBreakdown(collections, 'bureau')}`,
-      detail: 'Each collection should be validated directly with the collector (FDCPA §809) and disputed with the bureaus (FCRA §611 + §623). Note: the same debt is usually listed separately by each bureau that has it — often under a different abbreviation of the agency name — so the number of distinct debts here is smaller than the number of entries.',
+      title: collGroups.length && collGroups.length < collections.length
+        ? `${collections.length} collection entries — likely ${collGroups.length} actual debt${collGroups.length === 1 ? '' : 's'}${tbBureauBreakdown(collections, 'bureau')}`
+        : `${collections.length} collection entr${collections.length === 1 ? 'y' : 'ies'}${tbBureauBreakdown(collections, 'bureau')}`,
+      detail: 'Each collection should be validated directly with the collector (FDCPA §809) and disputed with the bureaus (FCRA §611 + §623).' +
+        (collGroups.length && collGroups.length < collections.length
+          ? ` Your list is shorter than it looks. ${collGroups.filter(g => g.count > 1).map(g => `${g.names.join(' / ')}${g.balance ? ' (' + g.balance + ')' : ''} is one debt appearing at ${g.bureaus.length} bureau${g.bureaus.length === 1 ? '' : 's'}`).join('; ')}. That leaves roughly ${collGroups.length} distinct debt${collGroups.length === 1 ? '' : 's'} behind ${collections.length} entries. This matters for two reasons. You still dispute at each bureau separately — deleting it at one does nothing at the others. But you validate it once, with one collector, and you pay it once. People with a list like this sometimes settle the same debt twice because it appeared under two abbreviations. We only group entries from different bureaus, and only when the balance matches to the dollar or the names are nearly identical, so anything left separate below should be treated as genuinely separate.`
+          : ' Note: the same debt is usually listed separately by each bureau that has it — often under a different abbreviation of the agency name — so the number of distinct debts here is smaller than the number of entries.'),
+      collection_groups: collGroups,
       letter: 'cd_dv_combo'
     });
   }
