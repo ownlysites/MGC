@@ -2890,6 +2890,23 @@ function tbDate(s) {
   const m = s.match(/[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
   return m ? m[0] : null;
 }
+// Dates are tri-column as well. For a limitation period we take the LATEST of
+// the three: the most recent activity means the clock started latest, which is
+// the reading least likely to tell someone a debt is time-barred when it is
+// not. Erring the other way would encourage a person to ignore a lawsuit they
+// could still lose.
+function tbDateTripleLatest(row) {
+  if (!row) return null;
+  const found = String(row).match(/[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g) || [];
+  let best = null;
+  found.forEach(v => {
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return;
+    if (!best || d > best.d) best = {d: d, raw: v};
+  });
+  return best ? best.raw : null;
+}
+
 // Money rows are tri-column too, and reading them with tbMoney took the first
 // figure and called it the balance. On a row reading "Balance $0 $614 $614"
 // that returned $0 — Equifax's column — and a card that is two thirds used
@@ -3131,6 +3148,7 @@ function parseThreeBureauReport(text) {
       closed: closedFlag,
       account_type: tbWord(tbRow(blk, 'Account Type'), ['Installment', 'Revolving', 'Mortgage', 'Open', 'Other']),
       per_bureau_status: statusTriple,
+      date_of_last_activity: tbDateTripleLatest(tbRow(blk, 'Date Of Last Activity')),
       per_bureau_balance: tbMoneyTriple(tbRow(blk, 'Balance')),
       per_bureau_limit: tbMoneyTriple(tbRow(blk, 'Credit Limit')),
       per_bureau_high: tbMoneyTriple(tbRow(blk, 'High Credit')),
@@ -6203,6 +6221,15 @@ function buildPriorityActions(analysis, parsed) {
 
   // 2. Calendar deletions — no argument required, so they cost one letter and
   //    almost always work.
+  if ((analysis.sol || {}).past && analysis.sol.past.length && analysis.flags && (analysis.flags.any_collector || analysis.flags.in_lawsuit)) {
+    acts.push({
+      score: 950,
+      label: `${analysis.sol.past.length} debt${analysis.sol.past.length === 1 ? '' : 's'} a collector may no longer be able to sue you over`,
+      why: `${analysis.sol.past.map(r => r.creditor).join(', ')} appear to be past ${analysis.sol.state_name}'s deadline for a lawsuit. Suing or threatening to sue on a time-barred debt violates 12 CFR § 1006.26(b), and it is strict liability — the collector's knowledge is irrelevant. This ranks here because you are in contact with collectors right now, and because the protection is fragile: in most states a single partial payment restarts the whole period. Do not pay or promise anything on these before you have checked.`,
+      tag: 'Do not pay yet'
+    });
+  }
+
   const outOfTime = (analysis.fall_off || []).filter(c => c.months !== null && c.months <= 0);
   if (outOfTime.length) {
     acts.push({
@@ -6397,6 +6424,183 @@ function contradictionSentence(c) {
     return `${said}. A collection or charge-off is a specific claim about what happened to this debt, and it is not something the other bureau's entry implies. Both cannot be accurate.`;
   }
   return `${said}. The bureaus disagree about how far behind this account went. At most one of those figures is correct.`;
+}
+
+// ========== STATUTE OF LIMITATIONS ==========
+// The tool has carried each state's statute of limitations since it was built
+// and only ever printed it as a fact on a card. Printing "Florida: 5 years"
+// next to a list of debts, without saying which of those debts is past five
+// years, is the difference between a reference book and a tool.
+//
+// Two things have to be right here or this does more harm than good.
+//
+// First, the reporting clock and the suing clock are different clocks, and
+// people conflate them constantly. FCRA § 605(a) governs how long an item may
+// appear on a credit report — seven years. A state statute of limitations
+// governs how long a creditor may sue — often three to six. A debt can be
+// perfectly reportable and completely unsuable at the same time, and it is
+// never "removed from the report because it is past the statute of
+// limitations". Saying so is the single most common error in this field.
+//
+// Second, the start date. The clock usually runs from the date of default or
+// the last payment, but which one, and what restarts it, is state law and
+// varies. In many states a partial payment or a written acknowledgment revives
+// the whole period. So the output here is always framed as "likely past",
+// always names the date it measured from, and always carries the warning about
+// paying anything on an old debt before checking.
+//
+// Mississippi, North Carolina and Wisconsin go further than the rest: they
+// extinguish the debt itself rather than merely barring the remedy.
+const SOL_EXTINGUISH_STATES = {MS: 'Mississippi', NC: 'North Carolina', WI: 'Wisconsin'};
+
+function analyzeSol(parsed, stateCode) {
+  const law = stateLaws[stateCode];
+  if (!law) return null;
+
+  const now = new Date();
+  const rows = [];
+
+  (parsed.accounts || []).forEach(a => {
+    const derog = a.is_charge_off || a.is_collection || a.has_late_payments;
+    if (!derog) return;
+
+    // Best available start date, most defensible first. Say which one was used —
+    // the whole judgement rests on it.
+    let from = null, fromLabel = null;
+    if (a.derived_dofd) {
+      const [y, mo] = a.derived_dofd.split('-').map(Number);
+      from = new Date(y, mo - 1, 1);
+      fromLabel = `the first delinquency (${a.derived_dofd_label}), read from the payment grid on your report`;
+    } else if (a.dofd) {
+      from = inqDate(a.dofd);
+      fromLabel = `the date of first delinquency the report states (${a.dofd})`;
+    } else if (a.date_of_last_activity) {
+      from = inqDate(a.date_of_last_activity);
+      fromLabel = `the date of last activity (${a.date_of_last_activity})`;
+    }
+    if (!from) return;
+
+    const revolving = isRevolvingAccount(a);
+    const years = revolving ? (law.sol_credit_card || law.sol_written) : (law.sol_written || law.sol_credit_card);
+    if (!years) return;
+
+    const expires = new Date(from.getTime());
+    expires.setFullYear(expires.getFullYear() + years);
+    const monthsLeft = monthsUntil(expires);
+
+    rows.push({
+      creditor: a.creditor,
+      account: a.account_number || '',
+      from: from,
+      from_label: fromLabel,
+      years: years,
+      kind: revolving ? 'credit card' : 'written contract',
+      expires: expires,
+      months_left: monthsLeft,
+      past: monthsLeft !== null && monthsLeft <= 0
+    });
+  });
+
+  if (!rows.length) return null;
+  rows.sort((x, y) => x.expires - y.expires);
+  return {
+    state: stateCode,
+    state_name: law.name,
+    rows: rows,
+    past: rows.filter(r => r.past),
+    soon: rows.filter(r => !r.past && r.months_left !== null && r.months_left <= 12),
+    extinguishes: !!SOL_EXTINGUISH_STATES[stateCode]
+  };
+}
+
+// ========== PUBLIC RECORD CLOCKS ==========
+// The seven-and-ten-year rules for public records are more commonly misstated
+// than any other part of credit reporting, including by people selling credit
+// repair, so this is precise about which rule is law and which is policy.
+//
+// FCRA § 605(a)(1) permits a bankruptcy to be reported for TEN years from the
+// date of entry of the order for relief or the date of adjudication — and that
+// is true of every chapter. The familiar "Chapter 13 comes off after seven
+// years" is not in the statute at all. It is a voluntary policy the bureaus
+// adopted, and they apply it to Chapter 13 cases that were DISCHARGED. A
+// Chapter 13 that was dismissed rather than discharged generally sits for the
+// full ten.
+//
+// The distinction is not academic. It decides what a consumer should write. If
+// a discharged Chapter 13 is still showing at eight years, that is not an FCRA
+// violation and calling it one gets the letter dismissed; it is the bureau
+// failing to apply its own published policy, and you ask it to. If anything is
+// showing past ten years, that IS a violation and you say so.
+//
+// No credit report we have seen states the chapter, so we cannot pick for them.
+// We show what each answer would mean and let them tell us.
+const PR_CHAPTER_RULES = {
+  ch7: {years: 10, basis: 'FCRA § 605(a)(1) — ten years from the order for relief. This is the statutory limit and it is the same for every chapter.', policy: false},
+  ch13_discharged: {years: 7, basis: 'the bureaus\' voluntary policy for discharged Chapter 13 cases. Note that FCRA § 605(a)(1) would allow ten years — the seven-year removal is policy, not law.', policy: true},
+  ch13_dismissed: {years: 10, basis: 'FCRA § 605(a)(1). The seven-year courtesy applies to Chapter 13 cases that were discharged; a dismissed case generally reports for the full ten years.', policy: false}
+};
+
+function publicRecordClockText(analysis) {
+  const clocks = (analysis.public_record_clocks || []).filter(c => c.filed);
+  if (!clocks.length) return '';
+
+  const bk = clocks.filter(c => c.is_bankruptcy);
+  if (!bk.length) {
+    const c = clocks[0];
+    return ` On the dates: filed ${fmtMonthYear(c.filed)}, so the seven-year point is ${fmtMonthYear(c.at7)}${c.months_to_7 <= 0 ? ' — already past' : ` (about ${c.months_to_7} months away)`}. Judgments and most liens report for seven years from filing.`;
+  }
+
+  const c = bk[0];
+  const chapter = state.bankruptcyChapter || null;
+  let out = ` On the dates: filed ${fmtMonthYear(c.filed)}.`;
+
+  // The status the report itself carries narrows the answer before we ask.
+  if (c.dismissed) {
+    out += ` Your report shows this one as dismissed rather than discharged, and that matters more than most people are told: the seven-year removal people talk about is a voluntary bureau policy for DISCHARGED Chapter 13 cases, not a rule of law. A dismissed case generally reports for the full ten years — until ${fmtMonthYear(c.at10)}${c.months_to_10 <= 0 ? ', which has already passed, so it must come off now' : ''}.`;
+  }
+
+  if (chapter === 'ch7') {
+    out += ` You told us this was a Chapter 7. That reports for ten years from the order for relief under FCRA § 605(a)(1) — until ${fmtMonthYear(c.at10)}${c.months_to_10 <= 0 ? ', which has already passed. Dispute it on obsolescence; it is out of time.' : `, about ${c.months_to_10} months away.`}`;
+  } else if (chapter === 'ch13') {
+    out += c.dismissed
+      ? ` You told us this was a Chapter 13. Because it was dismissed rather than discharged, the ten-year figure is the one to work from — ${fmtMonthYear(c.at10)}.`
+      : ` You told us this was a Chapter 13. If it was discharged, the bureaus' own policy removes it at seven years — ${fmtMonthYear(c.at7)}${c.months_to_7 <= 0 ? ', which has already passed. That is worth a letter, but frame it correctly: FCRA § 605(a)(1) would permit ten years, so this is not a statutory violation. It is the bureau failing to apply its own published policy, and that is what you ask it to do. A letter claiming an FCRA breach here gets answered and dismissed.' : `, about ${c.months_to_7} months away. The statutory limit is ten years either way — ${fmtMonthYear(c.at10)}.`}`;
+  } else if (c.dismissed) {
+    out += ` The chapter does not change that while the case reads as dismissed, so there is nothing to ask you here. If your court record actually shows a discharge, the reporting is wrong about the status and that is itself worth disputing — a public record reporting a status the court does not show is disputable on its face.`;
+  } else {
+    out += ` What happens next depends on the chapter, and no credit report states it — so here is what each would mean. A Chapter 7 reports for ten years from the order for relief under FCRA § 605(a)(1), so ${fmtMonthYear(c.at10)}. A Chapter 13 that was discharged is removed by the bureaus at seven years, so ${fmtMonthYear(c.at7)} — though the statute would permit ten. A Chapter 13 that was dismissed generally runs the full ten years, ${fmtMonthYear(c.at10)}. Getting this right changes what you write. Past ten years is an FCRA violation and you say so. A discharged Chapter 13 still showing at eight years is not a violation — it is the bureau not applying its own policy, and a letter that calls it illegal will be answered and closed.`;
+  }
+  return out;
+}
+
+function analyzePublicRecords(records) {
+  const out = [];
+  (records || []).forEach(r => {
+    const filed = inqDate(r.date_filed);
+    if (!filed) { out.push({record: r, filed: null}); return; }
+    const at = y => { const d = new Date(filed.getTime()); d.setFullYear(d.getFullYear() + y); return d; };
+    const isBk = /bankrupt/i.test(String(r.type || ''));
+    const dismissed = /dismiss/i.test(String(r.status || ''));
+    const discharged = /discharg/i.test(String(r.status || ''));
+    out.push({
+      record: r,
+      filed: filed,
+      is_bankruptcy: isBk,
+      dismissed: dismissed,
+      discharged: discharged,
+      at7: at(7),
+      at10: at(10),
+      months_to_7: monthsUntil(at(7)),
+      months_to_10: monthsUntil(at(10))
+    });
+  });
+  return out;
+}
+
+function setBkChapter(v) {
+  state.identityReview = state.identityReview || {};
+  state.bankruptcyChapter = v;
+  if (state.analysis) { runAnalysis(); }
 }
 
 // ========== ONE DEBT, SEVERAL ENTRIES ==========
@@ -6911,6 +7115,44 @@ function analyzeReport(parsed, analysis) {
     });
   }
 
+  // Statute of limitations, crossed against the actual accounts.
+  const sol = analyzeSol(parsed, state.intake.state);
+  if (sol) {
+    analysis.sol = sol;
+    const bits = [];
+
+    bits.push(`${sol.state_name} allows ${sol.rows[0].years} years to sue on a ${sol.rows[0].kind}${sol.rows.some(r => r.years !== sol.rows[0].years) ? ', and a different period on some other account types' : ''}. We have measured each of your delinquent accounts against it.`);
+
+    // The distinction people get wrong, stated before any of the dates.
+    bits.push('Before the list: this is a different clock from the one that decides how long an item stays on your report. FCRA § 605(a) governs reporting — seven years. A statute of limitations governs suing. A debt can be lawfully on your report and legally unsuable at the same time, and passing the statute of limitations does not remove anything from your credit file. Anyone who tells you otherwise is wrong.');
+
+    if (sol.past.length) {
+      bits.push(`Likely past the limitation period: ${sol.past.map(r => `${r.creditor} (measured from ${r.from_label}, so ${sol.state_name}'s ${r.years} years ran out around ${fmtMonthYear(r.expires)})`).join('; ')}. If a collector sues or threatens to sue on one of these, that is a violation of 12 CFR § 1006.26(b) — and it is strict liability: it does not matter whether the collector knew the debt was time-barred. You would raise the limitation period as a defence, and you would raise the threat itself as a claim.`);
+    }
+    if (sol.soon.length) {
+      bits.push(`Within a year of the limit: ${sol.soon.map(r => `${r.creditor} — around ${fmtMonthYear(r.expires)}`).join('; ')}. These are the ones to watch. A collector's incentive runs the other way as the deadline approaches — suing before it expires is the last chance to, and filings often cluster there. It is also the worst possible moment to make a goodwill payment: a single partial payment can restart the whole period and hand them years back.`);
+    }
+
+    // The warning that matters more than any of the dates above.
+    bits.push('Now the warning, and it is the important part of this whole section. In most states a partial payment, or a written promise to pay, restarts the entire limitation period from zero. A five-dollar payment on a six-year-old debt can hand a collector a fresh five years to sue you. Never pay anything, agree to a payment plan, or acknowledge a debt in writing on an old account before you have checked what that does in your state.');
+
+    bits.push(`These dates are our arithmetic on the dates your report gives, not legal advice, and there is real room for them to be wrong. Which event starts the clock — last payment, date of default, acceleration — is state law and varies. Some agreements specify another state's law entirely. ${sol.past.length ? 'If you intend to rely on the limitation period as a defence in court, have a consumer attorney confirm the date first. ' : ''}We are showing you where to look, not telling you the answer.`);
+
+    if (sol.extinguishes) {
+      bits.push(`One thing particular to ${sol.state_name}: it is among the few states that extinguish a time-barred debt rather than merely barring the lawsuit. That is a stronger position than most consumers are in.`);
+    }
+
+    analysis.findings.push({
+      type: 'sol',
+      severity: sol.past.length ? 'high' : 'medium',
+      title: sol.past.length
+        ? `${sol.past.length} debt${sol.past.length === 1 ? '' : 's'} likely past ${sol.state_name}'s deadline to sue you`
+        : `Deadline to sue: ${sol.state_name} allows ${sol.rows[0].years} years`,
+      detail: bits.join(' '),
+      sol: sol
+    });
+  }
+
   // Age of file.
   const age = analyzeFileAge(parsed);
   if (age) {
@@ -7214,6 +7456,7 @@ function analyzeReport(parsed, analysis) {
 
   // Public records
   const records = parsed.publicRecords || [];
+  analysis.public_record_clocks = analyzePublicRecords(records);
   if (records.length > 0) {
     const byType = {};
     records.forEach(r => { byType[r.type] = (byType[r.type] || 0) + 1; });
@@ -7223,7 +7466,8 @@ function analyzeReport(parsed, analysis) {
       type: 'public_record',
       severity: 'high',
       title: `Public record on file: ${summary}`,
-      detail: `Filed ${records[0].date_filed || 'date not reported'}${statuses.length ? ', status ' + statuses[0] : ''}. Public records are reported by each bureau separately, so one filing can appear more than once. Verify the filing date, the reference number and the status against the court's own record — a public record that reports a status the court does not show is disputable, and one past its reporting window must come off.`
+      detail: `Filed ${records[0].date_filed || 'date not reported'}${statuses.length ? ', status ' + statuses[0] : ''}. Public records are reported by each bureau separately, so one filing can appear more than once. Verify the filing date, the reference number and the status against the court's own record — a public record that reports a status the court does not show is disputable, and one past its reporting window must come off.` + publicRecordClockText(analysis),
+      public_records: analysis.public_record_clocks
     });
   }
 
@@ -7757,6 +8001,21 @@ function renderIdentityRow(kind, idx, label, sub) {
   </div>`;
 }
 
+function renderBankruptcyChapterAsk(analysis) {
+  const bk = (analysis.public_record_clocks || []).filter(c => c.filed && c.is_bankruptcy && !c.dismissed);
+  if (!bk.length || state.bankruptcyChapter) return '';
+  const c = bk[0];
+  const btn = (v, t) => `<button type="button" class="btn btn-sm btn-ghost" onclick="setBkChapter('${v}')">${t}</button>`;
+  return `<section style="margin-top:var(--space-10);">
+    <div class="alert alert-warning">
+      <h3 style="margin-bottom:var(--space-3);">One question about the bankruptcy — which chapter?</h3>
+      <p>No credit report states the chapter, and it changes the date this comes off by three years. Filed ${fmtMonthYear(c.filed)}: a Chapter 7 reports until ${fmtMonthYear(c.at10)}; a discharged Chapter 13 is removed by the bureaus at ${fmtMonthYear(c.at7)}.</p>
+      <p style="margin-top:var(--space-3);">It also changes what you should write. Past the statutory ten years is an FCRA violation. A discharged Chapter 13 still showing at eight years is not — that is the bureau failing to apply its own voluntary policy, and a letter calling it illegal gets answered and closed.</p>
+      <p style="margin-top:var(--space-3);">${btn('ch7', 'Chapter 7')}${btn('ch13', 'Chapter 13')}${btn('unsure', "I'm not sure")}</p>
+    </div>
+  </section>`;
+}
+
 function renderIdentitySection() {
   const d = identityData();
   if (!d.addresses.length && !d.aka.length && !d.employers.length) return '';
@@ -7921,6 +8180,7 @@ function renderAnalysis(analysis) {
   }
   
   html += renderPrioritySection(analysis);
+  html += renderBankruptcyChapterAsk(analysis);
   html += renderUtilizationSection(analysis);
   html += renderIdentitySection();
 
