@@ -3550,6 +3550,40 @@ function parseThreeBureauReport(text) {
   const prBlock = sectionBlock(/^Public Records$/i);
   if (prBlock) result.publicRecords = tbParsePublicRecords(prBlock);
 
+  // ---------- Score factors ----------
+  // Earlier work concluded this format carries no reason codes. That was
+  // wrong — it carries them per bureau under a different heading, and factor
+  // text wraps across lines rather than sitting on one. These are the scoring
+  // model's own words about what is costing points, which beats any outside
+  // opinion about the file.
+  const sfIdx = body.findIndex(l => /^Factors affecting your credit score$/i.test(l));
+  if (sfIdx >= 0) {
+    const byBureau = {};
+    let cur = null, pending = [];
+    const flush = () => {
+      if (cur && pending.length) {
+        byBureau[cur] = byBureau[cur] || [];
+        byBureau[cur].push(pending.join(' ').replace(/\s+/g, ' ').trim());
+      }
+      pending = [];
+    };
+    for (let i = sfIdx + 1; i < body.length; i++) {
+      const l = String(body[i]).trim();
+      if (!l) continue;
+      if (/^\d+\.\s|^Credit Score and Rating$|^Report Summary$|^Account Summary$/i.test(l)) break;
+      if (/^(Equifax|Experian|TransUnion)$/i.test(l)) { flush(); cur = l; continue; }
+      if (!cur) continue;
+      // A factor ends where the next one begins. Lines that continue a factor
+      // start lower-case or complete a clause, so start a new factor only on a
+      // line that opens like one.
+      if (pending.length && /^[A-Z]/.test(l) && !/^(payment status|status)$/i.test(l)) flush();
+      pending.push(l);
+    }
+    flush();
+    const bureausWithFactors = Object.keys(byBureau);
+    if (bureausWithFactors.length) result.scoreFactorsByBureau = byBureau;
+  }
+
   // ---------- Reported averages ----------
   // The report states each bureau's own average account age. Ours is computed
   // across every account on the merged file, so the two legitimately differ —
@@ -3714,8 +3748,13 @@ function tbParseAddresses(block) {
 function tbParseInquiries(blk) {
   const out = [];
   const hardIdx = blk.findIndex(l => /^Hard Inquiries$/i.test(l));
-  const softIdx = blk.findIndex(l => /^Soft Inquiries$/i.test(l));
-  const region = hardIdx < 0 ? blk : blk.slice(hardIdx + 1, (softIdx > hardIdx ? softIdx : blk.length));
+  // Do NOT cut the region at the "Soft Inquiries" heading. The two layouts we
+  // have seen order this differently: one prints the hard tables and then the
+  // soft section, the other prints both headings and their bureau lists first
+  // and the tables afterwards. Slicing at the soft heading silently dropped
+  // every inquiry on the second layout — twelve of them on the report that
+  // exposed this.
+  const region = hardIdx < 0 ? blk : blk.slice(hardIdx + 1);
   if (region.some(l => /you currently have no hard inquiries/i.test(l))) return out;
 
   // Bureau labels appear before the first table; table N belongs to label N.
@@ -3723,11 +3762,19 @@ function tbParseInquiries(blk) {
   for (const l of region) {
     if (/^Date\s+Company\s+Address$/i.test(l)) break;
     if (/^(Equifax|Experian|TransUnion)$/i.test(l)) bureaus.push(l);
+    if (/^Soft Inquiries$/i.test(l)) break;
   }
+
+  // Because the region now runs to the end of the section it can also contain
+  // the soft-inquiry tables. Only the first N tables are hard, N being the
+  // number of bureaus listed under the hard heading. Anything after that is
+  // soft and must not be reported as a hard inquiry.
+  const maxTables = bureaus.length || Infinity;
 
   let table = -1;
   region.forEach((l, idx) => {
     if (/^Date\s+Company\s+Address$/i.test(l)) { table++; return; }
+    if (table >= maxTables) return;
     const m = l.match(/^([A-Z][a-z]{2}\s+\d{1,2},\s*\d{4})\s+(.+)$/);
     if (!m) return;
     const rest = m[2].trim();
@@ -4794,7 +4841,7 @@ const letterTemplates = {
     subtitle: 'FCRA § 604 — no permissible purpose = illegal',
     description: 'For hard inquiries you didn\'t authorize. Each unauthorized inquiry is a separate FCRA violation worth $100-$1,000 in statutory damages.',
     recipient: 'bureau',
-    when_to_use: 'Any hard inquiry on your report from a company you didn\'t apply to. Also works for inquiries older than 2 years that should have aged off.',
+    when_to_use: 'Any hard inquiry on your report from a company you did not apply to — that is the claim with teeth. It can also ask for removal of inquiries past the roughly two years bureaus normally keep them, but frame that as a request against their own practice, not as a statutory violation: the FCRA sets no limit on how long an inquiry may be reported.',
     what_to_expect: 'Bureau investigates; inquiries are often quickly removed because creditors can\'t always prove permissible purpose. Fast wins.',
     compile: (ctx) => compileInquiryDispute(ctx)
   },
@@ -6612,10 +6659,10 @@ function buildPriorityActions(analysis, parsed) {
   const expired = (analysis.findings || []).find(f => f.type === 'inquiry_expired');
   if (expired) {
     acts.push({
-      score: 700,
+      score: 300,
       label: expired.title,
-      why: 'These need no argument about whether the entry was fair. The reporting period has simply run out, which is a matter of the calendar rather than a matter of opinion — the cheapest deletions available to you and the ones most likely to succeed on the first letter.',
-      tag: 'Free win'
+      why: 'Worth asking for, but do not spend your best effort here. There is no statutory deadline for reporting an inquiry — the two years is the bureaus\' own practice — so this is a request that they apply their own rule, not a violation you can insist on. It also moves your score by very little, because an inquiry stops counting at about twelve months anyway.',
+      tag: 'Low cost, low return'
     });
   }
 
@@ -6714,6 +6761,150 @@ function renderPrioritySection(analysis) {
   });
   html += '</div></section>';
   return html;
+}
+
+// ========== READING THE RESPONSE ==========
+// The bureau's reply is written to be skimmed past. Five sentences that look
+// interchangeable mean five different things, and the two that matter most —
+// "verified" and "unable to verify your identity" — read almost identically to
+// somebody seeing one for the first time, while meaning opposite things. One
+// says they investigated and disagreed. The other says nobody ever looked.
+//
+// This does not read their letter for them; nothing is uploaded here. It gives
+// them the phrases to look for and what each one triggers.
+const RESPONSE_SIGNALS = [
+  {
+    match: 'Verified as accurate / Verified / The information you disputed has been verified',
+    means: 'They say they checked and the furnisher stood by it. What it does NOT tell you is how they checked, and that is the whole game — most "verifications" are an automated code sent to the furnisher and a code sent back.',
+    outcome: 'verified'
+  },
+  {
+    match: 'Deleted / Removed from your credit file',
+    means: 'The item is off that bureau. Save the updated report. If it reappears later, the bureau must have certified it with the furnisher first and must notify you in writing within five business days — FCRA § 611(a)(5)(B).',
+    outcome: 'deleted'
+  },
+  {
+    match: 'Updated / Changed / The information has been modified',
+    means: 'Something moved but the item stayed. Compare it line by line against what you actually disputed — a corrected balance with the late payments untouched is a very common half-fix.',
+    outcome: 'corrected'
+  },
+  {
+    match: 'Unable to verify your identity / We could not confirm your information / Insufficient identifying information',
+    means: 'Your dispute was never investigated. It failed identity matching before anyone read it, most often because the address on your letter did not match the address on file. Nothing you argued was rejected — resend it with proof of identity and address.',
+    outcome: 'identity'
+  },
+  {
+    match: 'Frivolous / Irrelevant / Suspicious / Prepared by a third party / Credit repair organization',
+    means: 'They refused to investigate at all under FCRA § 611(a)(3). They must tell you why within five business days and say what they need. Usually it means the letter read like a template or repeated an earlier dispute with nothing new.',
+    outcome: 'frivolous'
+  },
+  {
+    match: 'Previously investigated / No new information / Duplicate dispute',
+    means: 'Treated as a repeat. To reopen it you need something genuinely new — a document, a date, a specific inconsistency you did not raise before — not the same argument in different words.',
+    outcome: 'frivolous'
+  },
+  {
+    match: 'Nothing arrived at all',
+    means: 'Count from the date on your return receipt, not the date you posted it. Past thirty days with no answer, § 611(a)(1)(A) requires deletion of what they could not verify.',
+    outcome: 'no_response'
+  }
+];
+
+function renderResponseGuide() {
+  if (!state.roundTwo) return '';
+  let html = '<section style="margin-top:var(--space-8);">';
+  html += '<h3 style="margin-bottom:var(--space-3);font-size:1.0625rem;">Not sure what their letter is telling you?</h3>';
+  html += '<p style="color:var(--text-secondary);font-size:0.9375rem;margin-bottom:var(--space-4);">Bureau responses are written to be skimmed past, and the wording matters more than it looks. Find the phrase closest to yours.</p>';
+  html += '<div class="id-list">';
+  RESPONSE_SIGNALS.forEach(sig => {
+    html += `<div class="id-row" style="flex-direction:column;align-items:stretch;">
+      <div class="id-row-label" style="font-size:0.9375rem;">${idEsc(sig.match)}</div>
+      <p style="font-size:0.875rem;color:var(--text-secondary);margin:var(--space-2) 0 0;">${sig.means}</p>
+      <p style="font-size:0.8125rem;color:var(--text-tertiary);margin:var(--space-2) 0 0;">Mark it above as: <strong>${idEsc(DISPUTE_OUTCOMES[sig.outcome].label)}</strong></p>
+    </div>`;
+  });
+  html += '</div>';
+  html += `<div class="card card-pink" style="margin-top:var(--space-5);">
+    <p style="margin:0;font-size:0.9375rem;"><strong>Whatever it says, keep it.</strong> Every response, every envelope, every green card. If this ever becomes a lawsuit, the paper trail is the case — and the single most valuable document in it is a response that says one thing while your report says another.</p>
+  </div>`;
+  html += '</section>';
+  return html;
+}
+
+// ========== ROUND TWO ==========
+// A dispute is not one letter, it is a campaign: you mail, you wait thirty
+// days, an answer comes back, and what you do next depends entirely on which
+// answer it was. Until now this tool handled day one and stopped. Somebody
+// coming back on day thirty-five with "Experian verified the charge-off,
+// TransUnion deleted it, Equifax never answered" got the same first-round plan
+// over again, which is both useless and dangerous — resending an identical
+// dispute with nothing new is the definition of the frivolous resubmission
+// that 12 CFR 1022.43 lets a furnisher refuse.
+//
+// Nothing is stored, so we cannot remember their round one. What we can do is
+// let them tell us what happened, per item, and route each one correctly.
+const DISPUTE_OUTCOMES = {
+  deleted: {
+    label: 'Deleted — it is gone',
+    tone: 'good',
+    next: null,
+    advice: 'Nothing more to do here, but two things are worth knowing. Get the updated report and keep it: an item that was deleted can be re-inserted, and if it comes back the bureau must notify you in writing within five business days under FCRA § 611(a)(5)(B), and must have certified with the furnisher first. Reinsertion without that notice is its own violation. Second, deletion at one bureau does nothing at the others — check whether the same item is still sitting at the other two.'
+  },
+  corrected: {
+    label: 'Corrected — but not removed',
+    tone: 'ok',
+    next: null,
+    advice: 'Read what actually changed against what you asked for. A partial correction is common and is often where people stop too early: a balance fixed while the late payments stay, or a status updated while the date of first delinquency is left wrong. If what remains is still inaccurate, that is a fresh dispute with new specifics, not a repeat of the first one.'
+  },
+  verified: {
+    label: 'Verified — they say it is accurate',
+    tone: 'bad',
+    next: 'mov',
+    advice: 'This is the answer worth pushing on, and most people give up here. "Verified" tells you nothing about HOW. If the bureau sent an e-OSCAR code to the furnisher and the furnisher clicked back that it was fine, that is not the reasonable reinvestigation FCRA § 611 requires. Your next letter demands the method of verification under § 611(a)(7): the name of the person who did it, what documents they looked at, and how they can be reached. If they cannot describe a real investigation, you have both a strong second dispute and a documented violation.'
+  },
+  no_response: {
+    label: 'No response at all',
+    tone: 'bad',
+    // Deliberately NOT the CFPB letter. A dispute with no answer at day 30 is
+    // arguably still pending and is inside the 45 days, which is exactly the
+    // premature filing the CFPB discontinues. The existing gate decides that.
+    next: 'initial_bureau_dispute',
+    advice: 'Thirty days with no answer is the strongest position you can be in, and the law is not discretionary here: under FCRA § 611(a)(1)(A) an item the bureau cannot verify within the period must be deleted. You are not asking a favour and you are not arguing about whether the debt is real — you are pointing at a deadline they missed. Send your proof of delivery and demand deletion on that basis. One timing note: do not jump to a CFPB complaint yet. Silence is not the same as a resolved dispute, and filing before 45 days have passed gets the complaint discontinued and costs you the leverage. Wait out the 45 days from the date they received it, then it opens.'
+  },
+  frivolous: {
+    label: 'Rejected as frivolous or irrelevant',
+    tone: 'bad',
+    next: 'initial_bureau_dispute',
+    advice: 'Take this one seriously rather than personally. Under FCRA § 611(a)(3) a bureau may refuse a dispute it deems frivolous, but it must tell you why within five business days and say what it needs. The usual reasons are that the letter looked like a template, or that it repeated an earlier dispute without anything new. The way back in is a letter that is unmistakably yours, in your own words, that adds something the first one did not have — a document, a date, a specific inconsistency. Do not resend the same letter.'
+  },
+  identity: {
+    label: 'Could not verify my identity',
+    tone: 'bad',
+    next: 'initial_bureau_dispute',
+    advice: 'Your dispute was never investigated at all — it bounced before anyone looked at it, usually because the address on your letter did not match the address on file. This is the quiet thirty-day loss, and it is entirely fixable: resend with a copy of your photo ID, proof of your current address, and proof of the previous address if you have moved. Nothing about your argument was rejected, so send the same substance with better paperwork.'
+  },
+  waiting: {
+    label: 'Still waiting — not 30 days yet',
+    tone: 'ok',
+    next: null,
+    advice: 'Let the clock run. Do not send a second letter into an open investigation — it can be treated as a duplicate and it muddies the record you are building. Diary the thirtieth day from the date they received it, which is the date on your return receipt, not the date you posted it.'
+  }
+};
+
+function setRoundTwo(on) {
+  state.roundTwo = on ? (state.roundTwo || {items: {}}) : null;
+  if (state.analysis) renderAnalysis(state.analysis);
+}
+
+function setDisputeOutcome(key, outcome) {
+  state.roundTwo = state.roundTwo || {items: {}};
+  state.roundTwo.items[key] = outcome;
+  if (state.analysis) { runAnalysis(); }
+}
+
+function roundTwoOutcomes() {
+  const items = (state.roundTwo && state.roundTwo.items) || {};
+  return Object.keys(items).map(k => ({key: k, outcome: items[k], meta: DISPUTE_OUTCOMES[items[k]]})).filter(x => x.meta);
 }
 
 // ========== CROSS-BUREAU CONTRADICTIONS ==========
@@ -7065,8 +7256,10 @@ function analyzeFileAge(parsed) {
 }
 
 function yearsPhrase(y) {
-  const whole = Math.floor(y);
-  const months = Math.round((y - whole) * 12);
+  let whole = Math.floor(y);
+  let months = Math.round((y - whole) * 12);
+  // Rounding can land on twelve months, which reads as "3 years 12 months".
+  if (months === 12) { whole += 1; months = 0; }
   if (whole < 1) return months + ' month' + (months === 1 ? '' : 's');
   return whole + ' year' + (whole === 1 ? '' : 's') + (months ? ' ' + months + ' month' + (months === 1 ? '' : 's') : '');
 }
@@ -7566,6 +7759,41 @@ function analyzeReport(parsed, analysis) {
     });
   }
 
+  // Tri-merge reports carry the reason codes per bureau. Where all three agree
+  // on a factor, that is the one to work on first — it is costing points
+  // everywhere, not just at one bureau.
+  const sfb = parsed.scoreFactorsByBureau || null;
+  if (sfb && Object.keys(sfb).length) {
+    analysis.score_factors_by_bureau = sfb;
+    const bureaus = Object.keys(sfb);
+    const counts = {};
+    bureaus.forEach(b => sfb[b].forEach(f => {
+      const k = f.toLowerCase().replace(/[^a-z ]/g, '').trim();
+      counts[k] = counts[k] || {text: f, at: []};
+      if (!counts[k].at.includes(b)) counts[k].at.push(b);
+    }));
+    const shared = Object.values(counts).filter(c => c.at.length === bureaus.length);
+    const partial = Object.values(counts).filter(c => c.at.length > 0 && c.at.length < bureaus.length);
+
+    const bits = [];
+    bits.push(`Each bureau publishes its own reasons, and this report carries all three. ${bureaus.map(b => `${b}: ${sfb[b].map((f, i) => `(${i + 1}) ${f}`).join('; ')}`).join(' — ')}`);
+    if (shared.length) {
+      bits.push(`All three agree on ${shared.length === 1 ? 'one thing' : shared.length + ' of them'}: ${shared.map(c => '"' + c.text + '"').join('; ')}. Start there. A factor every bureau names is costing you points on every pull, so fixing it pays three times over.`);
+    }
+    if (partial.length) {
+      bits.push(`${partial.length === 1 ? 'One factor appears' : partial.length + ' factors appear'} at some bureaus and not others: ${partial.map(c => '"' + c.text + '" (' + c.at.join(', ') + ')').join('; ')}. That usually means the underlying data differs between them — which is worth checking against the accounts above, because a difference in what they hold is the beginning of a dispute.`);
+    }
+    bits.push('These are the models explaining themselves, which is worth more than any outside opinion about your file. Read them as the running order for your effort.');
+
+    analysis.findings.push({
+      type: 'score_factors_tri',
+      severity: 'medium',
+      title: 'What each bureau says is costing you, in its own words',
+      detail: bits.join(' '),
+      score_factors_by_bureau: sfb
+    });
+  }
+
   // What the scoring model itself says is costing points. This is the only part
   // of a credit report that is neither our inference nor the furnisher's claim
   // — it is the score's own explanation, in its own priority order. Where it
@@ -7684,7 +7912,7 @@ function analyzeReport(parsed, analysis) {
       type: 'inquiries',
       severity: 'low',
       title: `${inquiries.length} hard inquir${inquiries.length === 1 ? 'y' : 'ies'} on file${tbBureauBreakdown(inquiries, 'bureau')}`,
-      detail: 'Review each. Any inquiry from a company you didn\'t apply to is an FCRA violation worth $100–$1,000. Inquiries older than 2 years should also have aged off.',
+      detail: 'Review each one against your own memory. An inquiry from a company you never applied to is the real claim here — a pull without permissible purpose under FCRA § 604, carrying statutory damages of $100 to $1,000 for a willful violation under 15 U.S.C. § 1681n. Inquiries older than about two years are usually dropped by the bureaus as a matter of their own practice, but note that the FCRA sets no time limit on reporting an inquiry, so age alone is a request rather than a violation.',
       letter: 'inquiry_dispute',
       inquiries
     });
@@ -7698,9 +7926,9 @@ function analyzeReport(parsed, analysis) {
     if (expired.length) {
       analysis.findings.push({
         type: 'inquiry_expired',
-        severity: 'medium',
-        title: `${expired.length} inquir${expired.length === 1 ? 'y is' : 'ies are'} past the 2-year limit and should already be gone`,
-        detail: `An inquiry may be reported for 24 months. ${expired.map(q => `${q.creditor} (${q.date})`).join('; ')} ${expired.length === 1 ? 'is' : 'are'} older than that. This needs no argument about permissible purpose — the item is simply out of time. Dispute on obsolescence and it comes off.`,
+        severity: 'low',
+        title: `${expired.length} inquir${expired.length === 1 ? 'y is' : 'ies are'} past the 24 months the bureaus normally keep them`,
+        detail: `${expired.map(q => `${q.creditor} (${q.date})`).join('; ')} ${expired.length === 1 ? 'is' : 'are'} more than two years old. Be careful how you argue this one, because it is widely got wrong. The Fair Credit Reporting Act sets seven-year and ten-year limits for negative account information, but it is SILENT on how long an inquiry may be reported — there is no statutory two-year rule to cite. The two years is the bureaus' own practice, not the law, and reports do not even describe it consistently: some state two years, others three. So this is not an obsolescence claim and a letter calling it a violation will be answered and closed. Ask them to apply their own retention practice and remove it, and expect a maybe. The inquiries genuinely worth a fight are any you did not authorize — that is a permissible purpose question under FCRA § 604, and it is a real claim with real damages.`,
         letter: 'inquiry_dispute',
         inquiries: expired
       });
@@ -8049,6 +8277,17 @@ function determineLetterPacket(analysis) {
     }
   }
   
+  // Round two: route each reported outcome to the letter it calls for. Only
+  // letters that answer something the consumer actually told us happened.
+  const r2 = roundTwoOutcomes();
+  if (r2.length) {
+    const wanted = {};
+    r2.forEach(o => { if (o.meta.next) wanted[o.meta.next] = true; });
+    Object.keys(wanted).forEach(id => {
+      if (letterTemplates[id] && !packet.includes(letterTemplates[id])) packet.push(letterTemplates[id]);
+    });
+  }
+
   // Mixed file — only once the consumer has actually flagged something they do
   // not recognise, and only when an authorized-user account does not explain it.
   // Generating this letter off a guess would put an accusation of another
@@ -8397,6 +8636,81 @@ function renderBankruptcyChapterAsk(analysis) {
   </section>`;
 }
 
+function roundTwoTargets(analysis) {
+  // The things a person actually disputed in round one: the derogatory
+  // accounts and collections we told them to dispute. Keyed by creditor so the
+  // answer survives a re-upload, since nothing is stored between visits.
+  const out = [];
+  const seen = {};
+  (analysis.findings || []).forEach(f => {
+    if (!f.account || !f.account.creditor) return;
+    if (!/late_payment|charge_off|collection/.test(f.type || '')) return;
+    const k = String(f.account.creditor).toUpperCase();
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push({key: k, creditor: f.account.creditor, account: f.account.account_number || ''});
+  });
+  (analysis.contradictions || []).forEach(c => {
+    const k = String(c.creditor).toUpperCase();
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push({key: k, creditor: c.creditor, account: c.account || ''});
+  });
+  return out;
+}
+
+function renderRoundTwoSection(analysis) {
+  const on = !!state.roundTwo;
+  if (!on) {
+    return `<section style="margin-top:var(--space-10);">
+      <div class="card" style="border:1px solid var(--rose-gold-light);">
+        <h3 style="margin-bottom:var(--space-3);">Already sent letters and heard back?</h3>
+        <p style="font-size:0.9375rem;color:var(--text-secondary);margin-bottom:var(--space-4);">A dispute is not one letter. You mail, you wait thirty days, and what you do next depends entirely on which answer came back — and the answers look more alike than they are. "Verified" and "we could not verify your identity" mean opposite things: one needs a harder letter, the other means nobody ever looked at your dispute.</p>
+        <p style="font-size:0.9375rem;color:var(--text-secondary);margin-bottom:var(--space-4);">Tell us what each bureau said and we will work out the next move for each item. Nothing is stored between visits, so you will need your notes or the tracking log from your plan.</p>
+        <button type="button" class="btn btn-primary btn-sm" onclick="setRoundTwo(true)">I've had responses — what now?</button>
+      </div>
+    </section>`;
+  }
+
+  const targets = roundTwoTargets(analysis);
+  let html = '<section style="margin-top:var(--space-10);">';
+  html += '<h2 style="margin-bottom:var(--space-3);">What happened to what you sent</h2>';
+  html += `<p style="color:var(--text-secondary);margin-bottom:var(--space-6);">Mark what each one came back as. Leave anything you have not heard about. <button type="button" class="btn btn-ghost btn-sm" onclick="setRoundTwo(false)">Hide this</button></p>`;
+
+  if (!targets.length) {
+    html += '<p style="color:var(--text-secondary);">There are no disputable items on this report to track. If you disputed something that is no longer showing, that is a deletion — check the other two bureaus for the same item.</p></section>';
+    return html;
+  }
+
+  html += '<div class="id-list">';
+  targets.forEach(t => {
+    const chosen = ((state.roundTwo || {}).items || {})[t.key] || null;
+    const opts = Object.keys(DISPUTE_OUTCOMES).map(k => {
+      const on2 = chosen === k;
+      return `<button type="button" class="btn btn-sm ${on2 ? 'btn-primary' : 'btn-ghost'}" onclick="setDisputeOutcome('${t.key.replace(/'/g, "\\'")}','${k}')">${DISPUTE_OUTCOMES[k].label}</button>`;
+    }).join('');
+    html += `<div class="id-row" style="flex-direction:column;align-items:stretch;">
+      <div class="id-row-main"><div class="id-row-label">${idEsc(t.creditor)}</div>${t.account ? `<div class="id-row-sub">••••${idEsc(String(t.account).slice(-4))}</div>` : ''}</div>
+      <div class="id-row-actions" style="flex-wrap:wrap;margin-top:var(--space-3);">${opts}</div>
+      ${chosen ? `<p style="font-size:0.875rem;color:var(--text-secondary);margin:var(--space-3) 0 0;padding-left:var(--space-1);border-left:3px solid var(--rose-gold);padding-left:var(--space-3);">${DISPUTE_OUTCOMES[chosen].advice}</p>` : ''}
+    </div>`;
+  });
+  html += '</div>';
+
+  const answered = roundTwoOutcomes();
+  if (answered.length) {
+    const noResp = answered.filter(a => a.outcome === 'no_response');
+    if (noResp.length) {
+      html += `<div class="alert alert-warning" style="margin-top:var(--space-6);">
+        <h3 style="margin-bottom:var(--space-3);">${noResp.length} item${noResp.length === 1 ? '' : 's'} went unanswered — that is your strongest position</h3>
+        <p>FCRA § 611(a)(1)(A) is not discretionary: an item the bureau cannot verify within thirty days must be deleted. You are not asking for a favour, and you are not arguing about whether the debt is real. Send your proof of delivery and demand deletion on the record. This is what the certified mail receipt was for.</p>
+      </div>`;
+    }
+  }
+  html += '</section>';
+  return html;
+}
+
 function renderIdentitySection() {
   const d = identityData();
   if (!d.addresses.length && !d.aka.length && !d.employers.length) return '';
@@ -8564,6 +8878,8 @@ function renderAnalysis(analysis) {
   
   html += renderPrioritySection(analysis);
   html += renderBankruptcyChapterAsk(analysis);
+  html += renderRoundTwoSection(analysis);
+  html += renderResponseGuide();
   html += renderUtilizationSection(analysis);
   html += renderIdentitySection();
 
