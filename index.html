@@ -1883,6 +1883,7 @@ section { padding: var(--space-20) 0; }
       <div class="container-narrow" style="margin:0 auto;">
         <h2 style="margin-bottom:var(--space-3);">Upload what you have.</h2>
         <p style="margin-bottom:var(--space-8);color:var(--text-secondary);">Credit report, collection letter, court summons — as a PDF. A tri-merge report covers all three bureaus at once; if you pulled Equifax, Experian and TransUnion separately, select all of them together and we'll merge them into one picture. Or skip this step and we'll build your plan from the intake.</p>
+        <p style="margin-bottom:var(--space-8);color:var(--text-secondary);"><strong>Working with an advisor?</strong> If someone has given you a monthly <em>Action Plan</em> — the one with your score tiles, balance targets and "keep this account open" notes — add it here too. We will read it and make sure the letters we write do not undo the plan you are already following. It is optional, and nothing about it leaves your computer either.</p>
 
         <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
           <div class="upload-icon">
@@ -2160,6 +2161,10 @@ const state = {
   // letter has to be true, and some furnishers ask for it even though a bureau
   // cannot require it.
   policeReportFiled: null,   // 'yes' | 'no' | null
+  // The advisor Action Plan, when the consumer uploads one. Parsed separately
+  // from the credit report — see renderActionPlanSection for why the two have
+  // to be reconciled rather than merged.
+  actionPlan: null,
   _letterBeingCompiled: null
 };
 
@@ -3207,6 +3212,10 @@ async function handleFileUpload(event) {
   const parsed = mergeParsedReports(parts.map(p => p.parsed));
   state.upload.raw_text = combinedText;
   state.upload.filename = files.map(f => f.name).join(', ');
+  // The Action Plan travels separately from the credit report: it is a second
+  // document about the same person, not another source of tradelines.
+  const planPart = parts.find(p => p.type === 'action_plan');
+  if (planPart) state.actionPlan = planPart.parsed;
   state.upload.doc_type = parts[0].type;
   state.upload.parsed = parsed;
 
@@ -3287,9 +3296,275 @@ async function extractTextFromPDF(file) {
   return text;
 }
 
+// ========== ADVISOR ACTION PLAN ==========
+// Dave sends clients a monthly Action Plan from the advisor side: pay this down
+// to this target, keep this old card open, settle these, save. It is the
+// FINANCIAL BEHAVIOUR plan. MGC is the DISPUTE plan. They are complementary,
+// and where they touch the same account they can contradict each other — which
+// is worse than either one alone, because the client is holding both.
+//
+// Three collisions are real and this module exists to resolve them:
+//   1. "Keep this older account open" names accounts MGC might dispute or ask a
+//      bureau to block. Removing an old clean tradeline costs more age than any
+//      dispute wins back.
+//   2. The plan tells them to settle collections. Settling before disputing
+//      spends the argument, and in some states a payment can revive a
+//      time-barred debt. This is an ORDER problem, not a disagreement.
+//   3. The plan prints point estimates. MGC never does, deliberately. The two
+//      documents must not read as arguing about it.
+
+const AP_SECTIONS = {
+  'Pay Down Balance':                        'pay_down',
+  'Accounts Over The Credit Limit':          'pay_down',
+  'Active Credit Cards':                     'keep_open',
+  'Activate Card':                           'keep_open',
+  'Open New Lines of Credit':                'build',
+  'Late Installment Accounts':               'late',
+  'Late Credit Cards':                       'late',
+  'Late Mortgage Payment':                   'late',
+  'Charge-offs/Collections':                 'derogatory',
+  'Settleable Accounts':                     'settle',
+  'Federal Student Loans Over Initial Amount': 'student_loan',
+  'Private Student Loans Over Initial Amount': 'student_loan',
+  'Pay On Your Federal Student Loans':       'student_loan',
+  'High-Yield Savings Account':              'savings'
+};
+
+function apIsActionPlan(text) {
+  return /^\s*All Actions\s*$/m.test(text) &&
+         /Action Plan Update/i.test(text) &&
+         /Your Goal:/i.test(text);
+}
+
+const AP_ACCT_RE = /^([A-Z0-9][A-Za-z0-9 &/.,'\-]{1,40}?)\s+\*\*([0-9A-Z]{2,6})\b/;
+const AP_SECTION_RE = /^(.+?)\s+est\.\s*\+/;
+
+function apParse(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim());
+  const out = {
+    format: 'advisor_action_plan',
+    client: null, goal: null, month: null, asOf: null, advisor: null,
+    scores: [], utilization: null, dti: null, potentialGain: null,
+    items: [], sections: []
+  };
+
+  const goal = lines.find(l => /^Your Goal:/i.test(l));
+  if (goal) out.goal = goal.replace(/^Your Goal:\s*/i, '').trim();
+  const asOf = lines.find(l => /^Credit report information as of/i.test(l));
+  if (asOf) out.asOf = (asOf.match(/(\d{2}\/\d{2}\/\d{4})/) || [])[1] || null;
+  const month = lines.find(l => /Action Plan Update/i.test(l));
+  if (month) out.month = month.replace(/\s*Action Plan Update.*/i, '').trim();
+  const gain = lines.find(l => /^\+[\d–—-]+\s*pts?$/i.test(l));
+  if (gain) out.potentialGain = gain.trim();
+  // The client's name is the line above the "<Month> Action Plan Update" line.
+  const mi = lines.findIndex(l => /Action Plan Update/i.test(l));
+  if (mi > 0) out.client = lines[mi - 1].trim() || null;
+  const util = lines.findIndex(l => /^UTILIZATION$/i.test(l));
+  if (util >= 0 && /^\d+\s*%$/.test(lines[util + 1] || '')) out.utilization = lines[util + 1].trim();
+
+  let section = null, intent = null;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l) continue;
+
+    const sm = l.match(AP_SECTION_RE);
+    if (sm && AP_SECTIONS[sm[1].trim()]) {
+      section = sm[1].trim();
+      intent = AP_SECTIONS[section];
+      if (!out.sections.includes(section)) out.sections.push(section);
+      continue;
+    }
+    if (AP_SECTIONS[l] && !AP_ACCT_RE.test(l)) {
+      section = l; intent = AP_SECTIONS[l];
+      if (!out.sections.includes(section)) out.sections.push(section);
+      continue;
+    }
+
+    const am = l.match(AP_ACCT_RE);
+    if (!am || !section) continue;
+
+    // Look ahead to the end of this account's card for its detail lines.
+    const block = [];
+    for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
+      if (AP_ACCT_RE.test(lines[j]) || AP_SECTION_RE.test(lines[j])) break;
+      block.push(lines[j]);
+    }
+    const blob = block.join(' ');
+
+    out.items.push({
+      creditor: am[1].trim(),
+      last4: am[2],
+      section: section,
+      intent: intent,
+      status: /In Progress/i.test(blob) ? 'in_progress'
+            : /Completed/i.test(blob) ? 'completed'
+            : /Not Started/i.test(blob) ? 'not_started' : null,
+      keepOpen: /Keep this older account open/i.test(blob),
+      target: (blob.match(/Target:\s*(\$[\d,]+)/) || [])[1] || null,
+      payAmount: (blob.match(/Plan to pay\s*(\$[\d,]+)/) || [])[1] || null,
+      bestPayDate: (blob.match(/Best pay date:\s*([A-Z][a-z]+\s+\d{1,2})/) || [])[1] || null,
+      opened: (blob.match(/Opened\s+([A-Z][a-z]{2}\s+\d{4})/) || [])[1] || null
+    });
+  }
+
+  // Dedupe: the same account can appear under several sections. Keep one row
+  // per account and remember every intent that named it, because "keep open"
+  // from one section has to survive "settle" from another.
+  const byKey = {};
+  out.items.forEach(it => {
+    const k = it.creditor.toUpperCase() + '|' + it.last4;
+    if (!byKey[k]) { byKey[k] = Object.assign({}, it, {intents: [], sectionsListed: []}); }
+    const r = byKey[k];
+    if (!r.intents.includes(it.intent)) r.intents.push(it.intent);
+    if (!r.sectionsListed.includes(it.section)) r.sectionsListed.push(it.section);
+    r.keepOpen = r.keepOpen || it.keepOpen;
+    r.target = r.target || it.target;
+    r.payAmount = r.payAmount || it.payAmount;
+    r.bestPayDate = r.bestPayDate || it.bestPayDate;
+    r.opened = r.opened || it.opened;
+  });
+  out.accounts = Object.values(byKey);
+  return out;
+}
+
+// ---------- Matching the advisor's plan to the credit report ----------
+// The two documents identify accounts differently: the credit report masks the
+// FIRST six digits ("517805****"), the Action Plan shows the LAST four
+// ("**5566"). They cannot be joined on the number at all. So the join is on the
+// creditor name, conservatively — the cost of a wrong match here is telling a
+// client their advisor said to keep an account they never mentioned, or worse,
+// suppressing a dispute the advisor never protected.
+function apNorm(s) { return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+function apMatchAccount(reportCreditor) {
+  const plan = state.actionPlan;
+  if (!plan || !plan.accounts) return null;
+  const a = apNorm(reportCreditor);
+  if (a.length < 4) return null;
+  let best = null;
+  for (const p of plan.accounts) {
+    const b = apNorm(p.creditor);
+    if (!b) continue;
+    const shorter = a.length <= b.length ? a : b;
+    const longer  = a.length <= b.length ? b : a;
+    let score = 0;
+    if (shorter.length >= 5 && longer.startsWith(shorter)) score = shorter.length + 1;
+    else if (shorter.length >= 8 && longer.includes(shorter)) score = shorter.length;
+    if (score && (!best || score > best.score)) best = {score, plan: p};
+  }
+  return best ? best.plan : null;
+}
+
+// An account the advisor told them to keep open is protected from anything that
+// would remove it. Age is the one thing a dispute cannot give back.
+function apProtects(reportCreditor) {
+  const m = apMatchAccount(reportCreditor);
+  if (!m) return null;
+  if (m.keepOpen) return {level: 'keep_open', plan: m};
+  if (m.intents.includes('keep_open')) return {level: 'active', plan: m};
+  return null;
+}
+
+function apSettleList() {
+  const plan = state.actionPlan;
+  if (!plan) return [];
+  return plan.accounts.filter(a => a.intents.includes('settle') || a.intents.includes('derogatory'));
+}
+
+function apPlanSummary() {
+  const p = state.actionPlan;
+  if (!p) return null;
+  return {
+    who: p.client, goal: p.goal, month: p.month, asOf: p.asOf,
+    accounts: p.accounts.length,
+    keepOpen: p.accounts.filter(a => a.keepOpen).length,
+    settle: apSettleList().length,
+    payDown: p.accounts.filter(a => a.intents.includes('pay_down')).length,
+    late: p.accounts.filter(a => a.intents.includes('late')).length
+  };
+}
+
+// ---------- The reconciliation section ----------
+function renderActionPlanSection() {
+  const p = state.actionPlan;
+  if (!p) return '';
+  const s = apPlanSummary();
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const accounts = parsed.accounts || [];
+
+  // Where the two documents touch the same account.
+  const protectedRows = [];
+  const settleRows = [];
+  accounts.forEach((acc, i) => {
+    const prot = apProtects(acc.creditor);
+    if (prot) protectedRows.push({acc, prot});
+  });
+  apSettleList().forEach(pl => {
+    const hit = accounts.find(a => apNorm(a.creditor).startsWith(apNorm(pl.creditor).slice(0, 8)) ||
+                                   apNorm(pl.creditor).startsWith(apNorm(a.creditor).slice(0, 8)));
+    settleRows.push({plan: pl, report: hit || null});
+  });
+
+  const rows = (list, body) => list.length
+    ? `<div style="margin-top:var(--space-4);">${list.map(body).join('')}</div>` : '';
+
+  return `
+  <section class="module-card" style="margin-top:var(--space-16);">
+    <div class="module-header">
+      <p class="eyebrow">Your advisor's plan</p>
+      <h2>Working alongside your ${p.month ? p.month + ' ' : ''}Action Plan</h2>
+      <p>We read the plan${s.who ? ' prepared for ' + s.who : ''}${s.goal ? ', working toward <strong>' + s.goal + '</strong>' : ''}${s.asOf ? ', from credit report data as of ' + s.asOf : ''}. It covers ${s.accounts} account${s.accounts === 1 ? '' : 's'}. This page does not repeat its advice — it makes sure our letters do not undo it.</p>
+    </div>
+
+    <div class="alert" style="margin:var(--space-4) 0;background:var(--surface-2,#f6f7f9);">
+      <p style="margin:0;"><strong>Two plans, two jobs.</strong> Your Action Plan is about what you <em>pay</em> — balances, targets, what to keep open. This tool is about what you <em>dispute</em> — what is reported wrongly. They only conflict in three places, and all three are below.</p>
+    </div>
+
+    ${protectedRows.length ? `
+      <h3 style="margin-top:var(--space-8);">Accounts your advisor asked you to keep</h3>
+      <p style="color:var(--text-tertiary);">These are on your report and named in your plan. Disputing one of these off your file removes its age with it, and account age is the one thing no letter can give back. We will not put these in a dispute letter unless you tell us to.</p>
+      ${rows(protectedRows, r => `
+        <div class="review-row">
+          <div class="review-item">
+            <div class="review-label">
+              <strong>${r.acc.creditor}</strong>
+              <span class="review-flag review-flag-warn">${r.prot.level === 'keep_open' ? 'keep this one open' : 'keep active'}</span>
+              <div class="review-sub">${r.prot.plan.opened ? 'Opened ' + r.prot.plan.opened + ' · ' : ''}${r.prot.plan.section}${r.prot.plan.target ? ' · plan target ' + r.prot.plan.target : ''}</div>
+            </div>
+          </div>
+        </div>`)}
+    ` : ''}
+
+    ${settleRows.length ? `
+      <h3 style="margin-top:var(--space-8);">Dispute first, settle second</h3>
+      <p style="color:var(--text-tertiary);">Your plan lists these to settle or pay. The order matters more than most people are told: <strong>once you pay or settle a collection, you have spent the strongest argument you had against it</strong> — and in some states a payment restarts the clock on a debt that was already too old to sue over. Send the dispute letters in this packet first. Settle only what survives them, and only after checking the time-barred warning on this page.</p>
+      ${rows(settleRows, r => `
+        <div class="review-row">
+          <div class="review-item">
+            <div class="review-label">
+              <strong>${r.plan.creditor}</strong> <span class="m" style="color:var(--text-tertiary);">**${r.plan.last4}</span>
+              ${r.report ? '' : '<span class="review-flag review-flag-check">not on the report we read</span>'}
+              <div class="review-sub">${r.plan.section}${r.plan.target ? ' · plan target ' + r.plan.target : ''}</div>
+            </div>
+          </div>
+        </div>`)}
+    ` : ''}
+
+    <h3 style="margin-top:var(--space-8);">About the point estimates</h3>
+    <p>Your Action Plan estimates a score improvement${p.potentialGain ? ' of <strong>' + p.potentialGain + '</strong>' : ''}. That is your advisor's projection from your profile, and it belongs to that plan. This tool does not print score predictions of its own — the scoring models are proprietary and nobody outside them can honestly forecast a file. We are not disagreeing with the number. We simply will not add a second one.</p>
+  </section>`;
+}
+
 // ========== DOCUMENT CLASSIFICATION & PARSING ==========
 function classifyDocument(text) {
   const lower = text.toLowerCase();
+
+  // An advisor Action Plan is not a credit report. It names creditors and
+  // balances, so the generic heuristics would happily read it as one and
+  // produce tradelines out of payment instructions.
+  if (apIsActionPlan(text)) {
+    return {type: 'action_plan', label: 'Advisor Action Plan', parsed: apParse(text)};
+  }
   
   // Credit report indicators
   const creditReportMarkers = ['credit report', 'equifax', 'experian', 'transunion', 'tradeline', 'fico score', 'vantagescore', 'inquiry', 'date opened', 'date of first delinquency'];
@@ -9733,6 +10008,9 @@ function renderAnalysis(analysis) {
   }
   
   html += renderPrioritySection(analysis);
+  // Where the advisor's plan and this packet touch the same account, that has
+  // to be settled before the client starts choosing what to dispute.
+  html += renderActionPlanSection();
   // The confirmation pass sits high on the page, directly under the priorities.
   // Everything below it is reading; this is the only part that changes what
   // gets written, so burying it under the findings would mean most people never
@@ -10354,6 +10632,10 @@ function buildLetterContext(tmpl) {
   });
   (analysis.findings || []).forEach(f => {
     if (f.account) {
+      // An account the advisor's plan says to keep open never goes into a
+      // dispute letter automatically. Removing it takes its age with it, and
+      // the client is following two plans at once.
+      if (typeof apProtects === 'function' && apProtects(f.account.creditor)) return;
       disputableItems.push({
         creditor: f.account.creditor,
         account: f.account.account_number || '',
