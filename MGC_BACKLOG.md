@@ -1,0 +1,83 @@
+# MGC — Backlog
+
+**Updated:** 2026-09-08. Items 1–6, 8–12 and 14–27 shipped. Items 7, 13 and 25 blocked on samples. One file, kept current. Anything agreed and not yet built lives here so it cannot be lost between sessions.
+
+Status key: **TODO** · **IN PROGRESS** · **DONE** (kept for one refresh, then cut) · **WON'T DO** (with the reason, so it is not re-proposed)
+
+---
+
+## Open — in priority order
+
+| # | Item | Why it matters | Status | Size |
+|---|---|---|---|---|
+| 7 | **Populated collections / public-records in the single-bureau format** | Every sample report says "No collection accounts reported", so the populated entry shape is unverified. The code records presence rather than inventing a shape for it. | **BLOCKED** — needs one real single-bureau report that actually has a collection or public record in it. If you come across one, that unblocks it. | — |
+| 13 | **Public records in the columnar layout** | Same gap in the new format. All three samples read "None Reported", so `publicRecords` comes back empty and only the summary count is carried. | **BLOCKED** — needs a columnar report with a public record on it. | S |
+| 20 | **Dispute Plan library — remainder** | Mined so far: the cheat sheet (shipped as the factual rules), the BulletProof tactics flow (confirms the CFPB gate), reinsertion (shipped), the Dispute Calendar, the Account and Strategy Tracker, dealing-with-verified-results, and the HIPAA medical letters (read, rejected — see #24). Still unread: **Top 12 Errors** and the **creditor opt-out form**. | **TODO** | S |
+| 25 | **No sample report contains medical debt** | The medical track is verified against a synthetic case only, because none of the four real reports carries a medical collection. The bucketing and both letters are proven; what is unproven is `isMedicalAccount` against real medical creditor names on a real file. | **BLOCKED** — needs one report with a medical collection on it. | S |
+| 28 | **Collection tradeline carrying a late-payment grid** | The Genially deck offers “delete this because it reports late payments even though this is a collection”. Across all five real reports there is exactly one collection with a late grid (SmartCredit / VERIZON, Equifax d90:2), and `ninety_without_thirty` already catches that same row — adding the rule would double-report the one real instance. The wider claim, that a collection may never carry the payment history it inherited from the original creditor, is not something the parsed fields can establish. | **BLOCKED** — needs a report with a collection carrying a COMPLETE 30/60/90 grid, and a source on whether an assignee may report inherited history. | S |
+
+### Carried forward from the state-law research — verify before these go in a letter
+
+Seven items the researchers could not fetch verbatim and flagged themselves:
+
+- **West Virginia** `sol_written` / `sol_credit_card` — W. Va. Code § 55-2-6 not read directly; published summaries disagree on whether card debt is 5 or 10 years. Weakest item in the whole dataset.
+- **Rhode Island** garnishment — § 9-26-4 subsection numbering unverified.
+- **Utah** SOL — le.utah.gov served a navigation shell; the 6/4 split rests on official section captions, not the operative sentence.
+- **Alaska** garnishment dollar figure — CPI-adjusted, no 2026 refresh confirmed.
+- **Hawaii** § 480-13 remedy figures — not pulled directly.
+- **Minnesota** SOL subdivision number — § 541.05 subd. 1(1) not fetched verbatim.
+- **New Jersey** § 56:11-38 — unclear whether it creates a consumer private right of action or only agency-enforced liability. Do not promise damages under the state FCRA until confirmed.
+
+None of these blocks the shipped feature — the tool prints the period and names the statute — but each is worth closing before anyone relies on it in court.
+
+## Shipped
+
+| # | Item | Commit | Note |
+|---|---|---|---|
+| 26 | The three sources Dave sent, read | `b630650` | All three are one idea. The Airtable base ("The Perfect Dispute Reason Creator", Kristin Vargas / 45daycreditsweep) is a single formula field over four single-selects — `{OUTCOME} & " this " & {TYPE} & " because the " & {ELEMENT} & " is " & {DEFECT}` — with 5 outcomes, 23 elements, 9 defects, 3 types, all copied into `DR_*` verbatim and unedited. The Genially deck is its companion: five ways to write a reason for the same charge-off, five more for the same collection; its point is that one bad tradeline is several disputes, not one repeated. The YouTube video is the walkthrough of that same base — **its captions would not come back from YouTube (three endpoints, all 200 with a zero-byte body), so it is recorded as read-by-proxy**: title, channel and description confirm what it demonstrates, and what it demonstrates was read in full. Notable independent agreement: the base's ELEMENT list matches the `FACT_IMPACT` ranking already in the file — date last active, date last paid and notice of dispute at the top, "not mine" absent from the base entirely. |
+| 27 | Dispute reasons written in a closed grammar, with a second field held back | `b630650` | Every disputed item now opens with the demand — "Delete this account because the date last active is reporting different dates" — and the evidence follows. `drSentence()` refuses any value outside the four vocabularies, so a future rule that invents an element yields no lead line rather than a plausible wrong one. Findings are grouped per account and deduplicated by field, so a second letter names a DIFFERENT field: not a repeat, and therefore not refusable under 12 CFR § 1022.43. Rotation is offered for verified / corrected / frivolous only — never for no-response or identity-failure, where nobody worked the dispute and resending the same reason is correct. One field only → says so and sends them to method of verification rather than inventing a second reason. |
+| 15 | Round two tracks what was actually sent | `b630650` | `roundTwoTargets()` was built from derogatory findings alone, so two classes of letter were untrackable: accounts disputed on a factual inconsistency and nothing else (which are the FIRST items in every bureau letter — 14 of them on Michelle's report), and accounts the consumer flagged themselves in the item review. Both are in. Action-plan-protected accounts stay out, matching the letters. |
+| 14 | Deep dive: site, flow, layout, output | `4bf7e0f`…`b630650` | Ran across the session. Shipped from it: the item review and its filter, the contrast fix, the accessibility pass, the mailing schedule, the medical track, the factual rules on both formats, the action plan reconciliation, and the dispute-reason grammar above. |
+| 16 | Accessibility audit | `b0bc3d3` | First one ever. `<main>` and nav landmarks, skip link first in tab order, `:focus-visible` at 3px, `prefers-reduced-motion` honoured, an `aria-live` region wired to both review setters. Contrast: `--rose-gold-gradient-cta` (lightest stop 4.58:1) for the primary button and `--rose-text` #8d5058 (6.14:1) for small rose text. **The skip link is still unverified by a human** — `document.hasFocus()` is false in the automated browser, so `:focus` never matches; the rule is sound by probe but needs a keyboard. |
+| 24 | Medical collections track | `ed283aa` | Two letters. `medical_ncap` asks the bureau to apply the NCAP policies it already runs — paid medical collections removed, unpaid under $500 removed (11 Apr 2023), one year from date of service before reporting — and says plainly these are voluntary policies, not statute, since the CFPB rule was vacated 11 Jul 2025. `medical_itemization` goes to the collector under FDCPA § 809(b) for the provider's itemised charges and the EOB. **The HIPAA letters in the Dispute Plan folder were read and deliberately NOT imported** — they demand "the required HIPAA authorization" when 45 CFR 164.506(c) permits disclosure for payment without it, call verification "fraudulent", claim reporting must cease, threaten "fraudulent extortion", and put a full SSN in the header. Do not re-propose them. |
+| 23 | Reinsertion letter | `143d4e3` | § 611(a)(5)(B): no reinsertion without a furnisher certification, and written notice to the consumer within 5 business days. Two violations, the second proved by never receiving anything. Added as a round-two outcome; the instruction that decides it is keeping the earlier report showing the deletion. |
+| 22 | Factual rules on both report formats | `143d4e3` | The old tri-merge went 0 → 21 findings. `tbDateTriple` keeps per-bureau dates in column order instead of collapsing to the latest. That format carries two fields the columnar one lacks: Monthly Payment (proves a closed account still reporting one) and Date Of First Delinquency (new rule — bureaus disagreeing means one is running the wrong seven-year clock). |
+| 18 | Factual inconsistency rules from the cheat sheet | `f96b5fa` | `findFactualInconsistencies`. Conditions the report makes impossible — closed account with a monthly payment, collection with a past due, transferred account still carrying a balance, charge-off balance above its own high balance, 90-day late with no 30/60, and cross-bureau disagreement on date last active / date last paid / high balance. Each carries the dispute REASON and its impact rank (dates = 1, balances = 3, "not mine" = 5). Letters name the contradiction instead of saying "inaccurate". **Trap:** first version produced 66 findings, 28 of them false — EX/EQ report dates as the 1st of the month while TU reports the exact day. Dates now compared by span, >31 days only. 21/29/18 real findings across the three reports. |
+| 17 | Advisor Action Plan read and reconciled | `18fbb4a` | Client uploads their monthly Action Plan; MGC detects it structurally, parses accounts/intents/targets/keep-open flags, and resolves the three collisions: accounts marked "keep this older account open" are excluded from dispute letters, settle-vs-dispute is explicitly sequenced (dispute first — settling spends the argument and can revive a time-barred debt), and the plan's point estimates are named as the advisor's rather than contradicted. Join is on creditor name because the report masks the FIRST six digits and the plan shows the LAST four. |
+| 12 | Third report layout read structurally | `4bf7e0f` | `parseColumnarTriMerge`. Three recent client reports were falling to the generic heuristics, which read the consumer's own name, address, employers and personal statement as tradelines, found 0 of 14 inquiries and reported a tri-merge as Equifax alone. Detection is structural — these exports carry no vendor string. Verified against each report's own summary: 14 / 12 / 14 inquiries, per-bureau counts matching. Old formats unchanged (43/12/27 and 33/5/1). |
+| 11 | Consumer confirms items before any letter names them | `4bf7e0f` | Review pass on the analysis screen. Inquiries: did you apply here. Accounts: mine / mine but some charges aren't / never opened it. Nothing pre-selected; nothing flagged means those letters are not built. Closes the root cause behind all three reported bugs. |
+| 10 | FCBA billing-error letter | `4bf7e0f` | New. Fraud on an account that IS theirs — goes to the creditor under 15 U.S.C. § 1666 on a 60-day clock, with § 1666a and FCRA § 623(a)(3) for the reporting side. A § 605B block there would ask to delete a real account and cost them its age. |
+| 9 | Identity theft path fixed | `4bf7e0f` | 605B block moved to the front of the packet from ninth. `state.ftcReportNumber` now reaches the letter — it was hardcoded to the placeholder, so typing the number erased it. Police report made optional and explained; enclosure list follows the answer. |
+| 8 | Letters no longer all dated today | `4bf7e0f` | `DAY_ONE_LETTERS` keeps the date on letters mailed immediately; later-phase letters carry a rule to write it on when sent. A round-two dispute bearing the same date as the first is the § 1022.43 form-mill signature. Plus a `low_confidence` guard: a report neither structured parser claims says so on the upload screen and produces no item-specific letters. |
+| 1 | Upload step explains what each report format reveals | `a343ce9` | Two-sided: tri-merge is the only way to see cross-bureau contradictions; single-bureau is the only place the payment grid, score factors and authorized-user flags live. Advice is "bring both". |
+| 2 | Average account age | `a343ce9` | Plus what one more tradeline costs the average, and the bureaus' own stated figures alongside ours. |
+| 3 | Duplicate collection detection | `715878d` | 10 entries on the tri-merge resolve to 6 actual debts. Never groups within one bureau; correctly declined to merge two unrelated $300 debts. |
+| 4 | Public-record fall-off clocks | `31f57aa` | Ten years is the statute for every chapter; the seven-year Chapter 13 removal is voluntary bureau policy for DISCHARGED cases. Asks the chapter only when the status leaves it open. |
+| 6 | All 50 states plus DC | pending | Was 10 states. Every jurisdiction now carries SOL, collection statute, credit-reporting statute, garnishment and medical-debt data. 16 states flagged `sol_contested` where the credit-card period is genuinely unsettled — the tool stores the period a court is most likely to apply, not the friendliest reading, and says on screen that it is unsettled. Stars removed from the dropdown: they marked "we have law here", which is now every state. |
+| 5 | Statute of limitations crossed against the debts | `31f57aa` | Measured from derived DOFD → stated DOFD → date of last activity (which the tri-merge parser was not capturing at all). Leads with the reporting-clock-vs-suing-clock distinction and the revival warning. |
+
+## Known gaps we are choosing to live with
+
+- **Experian delinquency count reads 8; the model says 9 accounts with a missed payment.** Both numbers are now shown to the user rather than ours being asserted alone. Cause still unfound.
+- **No OCR.** Images are rejected with a clear message. Adding it would feed misread account numbers into legal letters.
+- **Near-duplicate creditor names stay separate rows** when bureaus mask account numbers differently. Deliberate — merging two accounts that are not the same would hide a tradeline only one bureau reports.
+- **Score factors are single-bureau only.** The tri-merge format has no such section at all — verified, not assumed.
+
+## Standing commitment
+
+- **Monthly law and technique review.** A scheduled task runs on the 1st of each month; findings land in this file under a dated heading below. See `MGC_HANDOFF.md` § 11 for the current-law notes the tool relies on.
+
+---
+
+## Law and technique review log
+
+_(Each monthly run appends here: what changed, what it means for MGC, and what was done about it.)_
+
+### 2026-08-28 — baseline
+Current as of this date, from the work in `MGC_HANDOFF.md` § 11:
+
+- CFPB complaint gate — dispute with the CRA first AND either 45 days elapsed or the dispute no longer pending. Tool gates on both.
+- CFPB June 2026 complaint-system overhaul names credit repair organizations, influencers and "AI tools" as the abuse it targets.
+- 12 CFR § 1022.43 frivolous-dispute exception for anything prepared by or on a form supplied by a CRO. Tool answers this with fragment randomisation, voice selection, the consumer's own statement, and an instruction to rewrite before sending.
+- CFPB medical debt rule vacated 2025-07-11 (E.D. Tex.). Bureaus' voluntary NCAP policies still stand. The preemption remark was dicta; the 15 state statutes remain on the books.
+- FCRA § 605(a) seven-year clock, plus 180 days for charge-offs and collections, now computed rather than described.

@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="Making Good Choices — Self-guided credit rights tool. Know your rights. Defend your data. Clean your credit.">
 <title>Making Good Choices — Know Your Rights. Defend Your Data. Clean Your Credit.</title>
+<!-- Inline so there is no second request and no 404. Every visit was logging a
+     missing /favicon.ico and showing a blank tab. Monogram on the rose token. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%238d5058'/%3E%3Ctext x='32' y='43' font-family='Georgia,serif' font-size='30' font-weight='600' fill='%23fef5f5' text-anchor='middle'%3EM%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#8d5058">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -1292,6 +1296,12 @@ section { padding: var(--space-20) 0; }
 .review-label strong { overflow-wrap: anywhere; }
 .review-sub { font-size: 0.875rem; color: var(--text-tertiary); overflow-wrap: anywhere; }
 .review-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+/* The follow-up to "I already paid this". Indented under its row so it reads as
+   a second question about that account rather than a new item in the list. */
+.review-followup { margin: var(--space-3) 0 var(--space-1); padding: var(--space-3);
+  border-left: 3px solid var(--rose-gold); background: var(--bg-tertiary); }
+.review-followup-q { margin: 0 0 var(--space-2); font-size: 0.875rem; color: var(--text-secondary); }
+.review-followup-note { margin: var(--space-2) 0 0; font-size: 0.8125rem; color: var(--text-tertiary); }
 .review-actions .btn { white-space: normal; }
 
 /* A button whose label is a sentence has to be allowed to wrap, or it decides
@@ -2236,7 +2246,13 @@ const state = {
   // recognise.
   itemReview: {
     inquiries: {},      // index -> 'no' (did not apply) | 'yes' | 'unsure'
-    accounts: {},       // key   -> 'mine' | 'charges' | 'never'
+    accounts: {},       // key   -> 'mine' | 'charges' | 'never' | 'resolved'
+    // Three of McCarthy Law's twelve litigated errors are invisible on a credit
+    // report and known only to the person holding the receipt: an account paid
+    // in full still showing a balance, an account settled for less still showing
+    // the full one, and a debt discharged in bankruptcy still showing as owed.
+    // No parser can see any of them, so they are asked for.
+    resolved: {},       // key   -> 'paid' | 'settled' | 'bk'
     showAll: false,     // reveal the rows whose answer would change nothing
     reviewed: false
   },
@@ -10376,7 +10392,7 @@ function roundTwoTargets(analysis) {
   //    account they said is not theirs went out as a § 605B block or an identity
   //    dispute, and that letter needs tracking whatever the parser thought of it.
   if (typeof reviewedAccounts === 'function') {
-    ['never', 'charges'].forEach(kind => {
+    ['never', 'charges', 'resolved'].forEach(kind => {
       reviewedAccounts(kind).forEach(a => add(a.creditor, a.account_number));
     });
   }
@@ -11090,9 +11106,79 @@ function setInquiryAnswer(idx, v) {
 
 function setAccountAnswer(key, v) {
   state.itemReview.accounts[key] = v;
+  // Moving off "already paid or settled" clears the follow-up, so a stale answer
+  // can never reach a letter that no longer asks the question.
+  if (v !== 'resolved' && state.itemReview.resolved) delete state.itemReview.resolved[key];
   state.itemReview.reviewed = true;
   rerenderItemReview();
   announce(itemReviewSummaryText());
+}
+
+function setResolvedHow(key, v) {
+  state.itemReview.resolved = state.itemReview.resolved || {};
+  state.itemReview.resolved[key] = v;
+  state.itemReview.accounts[key] = 'resolved';
+  state.itemReview.reviewed = true;
+  rerenderItemReview();
+  announce(RESOLVED_LABELS[v] ? RESOLVED_LABELS[v].announce : 'Recorded.');
+}
+
+// The three shapes of "I do not owe this any more", and what each one means the
+// report should say. All three are the same defect — a balance that should be
+// zero — but the sentence a bureau has to act on is different in each, and so is
+// the document the person can produce.
+const RESOLVED_LABELS = {
+  paid: {
+    button: 'Paid in full',
+    announce: 'Recorded as paid in full',
+    // FCRA § 623(a)(2): a furnisher that determines what it reported is not
+    // complete or accurate must promptly notify the CRA and send the correction,
+    // "and shall not thereafter furnish to the agency any of the information
+    // that remains not complete or accurate."
+    sentence: 'Correct this account because the balance is inaccurate',
+    claim: 'This account was paid in full. It is still reporting a balance.',
+    ask: 'The balance must be corrected to zero and the status updated to paid. ' +
+         'I am giving you notice under FCRA § 623(a)(1)(B) that this specific information is inaccurate, ' +
+         'and under § 623(a)(2) the furnisher must send you the correction and stop furnishing what remains inaccurate.',
+    proof: 'your payoff letter, final statement, or the cleared payment'
+  },
+  settled: {
+    button: 'Settled for less',
+    announce: 'Recorded as settled',
+    sentence: 'Correct this account because the balance is inaccurate',
+    claim: 'This account was settled for less than the full amount, and the settlement was paid. ' +
+           'It is still reporting the original balance as owed.',
+    ask: 'The balance must be corrected to zero and the status updated to settled or paid for less than the full balance. ' +
+         'A settled account reports as settled; it does not report the amount that was forgiven as still owing. ' +
+         'This is notice under FCRA § 623(a)(1)(B) that the balance is inaccurate.',
+    proof: 'your settlement agreement and the cleared payment'
+  },
+  bk: {
+    button: 'Discharged in bankruptcy',
+    announce: 'Recorded as discharged in bankruptcy',
+    sentence: 'Correct this account because the balance is inaccurate',
+    claim: 'This debt was discharged in bankruptcy. It is still reporting a balance as owed.',
+    ask: 'A discharged debt is no longer a personal liability. It must report a zero balance and a status of ' +
+         'discharged or included in bankruptcy — not currently owed, active, delinquent, charged off, or carrying a balance due. ' +
+         'This is notice under FCRA § 623(a)(1)(B) that the balance is inaccurate.',
+    proof: 'your discharge order and the schedule listing this debt'
+  }
+};
+
+function resolvedItems() {
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const accts = parsed.accounts || [];
+  const res = state.itemReview.resolved || {};
+  const out = [];
+  accts.forEach((a, i) => {
+    const key = accountKey(a, i);
+    if (state.itemReview.accounts[key] !== 'resolved') return;
+    const how = res[key];
+    if (!RESOLVED_LABELS[how]) return;   // tapped the button, never said which
+    out.push({account: a, key: key, how: how, meta: RESOLVED_LABELS[how],
+              balance: accountBalanceOwed(a)});
+  });
+  return out;
 }
 
 function rerenderItemReview() {
@@ -11123,11 +11209,42 @@ function itemReviewSummaryText() {
   const n = unauthorizedInquiries().length;
   const never = reviewedAccounts('never').length;
   const charges = reviewedAccounts('charges').length;
+  const resolved = resolvedItems().length;
   const bits = [];
   if (n) bits.push(n + (n === 1 ? ' inquiry' : ' inquiries') + ' you did not authorise');
   if (never) bits.push(never + ' account' + (never === 1 ? '' : 's') + ' that is not yours');
   if (charges) bits.push(charges + ' account' + (charges === 1 ? '' : 's') + ' with charges you did not make');
+  if (resolved) bits.push(resolved + ' account' + (resolved === 1 ? '' : 's') + ' still showing a balance you no longer owe');
   return bits.length ? bits.join(', ') : 'Nothing flagged yet.';
+}
+
+// How much this account says is still owed, across every shape the three
+// parsers produce.
+//
+// Worth spelling out, because assuming one shape is what made the first version
+// of the paid-off question invisible to a whole format: the columnar parsers put
+// a NUMBER on acc.balance, the old tri-merge puts the string "$0" there and the
+// real per-bureau figures in per_bureau_balance, and the Experian printable puts
+// a string like "$432" or nothing at all. Highest figure across the bureaus
+// wins, because one bureau showing zero while another shows a balance is exactly
+// the case worth asking about.
+function accountBalanceOwed(acc) {
+  if (!acc) return null;
+  let best = null;
+  const take = v => {
+    const n = fiMoney(v);
+    if (n !== null && !isNaN(n) && (best === null || n > best)) best = n;
+  };
+  take(acc.balance);
+  (acc.per_bureau_balance || []).forEach(take);
+  const per = acc.per_bureau_fields || {};
+  Object.keys(per).forEach(b => take(per[b].balance_owed));
+  return best;
+}
+
+function accountClaimsBalance(acc) {
+  const n = accountBalanceOwed(acc);
+  return n !== null && n > 0;
 }
 
 function reviewBtn(active, label, onclick, tone) {
@@ -11232,6 +11349,31 @@ function renderItemReview() {
     const sub = [acc.account_number, acc.date_opened ? 'opened ' + acc.date_opened : null,
                  acc.balance != null ? 'balance $' + acc.balance.toLocaleString() : null]
                 .filter(Boolean).join(' · ');
+    const k = key.replace(/'/g, "\\'");
+
+    // "I already paid this" is only offered where it could be true: the report
+    // has to be claiming money is still owed. Three of the twelve errors that
+    // actually get litigated live behind this one button, and not one of them is
+    // visible in any field a parser can read \u2014 an account paid off last year
+    // and still showing a balance looks identical, field for field, to one that
+    // was never paid at all. Only the person holding the receipt can tell them
+    // apart, so the question is asked instead of guessed.
+    const owes = accountClaimsBalance(acc);
+    const how = (state.itemReview.resolved || {})[key];
+    const resolvedBtn = owes
+      ? reviewBtn(a === 'resolved', 'I already paid or settled this', `setAccountAnswer('${k}','resolved')`)
+      : '';
+    const followUp = (owes && a === 'resolved')
+      ? `<div class="review-followup">
+           <p class="review-followup-q">Which one? It changes what we ask them to put in its place.</p>
+           <div class="review-actions">
+             ${Object.keys(RESOLVED_LABELS).map(v =>
+               reviewBtn(how === v, RESOLVED_LABELS[v].button, `setResolvedHow('${k}','${v}')`)).join('')}
+           </div>
+           ${how ? `<p class="review-followup-note">Bring ${RESOLVED_LABELS[how].proof} when you post this. It goes in the envelope \u2014 it is never sent to us.</p>` : ''}
+         </div>`
+      : '';
+
     return `<div class="review-row">
       <div class="review-item">
         <div class="review-label">
@@ -11239,11 +11381,13 @@ function renderItemReview() {
           <div class="review-sub">${sub || 'on your report'}</div>
         </div>
         <div class="review-actions">
-          ${reviewBtn(a === 'mine', 'This is mine', `setAccountAnswer('${key.replace(/'/g, "\\'")}','mine')`)}
-          ${reviewBtn(a === 'charges', "Mine \u2014 but some charges aren't", `setAccountAnswer('${key.replace(/'/g, "\\'")}','charges')`)}
-          ${reviewBtn(a === 'never', "I never opened this", `setAccountAnswer('${key.replace(/'/g, "\\'")}','never')`)}
+          ${reviewBtn(a === 'mine', 'This is mine', `setAccountAnswer('${k}','mine')`)}
+          ${resolvedBtn}
+          ${reviewBtn(a === 'charges', "Mine \u2014 but some charges aren't", `setAccountAnswer('${k}','charges')`)}
+          ${reviewBtn(a === 'never', "I never opened this", `setAccountAnswer('${k}','never')`)}
         </div>
       </div>
+      ${followUp}
     </div>`;
   }).join('');
 
@@ -11802,6 +11946,28 @@ function buildLetterContext(tmpl) {
       account: fx.account || '',
       reason: (lead ? lead + '. ' : '') + fx.label + '. ' + fx.detail +
               ' I am disputing this on the specific ground that the information is internally inconsistent on your own report, and I am asking you to correct or delete it.'
+    });
+  });
+
+  // Balances the consumer says are already settled. This is the only dispute in
+  // the packet whose evidence is not on the report, and that is exactly why it
+  // is worth having: an account paid off last year and still showing a balance
+  // is field-for-field identical to one that was never paid, so no parser will
+  // ever find it and nobody but the person holding the receipt can.
+  //
+  // The ask is a CORRECTION, not a deletion. A paid account reporting zero is
+  // worth keeping — it carries its age and its on-time history — so this runs
+  // even for accounts the action plan protects, which the dispute items above
+  // deliberately skip.
+  (typeof resolvedItems === 'function' ? resolvedItems() : []).forEach(r => {
+    disputableItems.push({
+      creditor: r.account.creditor,
+      account: r.account.account_number || '',
+      reason: r.meta.sentence + '. ' + r.meta.claim +
+              (r.balance !== null && r.balance > 0
+                ? ' The balance reported is $' + r.balance.toLocaleString() + '.' : '') +
+              ' ' + r.meta.ask +
+              ' My proof is enclosed.'
     });
   });
 
