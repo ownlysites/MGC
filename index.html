@@ -10581,6 +10581,12 @@ function renderLetterPacket() {
   });
   html += '</section>';
   
+  // The order to mail them in, and the check that has to happen a month later.
+  // Both belong here rather than on the analysis screen: this is the page
+  // someone is looking at when they are about to put things in envelopes.
+  html += renderMailingSchedule(analysis.letters);
+  html += renderDayThirtyOneCheck(analysis);
+
   // Identity theft walkthrough (if applicable)
   if (analysis.flags.identity_theft) {
     html += renderIdentityTheftWalkthrough();
@@ -10918,6 +10924,194 @@ function renderItemReview() {
 
 
 
+
+
+// ========== MAILING SEQUENCE ==========
+// Which letters go out, and in what ORDER, is not the same question as which
+// letters to write — and the order is worth real time.
+//
+// Three principles, all of which come from how the parties actually behave
+// rather than from the statute:
+//
+//   1. The collector letter goes out about a WEEK BEFORE the bureau letters.
+//      A validation request under FDCPA § 809(b) obliges the collector to stop
+//      collecting until it validates. Sending it first means that clock is
+//      already running while the bureau investigation happens, instead of the
+//      two being started together and the collector having a month of quiet.
+//
+//   2. Bureau letters are STAGGERED across separate days rather than mailed
+//      as one batch. Three identical envelopes landing at three bureaus on the
+//      same morning is the signature of a service, not a consumer, and it is
+//      the pattern § 1022.43 invites a furnisher to call frivolous. Different
+//      days also mean the responses arrive separately and can be read against
+//      each other.
+//
+//   3. The furnisher letter under § 623 goes about TWO WEEKS AFTER the bureau
+//      letters. It covers the gap: by then the bureau has passed the dispute to
+//      the furnisher through e-OSCAR, and a direct letter arriving into that
+//      window is answered by someone who already has the file open.
+//
+// Later-phase letters keep their own timing — a method-of-verification demand
+// answers a reply that has not arrived yet, and the CFPB gate decides itself.
+
+const SEND_ORDER = {
+  collector: {offset: -7,  group: 'Collectors and debt buyers',
+              why: 'Goes out first. The validation clock starts running before the bureau investigation does, so the collector is already obliged to stop collecting while everything else happens.'},
+  bureau:    {offset: 0,   group: 'The credit bureaus',
+              why: 'Staggered across separate days. Three identical envelopes arriving the same morning reads as a service rather than a person, and it is the pattern a furnisher is invited to dismiss as frivolous.'},
+  creditor:  {offset: 14,  group: 'Creditors and furnishers',
+              why: 'Goes out about two weeks after the bureau letters. By then the bureau has passed the dispute to the furnisher, and a direct letter lands with someone who already has your file open.'},
+  ftc:       {offset: 0,   group: 'Agencies',
+              why: 'Send alongside the first round.'}
+};
+
+// The templates use six recipient values, not three. A furnisher letter and a
+// loan-servicer letter both go to the party that reports the account, so they
+// follow the creditor timing rather than being lumped in with the bureaus —
+// which is what happened first time round and put the § 623 direct dispute in
+// the same week as the bureau letters, defeating the point of sending it later.
+const RECIPIENT_CLASS = {
+  bureau: 'bureau',
+  collector: 'collector',
+  creditor: 'creditor',
+  furnisher: 'creditor',
+  loan_servicer: 'creditor',
+  court: null,          // never on a mailing calendar we generate
+  ftc: 'ftc'
+};
+
+// Bureau letters are spread one per day in this order, so no two land together.
+const BUREAU_STAGGER = ['experian', 'equifax', 'transunion'];
+
+function scheduleDate(offsetDays) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'});
+}
+
+function buildMailingSchedule(letters) {
+  const rows = [];
+  let bureauSeen = 0;
+  (letters || []).forEach(tmpl => {
+    if (!DAY_ONE_LETTERS.has(tmpl.id)) return;   // later-phase letters are not on this calendar
+    const rec = RECIPIENT_CLASS.hasOwnProperty(tmpl.recipient)
+      ? RECIPIENT_CLASS[tmpl.recipient]
+      : 'bureau';
+    if (!rec) return;
+    const base = SEND_ORDER[rec];
+    let offset = base.offset;
+    if (rec === 'bureau') { offset += bureauSeen; bureauSeen++; }
+    rows.push({id: tmpl.id, title: tmpl.title, group: base.group, why: base.why, offset: offset});
+  });
+  // Earliest first, and shift the whole calendar so nothing lands in the past:
+  // the collector letter is day one, everything else follows from it.
+  const min = rows.reduce((m, r) => Math.min(m, r.offset), 0);
+  rows.forEach(r => { r.day = r.offset - min; r.when = scheduleDate(r.day); });
+  return rows.sort((a, b) => a.day - b.day);
+}
+
+function renderMailingSchedule(letters) {
+  const rows = buildMailingSchedule(letters);
+  if (rows.length < 2) return '';
+
+  const groups = [];
+  rows.forEach(r => {
+    let g = groups.find(x => x.group === r.group);
+    if (!g) { g = {group: r.group, why: r.why, items: []}; groups.push(g); }
+    g.items.push(r);
+  });
+
+  return `
+  <section class="module-card" style="margin-top:var(--space-16);">
+    <div class="module-header">
+      <p class="eyebrow">Before you mail anything</p>
+      <h2>The order matters as much as the letters</h2>
+      <p>Everything in your packet could go out tomorrow in one trip to the post office. It would be a worse campaign. Here is the order, and why each piece sits where it does.</p>
+    </div>
+    ${groups.map(g => `
+      <div style="margin-top:var(--space-6);">
+        <h3>${g.group}</h3>
+        <p style="color:var(--text-tertiary);">${g.why}</p>
+        <div style="margin-top:var(--space-3);">
+          ${g.items.map(it => `
+            <div class="review-row">
+              <div class="review-item">
+                <div class="review-label">
+                  <strong>${it.title}</strong>
+                  <div class="review-sub">Day ${it.day + 1} &middot; ${it.when}</div>
+                </div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`).join('')}
+
+    <div class="alert" style="margin-top:var(--space-6);background:var(--surface-2,#f6f7f9);">
+      <p style="margin:0 0 var(--space-2);"><strong>Four things about the envelopes themselves.</strong></p>
+      <p style="margin:0 0 var(--space-2);">Send everything <strong>certified mail with return receipt</strong>. The date they received it is what every deadline in your packet counts from, and without the receipt you cannot prove it.</p>
+      <p style="margin:0 0 var(--space-2);"><strong>Do not follow up by phone.</strong> Nothing said on a call is evidence, and it gives them a chance to talk you out of a deadline that is running in your favour.</p>
+      <p style="margin:0 0 var(--space-2);"><strong>Never say you intend to sue unless you actually do.</strong> Threatening litigation you are not going to bring is itself improper, and none of the letters in this packet does it — they cite what the statutes provide, which is a fact rather than a threat.</p>
+      <p style="margin:0;"><strong>Do not wait to hear back before sending the next one.</strong> The schedule above already accounts for their response windows.</p>
+    </div>
+  </section>`;
+}
+
+// ========== THE DAY-31 CHECK ==========
+// Two violations that only exist if somebody looks for them, and both are found
+// by pulling the report again about a month after the dispute lands. Neither
+// requires the consumer to argue about the debt — they are checks on whether
+// the bureau and furnisher did what the statute says.
+//
+//   1. NOTICE OF DISPUTE. Once a furnisher knows an account is disputed it must
+//      report it as disputed — FCRA § 623(a)(3), 15 U.S.C. § 1681s-2(a)(3). So
+//      on day 31 the tradeline should carry "consumer disputes this account" or
+//      similar. If the account is unchanged and the dispute marker never
+//      appeared, that omission is itself a violation, and it is one the
+//      consumer can prove with two copies of their own report.
+//
+//   2. DATE LAST REPORTED. If the bureau came back saying "verified", something
+//      was supposedly checked on a date. The date the account was last reported
+//      should have moved to reflect that. A tradeline that comes back verified
+//      while its last-reported date sits unchanged from before the dispute says
+//      nobody looked at it — which goes directly to whether the reinvestigation
+//      was reasonable under § 611.
+//
+// Neither of these is a letter on its own. They are evidence that makes the
+// NEXT letter — the method-of-verification demand — much harder to answer.
+
+function renderDayThirtyOneCheck(analysis) {
+  const f = (analysis && analysis.flags) || {};
+  // Only worth showing once there is a first round to check on.
+  if (!f.has_report && !state.itemReview.reviewed) return '';
+
+  const due = new Date();
+  due.setDate(due.getDate() + 31);
+  const dueStr = due.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'});
+
+  return `
+  <section class="module-card" style="margin-top:var(--space-16);">
+    <div class="module-header">
+      <p class="eyebrow">Put this in your calendar now</p>
+      <h2>Pull your report again on day 31</h2>
+      <p>Not to see whether anything was deleted — you will find that out anyway. You are looking for two specific things that are violations whether or not the dispute succeeded, and that disappear if nobody checks for them.</p>
+    </div>
+
+    <div class="alert" style="margin:var(--space-4) 0;">
+      <p style="margin:0;"><strong>Around ${dueStr}</strong>, thirty-one days after the bureaus receive your letters, pull a fresh copy of all three reports. Keep the copy you have now — the comparison between the two is the whole point.</p>
+    </div>
+
+    <h3 style="margin-top:var(--space-8);">1. Did the dispute marker appear?</h3>
+    <p>Once a furnisher knows an account is disputed, FCRA § 623(a)(3) requires it to say so when it reports the account. On the new report, each account you disputed should carry a note along the lines of <em>"consumer disputes this account"</em> or <em>"account information disputed by consumer"</em>.</p>
+    <p><strong>If that note is not there and the account is otherwise unchanged, that omission is a violation on its own</strong> — separately from whether the account is accurate. You prove it with the two copies of your report: one before, one after, neither carrying the marker.</p>
+
+    <h3 style="margin-top:var(--space-8);">2. Did the last-reported date move?</h3>
+    <p>If a bureau tells you an account was <em>verified</em>, something was supposedly examined on some date. The account's <em>date last reported</em> — sometimes shown as "last updated" — should have moved to reflect that verification.</p>
+    <p><strong>If an account comes back "verified" but its last-reported date is exactly what it was before you disputed, that is worth more than the deletion you were asking for.</strong> It says the account was not looked at. That goes straight to whether the reinvestigation was reasonable under § 611, and it is the single best thing you can put in front of them in your method-of-verification letter.</p>
+
+    <div class="alert" style="margin-top:var(--space-6);background:var(--surface-2,#f6f7f9);">
+      <p style="margin:0;"><strong>Write both answers down against each account.</strong> If you come back here after the bureaus reply, the round-two section will ask what happened — and these two answers change which letter you send next.</p>
+    </div>
+  </section>`;
+}
 
 // ========== MEDICAL COLLECTIONS ==========
 // Medical debt is the one category where the bureaus have already written the
