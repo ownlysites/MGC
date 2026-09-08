@@ -5978,6 +5978,26 @@ const letterTemplates = {
   },
   
   // ========== CORE LETTER 10: FRAUD ALERT REQUEST ==========
+  medical_ncap: {
+    id: 'medical_ncap',
+    title: 'Medical Collections \u2014 Removal Request',
+    subtitle: 'The bureaus\u2019 own medical debt policies, plus FCRA \u00a7 611',
+    recipient: 'bureau',
+    description: 'Asks the bureau to apply the policies it already operates: paid medical collections come off, unpaid ones under $500 come off, and an unpaid medical collection is not reported until a year after the date of service.',
+    when_to_use: 'Any medical collection on your report. This is a shorter argument than disputing the debt itself, because you are asking the bureau to follow its own published practice rather than to agree the furnisher is wrong.',
+    compile: (ctx) => compileMedicalNcap(ctx)
+  },
+
+  medical_itemization: {
+    id: 'medical_itemization',
+    title: 'Medical Itemisation Demand',
+    subtitle: 'FDCPA \u00a7 809(b) \u2014 show me what the amount is made of',
+    recipient: 'collector',
+    description: 'Goes to the collection agency, not the bureau. Asks for the provider\u2019s itemised charges, proof of the agency\u2019s authority to collect, and the explanation of benefits if insurance was billed.',
+    when_to_use: 'A medical collection where the amount may be wrong \u2014 which is most of them. An unadjusted charge, or a balance billed to you while an insurance claim was still open, is not what you owe.',
+    compile: (ctx) => compileMedicalItemization(ctx)
+  },
+
   reinsertion: {
     id: 'reinsertion',
     title: 'Reinsertion Demand',
@@ -8896,6 +8916,28 @@ function analyzeReport(parsed, analysis) {
   // Field-level contradictions the report makes impossible. Computed before
   // anything else so the priority ranking and the letters can both use them.
   analysis.factual = findFactualInconsistencies(parsed);
+
+  // Medical collections, measured against the policies the bureaus already run.
+  analysis.medical = analyzeMedical(parsed);
+  const medTotal = analysis.medical.items.length;
+  if (medTotal) {
+    const qualifying = analysis.medical.paid.length + analysis.medical.underFive.length;
+    analysis.findings.push({
+      type: 'medical_collections',
+      severity: qualifying ? 'high' : 'medium',
+      title: medTotal + ' medical collection' + (medTotal === 1 ? '' : 's') + ' on your report' +
+             (qualifying ? ' \u2014 ' + qualifying + ' of them should already be gone' : ''),
+      detail: (qualifying
+        ? 'The three nationwide agencies remove paid medical collections, and since 11 April 2023 they also remove unpaid medical collections under $500. ' +
+          analysis.medical.paid.length + ' of yours report no balance and ' + analysis.medical.underFive.length +
+          ' report under $500, so by the bureaus\u2019 own policy they should not be on your file at all. That is a shorter argument than disputing the debt: you are asking them to apply their published practice, and it does not depend on the collection agency agreeing to anything.\n\n'
+        : 'None of these currently qualify for automatic removal under the nationwide agencies\u2019 medical debt policies \u2014 those cover paid medical collections and unpaid ones under $500.\n\n') +
+        'These policies are voluntary, not law. The CFPB\u2019s medical debt rule was vacated by a federal court on 11 July 2025, so what remains is the agencies\u2019 own practice plus any statute your state has. Expect to be told that, and expect the policy to be honoured anyway.\n\n' +
+        'One thing worth checking yourself on every medical collection, because no credit report carries it: an unpaid medical collection is not supposed to appear until a year after the date of service. If any of these showed up sooner than twelve months after you were treated, say so \u2014 that alone takes it off.\n\n' +
+        'And before paying any of them, ask for the itemised bill. Medical balances are wrong more often than any other kind, usually because an insurer\u2019s allowed-amount adjustment was never applied or the account went to collection while a claim was still open.'
+    });
+  }
+
   if (analysis.factual.length) {
     const top = analysis.factual.slice(0, 6);
     analysis.findings.push({
@@ -9694,6 +9736,15 @@ function determineLetterPacket(analysis) {
     // that are not theirs. Producing it from the derogatory list would put a
     // sworn statement in their hands about accounts they may well have opened.
     if (!lowConf && neverMine.length) packet.push(letterTemplates.idtheft_block);
+  }
+
+  // Medical collections get their own pair: the bureaus' own removal policies,
+  // and an itemisation demand to the agency. Only when there is medical debt on
+  // the file to act on.
+  const med = analysis.medical || {items: []};
+  if (!lowConf && med.items && med.items.length) {
+    packet.push(letterTemplates.medical_ncap);
+    packet.push(letterTemplates.medical_itemization);
   }
 
   // Fraud on a real account is a billing-error dispute to the creditor, not a
@@ -10867,6 +10918,177 @@ function renderItemReview() {
 
 
 
+
+// ========== MEDICAL COLLECTIONS ==========
+// Medical debt is the one category where the bureaus have already written the
+// argument for you. Since 2022-23 all three nationwide agencies operate the
+// National Consumer Assistance Plan policies:
+//
+//   1. PAID medical collections are removed entirely.
+//   2. UNPAID medical collections under $500 are removed (from 11 April 2023).
+//   3. An unpaid medical collection may not appear until ONE YEAR after the
+//      date of service.
+//
+// These are voluntary policies, not statute — the CFPB's medical debt rule was
+// vacated by the Eastern District of Texas on 11 July 2025 — and the letters
+// say so rather than pretending otherwise. That is still a strong position:
+// asking a bureau to apply its own published policy is a much shorter argument
+// than asking it to agree the debt is wrong, and it does not depend on the
+// furnisher cooperating at all.
+//
+// What this deliberately does NOT do is claim a collector needed HIPAA
+// authorisation to report the debt. 45 CFR 164.506(c) lets a provider disclose
+// protected health information for PAYMENT purposes without authorisation, so a
+// letter demanding "the required HIPAA authorization" asserts a rule that does
+// not exist and invites a one-line rebuttal.
+
+const MEDICAL_HINTS = /\b(medical|hospital|health|healthcare|clinic|physician|dental|dentist|radiolog|anesthes|patholog|emergency\s*physicians?|ambulance|EMS|surgical|surgery|orthoped|cardiolog|oncolog|imaging|laborator|labcorp|quest diagnostics|urgent care|family practice|pediatric|women'?s? care|MD\b|DDS\b|healthfirst|ars account resolution|account resolution|medicredit|cbcs|npas|meridian|iC ?system|professional account)/i;
+
+function isMedicalAccount(acc) {
+  const hay = [acc.creditor, acc.account_type, (acc.comments || []).join(' ')].join(' ');
+  return MEDICAL_HINTS.test(hay);
+}
+
+function fmtMoney(n) {
+  return '$' + Number(n).toLocaleString(undefined, {maximumFractionDigits: 2});
+}
+
+function analyzeMedical(parsed) {
+  const out = {items: [], paid: [], underFive: [], unknownAge: []};
+
+  // The two report formats hold collections differently. The columnar layout
+  // flags them on the account itself; the older tri-merge keeps a separate
+  // `collections` array of {agency, balance, bureau, ...} and never sets
+  // is_collection on an account. Reading only the first shape found nothing at
+  // all on a report carrying twenty-seven collections.
+  const candidates = [];
+  (parsed.accounts || []).forEach(acc => {
+    if (acc.is_collection) {
+      candidates.push({creditor: acc.creditor, account: acc.account_number, balance: acc.balance,
+                       opened: acc.date_opened, reported: acc.date_reported,
+                       bureaus: acc.bureaus || [], _src: acc});
+    }
+  });
+  (parsed.collections || []).forEach(c => {
+    const name = c.agency || c.creditor;
+    if (!name) return;
+    // Skip one already captured from the accounts side, so a report that
+    // carries both shapes does not produce the same collection twice.
+    if (candidates.some(x => (x.creditor || '').toUpperCase().slice(0, 10) === name.toUpperCase().slice(0, 10))) return;
+    candidates.push({creditor: name, account: c.account || '', balance: c.balance === undefined ? null : c.balance,
+                     opened: c.date_opened || null, reported: c.date_reported || null,
+                     bureaus: c.bureau ? [String(c.bureau).toLowerCase()] : [],
+                     _src: {creditor: name, account_type: '', comments: [c.status || '']}});
+  });
+
+  candidates.forEach(row => {
+    if (!isMedicalAccount(row._src)) return;
+    const bal = row.balance;
+    delete row._src;
+    out.items.push(row);
+
+    // Paid, or reporting a zero balance — NCAP removes these outright.
+    if (bal === 0) { row.ncap = 'paid'; out.paid.push(row); return; }
+
+    // Under $500 unpaid — NCAP removes these too.
+    if (bal !== null && bal > 0 && bal < 500) { row.ncap = 'under_500'; out.underFive.push(row); return; }
+
+    // The one-year rule turns on the DATE OF SERVICE, which no credit report
+    // carries. We cannot check it, so it is put to the consumer as a question
+    // rather than asserted as a finding — the same rule as everywhere else
+    // here: we do not write a claim the file cannot support.
+    row.ncap = 'age_unknown';
+    out.unknownAge.push(row);
+  });
+  return out;
+}
+
+// ---------- Letter: medical collections against the bureaus' own policy ----------
+function compileMedicalNcap(ctx) {
+  const bureau = ctx.bureau || 'experian';
+  const med = ctx.medical || {paid: [], underFive: [], unknownAge: []};
+  const u = userHeader();
+  const st = stateLawClause(state.intake.state);
+
+  const listOf = arr => arr.map((r, i) =>
+    `${i + 1}. ${r.creditor}${r.account ? ' — Account #' + r.account : ''}${r.balance !== null ? ' — reported balance ' + fmtMoney(r.balance) : ''}`
+  ).join('\n');
+
+  const body = ['The following medical collection accounts are on my credit file, and each one falls under a policy your company already applies to medical debt.'];
+
+  if (med.paid.length) {
+    body.push('', 'REPORTING A ZERO OR PAID BALANCE — your policy removes these:', '', listOf(med.paid), '',
+      'Since 2022 the nationwide consumer reporting agencies, including yours, have removed paid medical collection accounts from consumer reports. Each account above is reporting no outstanding balance and should not remain on my file.');
+  }
+  if (med.underFive.length) {
+    body.push('', 'UNPAID AND UNDER $500 — your policy removes these:', '', listOf(med.underFive), '',
+      'Effective 11 April 2023 the nationwide consumer reporting agencies stopped including unpaid medical collection accounts under $500 on consumer reports. Each account above is reported below that threshold.');
+  }
+  if (med.unknownAge.length) {
+    body.push('', 'MEDICAL COLLECTIONS I AM ALSO DISPUTING:', '', listOf(med.unknownAge), '',
+      'The agencies also apply a one-year waiting period, so that an unpaid medical collection does not appear until twelve months after the date of service. For each account above, please confirm the date of service you are relying on and the date the account was first reported, so that the waiting period can be verified.');
+  }
+
+  body.push('', 'I understand these are policies the nationwide agencies adopted voluntarily rather than obligations imposed by the Fair Credit Reporting Act. I am not asking you for a favour and I am not asking you to depart from your own practice — I am asking you to apply it to my file. Where an item does not qualify under those policies, this letter is also a dispute of its accuracy under FCRA § 611 (15 U.S.C. § 1681i), and I ask that it be reinvestigated on that basis.');
+
+  body.push('', 'For any medical collection you do not delete, please also tell me:',
+    '', '(a) The name and address of the medical provider the debt originates from;',
+    '(b) The date the account was first reported to you and by whom;',
+    '(c) The balance as reported to you and the date of that figure;',
+    '(d) What you did to verify the account, and the name of the person who did it.');
+
+  if (st) body.push('', st);
+
+  const mail = mailEnvelope(body, bureauHeader(bureau), {
+    re: 'Medical Collection Accounts — Removal Under Nationwide Reporting Policy and Dispute Under FCRA § 611',
+    ssnLine: true
+  });
+
+  const total = med.paid.length + med.underFive.length + med.unknownAge.length;
+  const portal = `${total} medical collection(s) on my file. The nationwide agencies remove paid medical collections and unpaid medical collections under $500, and do not report an unpaid medical collection until a year after the date of service. Apply those policies to these accounts, and treat this as a dispute under FCRA § 611 for anything that does not qualify. — ${u.name}`;
+  const short = `Medical collections: your own policy removes paid ones and unpaid ones under $500, and holds the rest for a year after service. Please apply it, and reinvestigate anything that does not qualify. — ${u.name}`;
+
+  return {mail, portal: portal.length > 2000 ? portal.substring(0, 1990) + '…' : portal, short};
+}
+
+// ---------- Letter: itemisation demand to the collector ----------
+// Medical debt is where itemisation bites hardest, because the amount is so
+// often wrong: an unadjusted charge, a bill that insurance should have covered,
+// or a balance that was never reconciled after the plan paid its share.
+function compileMedicalItemization(ctx) {
+  const c = ctx.collector || {};
+  const u = userHeader();
+  const name = c.name || '[Collection agency name]';
+
+  const body = [
+    'This letter concerns a medical account you are reporting or attempting to collect. It is a dispute and a request for validation under Section 809(b) of the Fair Debt Collection Practices Act, 15 U.S.C. § 1692g(b). It is not a refusal to pay, and it is not an allegation that you have done anything improper — it is a request that you show what the amount is made of.',
+    '',
+    'Please provide:',
+    '',
+    '1. An itemised statement of the charges from the medical provider, showing each service, its date, and the amount charged for it;',
+    '2. The name and address of the provider the debt originated with;',
+    '3. Documentation of your authority to collect this account — either the agreement with the provider, or proof of assignment or purchase, along with the date you acquired it;',
+    '4. The amount originally placed with you, every payment or credit applied since, and any interest or fee you have added, identifying what permits you to add it;',
+    '5. If insurance was billed, the date it was billed, the payer, and the explanation of benefits showing what was allowed, paid, adjusted and left to me.',
+    '',
+    'Item 5 is the one that most often resolves an account like this, and it is why I am asking rather than simply paying. A balance that was never reduced by an insurer\'s allowed-amount adjustment, or that was billed to the patient while a claim was still open, is not the amount owed.',
+    '',
+    'While this request is outstanding, § 1692g(b) requires you to cease collection of the debt until you have obtained verification and mailed it to me. I am aware that this does not by itself require you to stop reporting the account, and I am not asking you to treat it as though it does — but if you continue to report while the account is disputed, please report it as disputed, as FCRA § 623(a)(3) (15 U.S.C. § 1681s-2(a)(3)) requires.',
+    '',
+    'Please also note for your file that the nationwide consumer reporting agencies do not include paid medical collections or unpaid medical collections under $500 on consumer reports, and hold an unpaid medical collection for a year after the date of service before reporting it at all.'
+  ];
+
+  const mail = mailEnvelope(body, `${name}\n${c.addr || '[Collector address — from their letter]'}`, {
+    re: 'Medical Account — Request for Itemisation and Validation, FDCPA § 809(b)',
+    ssnLine: false
+  });
+
+  const portal = `Medical account dispute and validation request under FDCPA § 1692g(b). Please provide the provider's itemised statement by service and date, proof of your authority to collect, the amount placed and everything added since, and the explanation of benefits if insurance was billed. Report the account as disputed under FCRA § 623(a)(3) while this is outstanding. — ${u.name}`;
+  const short = `Medical account: requesting itemisation by service and date, proof of your authority to collect, and the EOB if insurance was billed. Mark it disputed while this is open. — ${u.name}`;
+
+  return {mail, portal: portal.length > 2000 ? portal.substring(0, 1990) + '…' : portal, short};
+}
+
 // ========== COMPILER: REINSERTION AFTER DELETION ==========
 // The situation nobody warns people about. An item is deleted, the consumer
 // relaxes, and weeks later it is back on the report — because the furnisher
@@ -11063,6 +11285,7 @@ function buildLetterContext(tmpl) {
     }));
   }
   ctx.billingErrorItems = reviewedAccounts('charges');
+  ctx.medical = analysis.medical || null;
   ctx.bureau = parsed.bureau ? parsed.bureau.toLowerCase() : 'experian';
   ctx.bureaus = (parsed.bureaus || []).map(b => b.toLowerCase());
   
