@@ -5368,6 +5368,13 @@ function parseColumnarTriMerge(text) {
       date_of_last_activity: ctPickFirst(per, order, 'date_last_activity'),
       dofd: null,
       comments: [remarks, ctype].filter(Boolean),
+      // The per-bureau field map is kept whole. The cross-bureau consistency
+      // rules need to compare the same field between bureaus — a date last
+      // active that differs across three bureaus is a factual inconsistency on
+      // the face of the report, and the flattened summary above throws away
+      // exactly the detail that proves it.
+      per_bureau_fields: per,
+      late_by_bureau: late,
       late_counts: {d30, d60, d90, d120: 0},
       has_late_payments: (d30 + d60 + d90) > 0 || /late/i.test(blob),
       is_charge_off: /charge[\s-]?off/i.test(blob),
@@ -8035,6 +8042,211 @@ function statusClass(v) {
 
 const TB_BUREAU_COLS = ['Equifax', 'Experian', 'TransUnion'];
 
+
+// ========== FACTUAL INCONSISTENCY RULES ==========
+// A dispute that says "this is inaccurate" invites the answer "we verified it".
+// A dispute that says "your own report shows a monthly payment on a closed
+// account" does not — the contradiction is on the face of the document, the
+// bureau can see it without asking the furnisher anything, and there is nothing
+// for the furnisher to confirm.
+//
+// These rules are the difference between the two. Each one is a condition that
+// the report itself makes impossible, checked against parsed fields rather than
+// asserted. Each also carries the DISPUTE REASON to cite and how much that
+// reason is worth: the reason chosen drives both the outcome and how long the
+// campaign runs, and the field-level reasons (dates last active and last paid)
+// outrank the blunt ones ("not mine") by a wide margin.
+
+const FACT_IMPACT = {
+  date_last_active: 1, date_last_paid: 1, notice_of_dispute: 1,
+  first_delinquency: 2, activity_after_closed: 2,
+  monthly_payment: 3, high_balance: 3, balance: 3, status_update: 3,
+  credit_limit: 4, account_type: 4, terms: 4, date_opened: 4,
+  not_mine: 5
+};
+
+function fiMoney(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return v;
+  const s = String(v && v.value !== undefined ? v.value : v).replace(/[$,]/g, '');
+  const m = s.match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+function fiText(v) {
+  if (v === null || v === undefined) return '';
+  return String(v && v.value !== undefined ? v.value : v);
+}
+function fiBureausWith(per, field) {
+  const out = {};
+  Object.keys(per || {}).forEach(b => {
+    const v = fiText(per[b][field]).trim();
+    if (v) out[b] = v;
+  });
+  return out;
+}
+
+// Dates are compared at MONTH precision, and this is the whole ball game.
+//
+// Experian and Equifax routinely report a date as the first of the month while
+// TransUnion reports the exact day, so "09/11/2017" against "09/01/2017" is the
+// same event described at two precisions — not a contradiction. Comparing those
+// as strings produced 28 "inconsistencies" on one real report, which is exactly
+// the form-letter flood this tool exists not to send: every one of them would
+// have come back verified, and the volume alone is what § 1022.43 lets a
+// furnisher call frivolous.
+//
+// Only a differing month or year is a real disagreement about when something
+// happened, and those are left — on the same report, the genuine ones include a
+// date of last activity that Experian puts in April and TransUnion puts in July.
+// Month-key comparison alone is still not enough: a TransUnion date of
+// 07/30/2026 against an Experian 08/01/2026 is two days apart but falls either
+// side of a month boundary, and disputing that would be as baseless as
+// disputing the precision cases. So dates are compared by SPAN, and only a
+// spread of more than 31 days between the earliest and latest bureau counts as
+// a disagreement about when something happened. That keeps the real ones — a
+// date of last activity that Experian puts in April and TransUnion puts at the
+// end of July is a four-month gap nobody can call rounding.
+const FI_DATE_SPAN_DAYS = 31;
+
+function fiParseDate(v) {
+  const m = String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const d = new Date(+m[3], +m[1] - 1, +m[2]);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function fiDatesDisagree(values) {
+  const dates = values.map(fiParseDate);
+  if (dates.some(d => d === null)) {
+    return [...new Set(values.map(v => String(v).trim()))].length > 1;
+  }
+  const times = dates.map(d => d.getTime());
+  const spanDays = (Math.max(...times) - Math.min(...times)) / 86400000;
+  return spanDays > FI_DATE_SPAN_DAYS;
+}
+
+// A field that every bureau reporting the account should agree on. Disagreement
+// is not an opinion — one of them is wrong by arithmetic.
+function fiMismatch(acc, field, reason, label, isDate) {
+  const per = acc.per_bureau_fields;
+  if (!per) return null;
+  const vals = fiBureausWith(per, field);
+  const names = Object.keys(vals);
+  if (names.length < 2) return null;
+  if (isDate) {
+    if (!fiDatesDisagree(names.map(b => vals[b]))) return null;
+  } else {
+    if ([...new Set(names.map(b => vals[b]))].length < 2) return null;
+  }
+  return {
+    rule: field + '_mismatch',
+    creditor: acc.creditor,
+    account: acc.account_number,
+    reason: reason,
+    impact: FACT_IMPACT[reason] || 3,
+    label: label,
+    detail: names.map(b => b + ' reports ' + vals[b]).join('; '),
+    bureaus: names
+  };
+}
+
+function findFactualInconsistencies(parsed) {
+  const out = [];
+  (parsed.accounts || []).forEach(acc => {
+    const per = acc.per_bureau_fields;
+    if (!per) return;
+    const blob = (acc.comments || []).join(' ') + ' ' + fiText(acc.status);
+
+    // --- cross-bureau agreement ---
+    // All three dates should be the same. These are the highest-impact reasons
+    // there are, and they are the ones bureaus correct fastest.
+    const dla = fiMismatch(acc, 'date_last_activity', 'date_last_active',
+      'The date of last activity is a different month on each bureau', true);
+    if (dla) out.push(dla);
+
+    const dlp = fiMismatch(acc, 'last_payment', 'date_last_paid',
+      'The date of last payment is a different month on each bureau', true);
+    if (dlp) out.push(dlp);
+
+    const hb = fiMismatch(acc, 'high_balance', 'high_balance',
+      'The high balance is a different amount on each bureau');
+    if (hb) out.push(hb);
+
+    const dop = fiMismatch(acc, 'date_opened', 'date_opened',
+      'The account opening date is a different month on each bureau', true);
+    if (dop) out.push(dop);
+
+    // --- conditions the report makes impossible ---
+    Object.keys(per).forEach(b => {
+      const f = per[b];
+      const status = (fiText(f.account_status) + ' ' + fiText(f.account_rating) + ' ' +
+                      fiText(f.payment_status) + ' ' + fiText(f.creditor_remarks));
+      const pay  = fiMoney(f.payment_amount);
+      const bal  = fiMoney(f.balance_owed);
+      const high = fiMoney(f.high_balance);
+      const due  = fiMoney(f.past_due);
+
+      // A closed account cannot have a monthly payment due on it.
+      if (/closed|paid/i.test(status) && pay > 0) {
+        out.push({rule: 'monthly_payment_on_closed', creditor: acc.creditor, account: acc.account_number,
+          reason: 'activity_after_closed', impact: FACT_IMPACT.activity_after_closed,
+          label: 'A closed account is still showing a monthly payment',
+          detail: b + ' shows this account as ' + fiText(f.account_status || f.account_rating) +
+                  ' and still reports a monthly payment of $' + pay + '. A closed account has no monthly payment.',
+          bureaus: [b]});
+      }
+
+      // A collection is not a past-due balance on a live account.
+      if (acc.is_collection && due > 0) {
+        out.push({rule: 'past_due_on_collection', creditor: acc.creditor, account: acc.account_number,
+          reason: 'balance', impact: FACT_IMPACT.balance,
+          label: 'A collection account is reporting a past-due amount',
+          detail: b + ' reports this as a collection and also reports $' + due +
+                  ' past due. A collection has a balance, not a past due.',
+          bureaus: [b]});
+      }
+
+      // Transferred means the original creditor no longer holds it.
+      if (/transferred/i.test(status) && (bal > 0 || due > 0)) {
+        out.push({rule: 'balance_on_transferred', creditor: acc.creditor, account: acc.account_number,
+          reason: 'balance', impact: FACT_IMPACT.balance,
+          label: 'An account marked transferred is still reporting a balance',
+          detail: b + ' shows this account as transferred and still reports ' +
+                  (bal > 0 ? 'a balance of $' + bal : '$' + due + ' past due') +
+                  '. Once an account is transferred, the original creditor reports no balance.',
+          bureaus: [b]});
+      }
+
+      // On a charge-off the high balance is the peak; the balance cannot exceed it.
+      if (acc.is_charge_off && high !== null && bal !== null && bal > high) {
+        out.push({rule: 'chargeoff_balance_exceeds_high', creditor: acc.creditor, account: acc.account_number,
+          reason: 'high_balance', impact: FACT_IMPACT.high_balance,
+          label: 'The balance is higher than the highest balance ever reported',
+          detail: b + ' reports a balance of $' + bal + ' against a high balance of $' + high +
+                  '. The high balance is the most the account ever carried, so the balance cannot exceed it.',
+          bureaus: [b]});
+      }
+    });
+
+    // A 90-day late with no 30 or 60 before it is a sequence that cannot happen.
+    const lb = acc.late_by_bureau || {};
+    Object.keys(lb).forEach(b => {
+      const l = lb[b];
+      if (l && l.d90 > 0 && l.d30 === 0 && l.d60 === 0) {
+        out.push({rule: 'ninety_without_thirty', creditor: acc.creditor, account: acc.account_number,
+          reason: 'first_delinquency', impact: FACT_IMPACT.first_delinquency,
+          label: 'A 90-day late with no 30 or 60-day late before it',
+          detail: b + ' reports ' + l.d90 + ' payment(s) 90 days late and none at 30 or 60 days. ' +
+                  'An account reaches 90 days by passing through 30 and 60 first, so this history is incomplete or wrong.',
+          bureaus: [b]});
+      }
+    });
+  });
+
+  // Highest impact first — the reason cited is what decides the outcome.
+  return out.sort((a, b) => a.impact - b.impact);
+}
+
 function findContradictions(parsed) {
   const out = [];
   (parsed.accounts || []).forEach(a => {
@@ -8593,6 +8805,23 @@ function analyzeAuthorizedUsers(parsed) {
 
 function analyzeReport(parsed, analysis) {
   const accounts = parsed.accounts || [];
+
+  // Field-level contradictions the report makes impossible. Computed before
+  // anything else so the priority ranking and the letters can both use them.
+  analysis.factual = findFactualInconsistencies(parsed);
+  if (analysis.factual.length) {
+    const top = analysis.factual.slice(0, 6);
+    analysis.findings.push({
+      type: 'factual_inconsistency',
+      severity: 'high',
+      title: analysis.factual.length + ' item' + (analysis.factual.length === 1 ? '' : 's') +
+             ' on this report contradict' + (analysis.factual.length === 1 ? 's' : '') + ' itself',
+      detail: 'These are not judgement calls about whether something is fair. Each one is a condition the report itself makes impossible \u2014 a closed account still showing a monthly payment, a balance higher than the highest balance ever reported, a date that differs between bureaus that are describing the same account. They matter because of how a dispute gets answered: an ordinary dispute says the information is wrong and comes back "verified", but a bureau can check one of these against its own file without asking the furnisher anything. Your letters name the specific contradiction rather than saying the account is inaccurate.\n\n' +
+              top.map((f, i) => (i + 1) + '. ' + f.creditor + ' \u2014 ' + f.label + '. ' + f.detail).join('\n') +
+              (analysis.factual.length > top.length ? '\n\nPlus ' + (analysis.factual.length - top.length) + ' more of the same kind.' : '')
+    });
+  }
+
   const inquiries = parsed.inquiries || [];
   const collections = parsed.collections || [];
   const scores = parsed.scores || [];
@@ -10619,6 +10848,21 @@ function buildLetterContext(tmpl) {
   
   // Collect disputable items from findings
   const disputableItems = [];
+
+  // Factual inconsistencies go in first and carry their own reason. A dispute
+  // that names the contradiction ("a closed account still showing a monthly
+  // payment") is answered by looking at the report; a dispute that says
+  // "inaccurate" is answered with "verified". The reason is also what decides
+  // how long the campaign runs, so the highest-impact ones lead.
+  (analysis.factual || []).forEach(fx => {
+    if (typeof apProtects === 'function' && apProtects(fx.creditor)) return;
+    disputableItems.push({
+      creditor: fx.creditor,
+      account: fx.account || '',
+      reason: fx.label + '. ' + fx.detail +
+              ' I am disputing this on the specific ground that the information is internally inconsistent on your own report, and I am asking you to correct or delete it.'
+    });
+  });
 
   // Cross-bureau contradictions go in first and carry their own reason, because
   // the argument is stronger than any generic one: the report contradicts
