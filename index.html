@@ -8325,7 +8325,7 @@ function fiMismatch(acc, field, reason, label, isDate) {
     reason: reason,
     impact: FACT_IMPACT[reason] || 3,
     label: label,
-    detail: names.map(b => b + ' reports ' + vals[b]).join('; '),
+    detail: names.map(b => b + ' reports ' + vals[b]).join('; ') + '.',
     bureaus: names
   };
 }
@@ -8363,7 +8363,7 @@ function findFactualInconsistencies(parsed) {
     const dfd = fiMismatch(acc, 'dofd', 'first_delinquency',
       'The bureaus disagree about when this account first went delinquent', true);
     if (dfd) {
-      dfd.detail += '. This date sets the seven-year clock, so whichever bureau ' +
+      dfd.detail += ' This date sets the seven-year clock, so whichever bureau ' +
         'is reporting the later one is keeping this on your file longer than the others will.';
       out.push(dfd);
     }
@@ -8438,6 +8438,135 @@ function findFactualInconsistencies(parsed) {
   // Highest impact first — the reason cited is what decides the outcome.
   return out.sort((a, b) => a.impact - b.impact);
 }
+
+// ========== THE DISPUTE REASON SENTENCE ==========
+// Source: "The Perfect Dispute Reason Creator", Kristin Vargas / 45daycreditsweep,
+// read out of the shared Airtable base (shrlEeO9FaKJwthgq) on 8 Sep 2026 together
+// with the companion deck "5 Ways to Write Dispute Reasons for the Same Account".
+//
+// The base is one formula field over four single-selects, and the formula is
+// literally this:
+//
+//   {OUTCOME} & " this " & {DISPUTE TYPE} & " because the " & {ELEMENT} & " is " & {DEFECT}
+//
+// which produces "Delete this account because the date last active is inaccurate".
+//
+// The worth of it is not the wording. It is the constraint. A dispute reason
+// written as free text drifts into argument — why the debt is unfair, what the
+// collector said on the phone, how hard the year was — and an argument is what
+// comes back "verified", because there is nothing in it a clerk can check. A
+// reason built from this grammar CANNOT do that. It can only ever name one field
+// and one defect in that field, which is a question with a factual answer and a
+// record that either supports it or does not.
+//
+// The four vocabularies below are the base's own option lists, verbatim and in
+// its own order. They are not edited, extended or "improved": the point of
+// copying a vocabulary is that it stays closed. drSentence() refuses to build a
+// sentence out of any value that is not in them, so a future rule that invents
+// an element produces no lead line rather than a plausible-looking wrong one.
+//
+// Note how exactly the ELEMENT list lines up with the impact ranking already in
+// FACT_IMPACT above — date last active, date last paid and notice of dispute at
+// the top, "not mine" nowhere in it at all. Two sources that have never met
+// agree that the field-level reasons are the ones that work.
+
+const DR_OUTCOMES = ['Delete', 'Update', 'Remove', 'Correct', 'Stop Reporting'];
+const DR_TYPES = ['account', 'inquiry', 'personal information'];
+const DR_ELEMENTS = [
+  'date last active', 'date last paid', 'notice of dispute', '1st date of delinquency',
+  'payment history', 'late payments', 'late payment',
+  '30-day late payment', '60-day late payment', '90-day late payment',
+  '120-day late payment', '150-day late payment', '180-day late payment',
+  'status', 'balance', 'high balance', 'monthly payment', 'activity after close date',
+  'terms', 'type', 'open date', 'past due', 'limit'
+];
+const DR_DEFECTS = [
+  'missing', 'incorrect', 'inaccurate', 'incomplete', 'wrong',
+  'reporting different amounts', 'reporting different dates',
+  'reporting inaccurate amounts', 'reporting inaccurate dates'
+];
+
+// Every factual rule this app can fire, mapped to the one element it is really
+// about. A rule with no entry here gets no lead sentence — silence is correct,
+// a guessed element is not.
+const DR_RULE_MAP = {
+  date_last_activity_mismatch:    {outcome: 'Delete',  element: 'date last active',        defect: 'reporting different dates'},
+  last_payment_mismatch:          {outcome: 'Delete',  element: 'date last paid',          defect: 'reporting different dates'},
+  dofd_mismatch:                  {outcome: 'Delete',  element: '1st date of delinquency', defect: 'reporting different dates'},
+  date_opened_mismatch:           {outcome: 'Correct', element: 'open date',               defect: 'reporting different dates'},
+  high_balance_mismatch:          {outcome: 'Delete',  element: 'high balance',            defect: 'reporting different amounts'},
+  monthly_payment_on_closed:      {outcome: 'Delete',  element: 'monthly payment',         defect: 'inaccurate'},
+  past_due_on_collection:         {outcome: 'Delete',  element: 'past due',                defect: 'inaccurate'},
+  balance_on_transferred:         {outcome: 'Delete',  element: 'balance',                 defect: 'inaccurate'},
+  chargeoff_balance_exceeds_high: {outcome: 'Delete',  element: 'balance',                 defect: 'incorrect'},
+  ninety_without_thirty:          {outcome: 'Delete',  element: 'payment history',         defect: 'incomplete'}
+};
+
+function drSentence(rule, type) {
+  const m = DR_RULE_MAP[rule];
+  if (!m) return null;
+  const t = DR_TYPES.indexOf(type) >= 0 ? type : 'account';
+  if (DR_OUTCOMES.indexOf(m.outcome) < 0) return null;
+  if (DR_ELEMENTS.indexOf(m.element) < 0) return null;
+  if (DR_DEFECTS.indexOf(m.defect) < 0) return null;
+  return m.outcome + ' this ' + t + ' because the ' + m.element + ' is ' + m.defect;
+}
+
+// ---------- one account, several angles ----------
+// The companion deck's whole argument, and the thing almost nobody does: the
+// same charge-off can be disputed five different ways, because a report that is
+// wrong about the date of last activity is usually also wrong about the high
+// balance and the date last paid. Those are three disputes, not one repeated
+// three times.
+//
+// That distinction is the difference between a second letter that works and a
+// second letter that gets thrown out. 12 CFR § 1022.43 lets a bureau refuse a
+// dispute that merely repeats an earlier one; a dispute that names a DIFFERENT
+// field is by definition not a repeat, and the bureau has to work it.
+//
+// So the angles for an account are its factual findings deduplicated by element
+// and ordered by impact. Round one leads on the first, round two on the second,
+// and the count of what is left is the honest answer to "is there anything else
+// to try" — when it reaches zero the answer is no, and the move is method of
+// verification rather than another reason.
+function drAngles(factual) {
+  const by = {};
+  (factual || []).forEach(fx => {
+    const m = DR_RULE_MAP[fx.rule];
+    if (!m) return;
+    const k = String(fx.creditor || '').toUpperCase();
+    if (!k) return;
+    by[k] = by[k] || {seen: {}, list: []};
+    if (by[k].seen[m.element]) return;
+    by[k].seen[m.element] = true;
+    by[k].list.push({
+      element: m.element,
+      rule: fx.rule,
+      impact: typeof fx.impact === 'number' ? fx.impact : 3,
+      sentence: drSentence(fx.rule, 'account'),
+      label: fx.label,
+      detail: fx.detail,
+      bureaus: fx.bureaus || []
+    });
+  });
+  const out = {};
+  Object.keys(by).forEach(k => {
+    out[k] = by[k].list.slice().sort((a, b) => a.impact - b.impact);
+  });
+  return out;
+}
+
+function drAngleForRound(angles, creditorKey, round) {
+  const list = (angles || {})[String(creditorKey || '').toUpperCase()] || [];
+  const i = Math.max(0, (parseInt(round, 10) || 1) - 1);
+  return i < list.length ? list[i] : null;
+}
+
+function drAnglesRemaining(angles, creditorKey, round) {
+  const list = (angles || {})[String(creditorKey || '').toUpperCase()] || [];
+  return Math.max(0, list.length - Math.max(0, parseInt(round, 10) || 0));
+}
+
 
 function findContradictions(parsed) {
   const out = [];
@@ -9001,6 +9130,11 @@ function analyzeReport(parsed, analysis) {
   // Field-level contradictions the report makes impossible. Computed before
   // anything else so the priority ranking and the letters can both use them.
   analysis.factual = findFactualInconsistencies(parsed);
+
+  // The same findings regrouped by account and deduplicated by which field they
+  // are about. This is what makes a second letter a new dispute rather than a
+  // repeat of the first one.
+  analysis.angles = drAngles(analysis.factual);
 
   // Medical collections, measured against the policies the bureaus already run.
   analysis.medical = analyzeMedical(parsed);
@@ -10220,26 +10354,94 @@ function renderBankruptcyChapterAsk(analysis) {
 }
 
 function roundTwoTargets(analysis) {
-  // The things a person actually disputed in round one: the derogatory
-  // accounts and collections we told them to dispute. Keyed by creditor so the
-  // answer survives a re-upload, since nothing is stored between visits.
+  // What the person actually mailed in round one, which is not the same list as
+  // "everything derogatory on the report". Three things went into the packet and
+  // all three have to come back out here, or the person is tracking answers to
+  // letters they never sent and missing answers to letters they did.
+  //
+  // Keyed by creditor so an answer survives a re-upload, since nothing about
+  // this session is stored between visits.
   const out = [];
   const seen = {};
+  const add = (creditor, account) => {
+    if (!creditor) return;
+    const k = String(creditor).toUpperCase();
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push({key: k, creditor: creditor, account: account || ''});
+  };
+
+  // 1. What the consumer flagged in the item review. This comes first because
+  //    it is the only part of the packet they told us about themselves — an
+  //    account they said is not theirs went out as a § 605B block or an identity
+  //    dispute, and that letter needs tracking whatever the parser thought of it.
+  if (typeof reviewedAccounts === 'function') {
+    ['never', 'charges'].forEach(kind => {
+      reviewedAccounts(kind).forEach(a => add(a.creditor, a.account_number));
+    });
+  }
+
+  // 2. The derogatory items the analysis put in the letters.
   (analysis.findings || []).forEach(f => {
     if (!f.account || !f.account.creditor) return;
     if (!/late_payment|charge_off|collection/.test(f.type || '')) return;
-    const k = String(f.account.creditor).toUpperCase();
-    if (seen[k]) return;
-    seen[k] = true;
-    out.push({key: k, creditor: f.account.creditor, account: f.account.account_number || ''});
+    add(f.account.creditor, f.account.account_number);
   });
-  (analysis.contradictions || []).forEach(c => {
-    const k = String(c.creditor).toUpperCase();
-    if (seen[k]) return;
-    seen[k] = true;
-    out.push({key: k, creditor: c.creditor, account: c.account || ''});
+
+  // 3. Accounts disputed on a factual inconsistency alone. These were in the
+  //    letter — buildLetterContext puts the factual findings in first — but were
+  //    invisible here, so the strongest disputes in the packet were the ones the
+  //    person could not record an answer for. They are also the accounts that
+  //    have a second field to rotate to, which is the whole point of round two.
+  //
+  //    An account the advisor's action plan says to keep open was kept out of
+  //    the letters, so it is kept out of the tracker too — otherwise the person
+  //    is asked what a bureau said about a dispute nobody sent.
+  (analysis.factual || []).forEach(fx => {
+    if (typeof apProtects === 'function' && apProtects(fx.creditor)) return;
+    add(fx.creditor, fx.account);
   });
+
+  (analysis.contradictions || []).forEach(c => add(c.creditor, c.account));
   return out;
+}
+
+// What the next letter about this account should lead on.
+//
+// Only for the outcomes where another dispute is actually the right move.
+// "Deleted" needs no next letter, "waiting" must not have one sent into an open
+// investigation, and "no response" and "could not verify identity" are answered
+// by the same dispute again — resending the first reason is correct there, not a
+// repeat, because nobody ever worked it.
+//
+// Everywhere else the second letter has to be about a different field or it can
+// be refused as a repeat under 12 CFR § 1022.43. When the report has no second
+// field to point at, this says so plainly instead of inventing one; the advice
+// above it has already sent the person to method of verification.
+const DR_ROTATE_ON = {verified: true, frivolous: true, corrected: true};
+
+function renderNextAngle(analysis, target, outcome) {
+  if (!DR_ROTATE_ON[outcome]) return '';
+  const angles = (analysis || {}).angles || {};
+  const list = angles[String(target.key || '').toUpperCase()] || [];
+  if (!list.length) return '';
+
+  const next = drAngleForRound(angles, target.key, 2);
+  const first = list[0];
+  const left = drAnglesRemaining(angles, target.key, 2);
+
+  if (!next) {
+    return `<p style="font-size:0.875rem;color:var(--text-secondary);margin:var(--space-3) 0 0;padding-left:var(--space-3);border-left:3px solid var(--border);">
+      Your first letter led on the ${idEsc(first.element)}, and that is the only field on this account the report contradicts itself about. There is no second reason to write, so do not send another dispute — that is the one they can refuse as a repeat. Method of verification is the move.</p>`;
+  }
+
+  return `<div style="margin:var(--space-3) 0 0;padding:var(--space-3);border-left:3px solid var(--rose-gold);background:var(--bg-tertiary);">
+    <p style="font-size:0.8125rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--rose-text);margin:0 0 var(--space-2);">Lead the next letter on a different field</p>
+    <p style="font-size:0.875rem;color:var(--text-secondary);margin:0 0 var(--space-2);">Your first letter was about the ${idEsc(first.element)}. Repeating it is what gets a dispute thrown out as a duplicate. This report gives you the ${idEsc(next.element)} as well, which is a new dispute they have to work.</p>
+    <p style="font-size:0.9375rem;margin:0 0 var(--space-2);"><strong>${idEsc(next.sentence || '')}</strong></p>
+    <p style="font-size:0.875rem;color:var(--text-secondary);margin:0;">${idEsc(next.detail || next.label || '')}</p>
+    ${left > 0 ? `<p style="font-size:0.8125rem;color:var(--text-tertiary);margin:var(--space-2) 0 0;">${left} more field${left === 1 ? '' : 's'} after this one if it comes back verified again.</p>` : ''}
+  </div>`;
 }
 
 function renderRoundTwoSection(analysis) {
@@ -10276,6 +10478,7 @@ function renderRoundTwoSection(analysis) {
       <div class="id-row-main"><div class="id-row-label">${idEsc(t.creditor)}</div>${t.account ? `<div class="id-row-sub">••••${idEsc(String(t.account).slice(-4))}</div>` : ''}</div>
       <div class="id-row-actions" style="flex-wrap:wrap;margin-top:var(--space-3);">${opts}</div>
       ${chosen ? `<p style="font-size:0.875rem;color:var(--text-secondary);margin:var(--space-3) 0 0;padding-left:var(--space-1);border-left:3px solid var(--rose-gold);padding-left:var(--space-3);">${DISPUTE_OUTCOMES[chosen].advice}</p>` : ''}
+      ${chosen ? renderNextAngle(analysis, t, chosen) : ''}
     </div>`;
   });
   html += '</div>';
@@ -11589,10 +11792,15 @@ function buildLetterContext(tmpl) {
   // how long the campaign runs, so the highest-impact ones lead.
   (analysis.factual || []).forEach(fx => {
     if (typeof apProtects === 'function' && apProtects(fx.creditor)) return;
+    // The demand goes first, in the closed grammar: one outcome, one field, one
+    // defect. Then the claim in plain words, then the evidence out of their own
+    // report. A reader who stops after the first sentence still knows exactly
+    // which field is wrong and what is being asked for.
+    const lead = drSentence(fx.rule, 'account');
     disputableItems.push({
       creditor: fx.creditor,
       account: fx.account || '',
-      reason: fx.label + '. ' + fx.detail +
+      reason: (lead ? lead + '. ' : '') + fx.label + '. ' + fx.detail +
               ' I am disputing this on the specific ground that the information is internally inconsistent on your own report, and I am asking you to correct or delete it.'
     });
   });
