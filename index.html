@@ -1205,6 +1205,30 @@ section { padding: var(--space-20) 0; }
 /* Wide tables scroll inside their own box — the page itself must never scroll
    sideways on a phone. */
 .util-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--white); }
+
+/* ---- item review rows ----
+   One item per row: what we read off the report on the left, the answer buttons
+   on the right. The buttons must be allowed to shrink and wrap — a fixed-width
+   button group here ran 215px past a 375px viewport and took the whole document
+   sideways with it, which is the same failure 0b9ac84 fixed in the nav. Below
+   560px the buttons drop under the item and go full width, which is also the
+   easier target to hit on a phone. */
+.review-row { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+.review-row:last-child { border-bottom: 0; }
+.review-item { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: baseline; justify-content: space-between; }
+.review-label { min-width: 0; flex: 1 1 12rem; }
+.review-label strong { overflow-wrap: anywhere; }
+.review-sub { font-size: 0.875rem; color: var(--text-tertiary); overflow-wrap: anywhere; }
+.review-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.review-actions .btn { white-space: normal; }
+.review-flag { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; margin-left: 6px; white-space: nowrap; }
+.review-flag-warn { background: #fff4e5; color: #8a5200; }
+.review-flag-check { background: #fdecec; color: #8a1c1c; }
+@media (max-width: 560px) {
+  .review-item { flex-direction: column; align-items: stretch; }
+  .review-actions { width: 100%; }
+  .review-actions .btn { flex: 1 1 100%; text-align: left; }
+}
 .util-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; min-width: 620px; }
 .util-table th, .util-table td { padding: var(--space-3) var(--space-4); text-align: left; border-bottom: 1px solid var(--border); }
 .util-table thead th {
@@ -2119,7 +2143,24 @@ const state = {
     employers: {},
     au_explains: null,  // 'yes' | 'no' | null
     reviewed: false
-  }
+  },
+  // What the consumer says about the items we read off their report. Nothing
+  // here is inferred. Every letter that accuses a company of something is built
+  // from these answers and from nothing else, because the alternative is a
+  // sworn affidavit or an FCRA demand written on our guess about what they
+  // recognise.
+  itemReview: {
+    inquiries: {},      // index -> 'no' (did not apply) | 'yes' | 'unsure'
+    accounts: {},       // key   -> 'mine' | 'charges' | 'never'
+    reviewed: false
+  },
+  ftcReportNumber: null,
+  // Whether a police report exists. The § 605B block does not depend on one —
+  // the FTC report is the identity theft report — but the enclosure list in the
+  // letter has to be true, and some furnishers ask for it even though a bureau
+  // cannot require it.
+  policeReportFiled: null,   // 'yes' | 'no' | null
+  _letterBeingCompiled: null
 };
 
 // ========== INTAKE QUESTIONS ==========
@@ -3176,12 +3217,25 @@ async function handleFileUpload(event) {
     ? `<p style="font-size:0.875rem;color:var(--text-tertiary);margin-top:var(--space-2);">Could not read ${failures.length} of the files you picked (${failures.map(f => f.name).join(', ')}). Everything below comes from the rest.</p>`
     : '';
 
+  // A parse that fell through to the generic heuristics is not trustworthy
+  // enough to build letters from, and saying so plainly is better than handing
+  // someone a packet full of items that are not on their report.
+  const lowConf = parsed && parsed.low_confidence;
+  const lowConfLine = lowConf
+    ? `<div class="alert alert-critical" style="margin-top:var(--space-4);">
+         <h4 style="color:var(--danger-dark);margin-bottom:var(--space-2);">We could not read this report's format</h4>
+         <p>We recognise two report layouts in full, and this file is neither. We can still show you general guidance, but we are <strong>not</strong> going to write letters naming specific accounts or inquiries from a file we cannot read properly — we would get them wrong.</p>
+         <p style="margin-top:var(--space-2);">The formats we read completely today are the three-bureau report from IdentityIQ, SmartCredit and MyFreeScoreNow, and Experian's printable report. Pulling your report from one of those and uploading it again will give you the full analysis.</p>
+       </div>`
+    : '';
+
   statusEl.innerHTML = `<div class="status-success">
     <p><strong>✓ ${parts.length === 1 ? 'Document' : parts.length + ' documents'} read successfully.</strong></p>
     <p style="font-size:0.9375rem;margin-top:var(--space-2);">Identified as: <strong>${label}</strong></p>
     ${bureauLine}
     <p style="font-size:0.875rem;color:var(--text-tertiary);margin-top:var(--space-2);">Found ${parsed.accounts ? parsed.accounts.length : 0} account(s), ${parsed.inquiries ? parsed.inquiries.length : 0} inquir(ies), ${parsed.collections ? parsed.collections.length : 0} collection(s).</p>
     ${failLine}
+    ${lowConfLine}
     <button class="btn btn-primary" style="margin-top:var(--space-4);" onclick="skipToAnalysis()">See my analysis →</button>
   </div>`;
 }
@@ -4414,6 +4468,664 @@ function parseExperianPrintable(text) {
   return result;
 }
 
+// ========== COLUMNAR TRI-MERGE PARSER ==========
+// A third tri-merge layout, structurally different from the "Three Bureau
+// Credit Report" one. Detected by shape rather than by brand, because these
+// exports carry no vendor string anywhere in their text.
+//
+// Shape: bare section headings (no numbering), a per-account roster listing
+// creditor + masked account + status tags, tri-column detail blocks introduced
+// by a "TransUnion Experian Equifax" header line, three-line inquiry records,
+// and a "Creditor Contacts" section holding mailing addresses.
+//
+// The bureau column ORDER is read from the header line every time. It is
+// TransUnion/Experian/Equifax here and Equifax/Experian/TransUnion in the
+// other tri-merge format; assuming either one is how a dispute ends up
+// addressed to the wrong bureau.
+
+const CT_BUREAUS = ['TransUnion', 'Experian', 'Equifax'];
+const CT_DASH = /^(——|––|--|—|–)$/;
+
+function ctIsColumnarTriMerge(text) {
+  if (/Three Bureau Credit Report/i.test(text)) return false;
+  const hasCols = /^(?:TransUnion|Experian|Equifax)(?:\s+(?:TransUnion|Experian|Equifax)){1,2}\s*$/m.test(text);
+  const hasContacts = /^Creditor Contacts\s*$/m.test(text);
+  const hasInquiries = /^Inquiries\s*$/m.test(text);
+  return hasCols && hasContacts && hasInquiries;
+}
+
+function ctIsBlank(v) { return !v || CT_DASH.test(v.trim()) || /^N\/?A$/i.test(v.trim()); }
+function ctClean(v) { return ctIsBlank(v) ? null : v.trim(); }
+
+// Column header line -> bureau order for the block that follows it.
+function ctHeaderOrder(line) {
+  const parts = line.trim().split(/\s+/);
+  if (!parts.length || parts.length > 3) return null;
+  if (!parts.every(p => CT_BUREAUS.includes(p))) return null;
+  return parts;
+}
+
+// ---------- Creditor Contacts: the mailing addresses ----------
+// Records read: NAME / street (sometimes wrapped) / CITY, ST ZIP / phone.
+// Anchored on the phone line, because the street can run to two lines.
+function ctParseContacts(lines) {
+  const start = lines.findIndex(l => /^Creditor Contacts\s*$/.test(l.trim()));
+  if (start < 0) return [];
+  const out = [];
+  let buf = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (!l) continue;
+    if (/^\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$/.test(l)) {
+      if (buf.length >= 2) {
+        const name = buf[0];
+        const cityLine = buf[buf.length - 1];
+        const street = buf.slice(1, buf.length - 1).join(' ');
+        if (/^[A-Za-z .'\-]+,\s*[A-Z]{2}\s+\d{5}/.test(cityLine)) {
+          out.push({name, street, city: cityLine, phone: l});
+        }
+      }
+      buf = [];
+      continue;
+    }
+    buf.push(l);
+    if (buf.length > 5) buf = buf.slice(-5);
+  }
+  return out;
+}
+
+function ctNorm(s) { return (s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+// Conservative match only. A wrong address here means a legal demand letter
+// posted to a company that never pulled the report, so an uncertain match
+// returns nothing and the letter keeps its "address is printed on your
+// report" instruction instead.
+function ctFindAddress(creditor, contacts) {
+  const a = ctNorm(creditor);
+  if (a.length < 4) return null;
+  let best = null;
+  for (const c of contacts) {
+    const b = ctNorm(c.name);
+    if (!b) continue;
+    const shorter = a.length <= b.length ? a : b;
+    const longer = a.length <= b.length ? b : a;
+    // A shared prefix of six characters, or the whole shorter name appearing
+    // inside the longer one. Reports truncate the inquiring company's name
+    // ("FIRST PREMIE", "CMAS HYUNDAI") while the contacts list spells it out,
+    // so containment is needed — but only at a length where a coincidence is
+    // implausible.
+    let score = 0;
+    if (shorter.length >= 6 && longer.startsWith(shorter)) score = shorter.length;
+    else if (shorter.length >= 8 && longer.includes(shorter)) score = shorter.length - 1;
+    if (score && (!best || score > best.score)) best = {score, c};
+  }
+  return best ? (best.c.street + '\n' + best.c.city) : null;
+}
+
+// ---------- Inquiries ----------
+// Three-line records: date / creditor / "<Bureau> ®". The section also carries
+// stray tri-column rows from a tradeline that wrapped into it, so the date line
+// must be a date and NOTHING else — "07/07/2026 —— ——" is a tradeline row, not
+// an inquiry.
+//
+// This vendor sorts the inquiries itself into two groups: ones with a matching
+// account on file, and ones "likely not approved since no matching account
+// shows". That second group is the one worth asking the consumer about first,
+// so the grouping is preserved rather than flattened.
+function ctParseInquiries(lines, contacts) {
+  const start = lines.findIndex(l => /^Inquiries\s*$/.test(l.trim()));
+  if (start < 0) return [];
+  let end = lines.findIndex((l, i) => i > start && /^Creditor Contacts\s*$/.test(l.trim()));
+  if (end < 0) end = lines.length;
+
+  const out = [];
+  let group = null;
+  for (let i = start + 1; i < end; i++) {
+    const l = lines[i].trim();
+    if (/have matching accounts on your credit report/i.test(l)) { group = 'matched'; continue; }
+    if (/likely not approved since no matching account/i.test(l)) { group = 'unmatched'; continue; }
+    if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(l)) continue;
+
+    const creditor = (lines[i + 1] || '').trim();
+    const bureauLine = (lines[i + 2] || '').trim();
+    const bm = bureauLine.match(/^(TransUnion|Experian|Equifax)\s*®?\s*$/);
+    if (!bm) continue;
+    if (!creditor || creditor.length < 2) continue;
+    if (/^(TransUnion|Experian|Equifax)/.test(creditor)) continue;
+
+    out.push({
+      creditor,
+      address: ctFindAddress(creditor, contacts),
+      date: l,
+      bureau: bm[1],
+      matched_account: group === 'matched' ? true : group === 'unmatched' ? false : null,
+      type: 'hard'
+    });
+    i += 2;
+  }
+  return out;
+}
+
+// ---------- Account detail blocks ----------
+// Each block is: creditor name, optional tag lines, a bureau header line, then
+// one line per field holding that field's value for each bureau in the header's
+// order. The field ORDER is fixed, but rows go missing when a block breaks
+// across a page — so the label list and the value rows are walked together and
+// each row must match the shape its label expects. A row that does not match
+// advances the label instead of the row, which keeps one dropped line from
+// shifting every field after it.
+const CT_FIELDS = [
+  ['account_number', 'acct'], ['high_balance', 'money'], ['last_verified', 'date'],
+  ['date_last_activity', 'date'], ['date_reported', 'date'], ['date_opened', 'date'],
+  ['balance_owed', 'money'], ['closed_date', 'date'], ['account_rating', 'word'],
+  ['account_description', 'word'], ['dispute_status', 'word'], ['creditor_type', 'word'],
+  ['account_status', 'word'], ['payment_status', 'word'], ['creditor_remarks', 'word'],
+  ['payment_amount', 'money'], ['last_payment', 'date'], ['term_length', 'int'],
+  ['past_due', 'money'], ['account_type', 'word'], ['payment_frequency', 'word'],
+  ['credit_limit', 'money'], ['utilization', 'pct']
+];
+
+const CT_LABELS = new Set(CT_FIELDS.map(f =>
+  f[0].split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
+).concat([
+  'Account Number', 'High Balance', 'Last Verified', 'Date of Last Activity',
+  'Date Reported', 'Date Opened', 'Balance Owed', 'Closed Date', 'Account Rating',
+  'Account Description', 'Dispute Status', 'Creditor Type', 'Account Status',
+  'Payment Status', 'Creditor Remarks', 'Payment Amount', 'Last Payment',
+  'Term Length', 'Past Due Amount', 'Account Type', 'Payment Frequency',
+  'Credit Limit', 'Utilization', 'Payment History - Last 2 Years',
+  'Days Late - Last 7 Years', '30 days 60 days 90 days'
+]));
+
+const CT_SECTIONS = /^(Revolving Accounts|Installment Accounts|Mortgage Accounts|Other Accounts|Collection Accounts|Collections|Public Records|Inquiries|Creditor Contacts|Personal Information|Summary|Credit Scores|Accounts)\s*$/;
+
+function ctShape(tok) {
+  if (ctIsBlank(tok)) return 'blank';
+  if (/^\$-?[\d,]+(\.\d{2})?$/.test(tok)) return 'money';
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(tok)) return 'date';
+  if (/^[\dX*]{2,}\*+$|^\d{4,}\*+$|^[A-Z0-9]{4,}\*+$/.test(tok)) return 'acct';
+  if (/^\d+%$/.test(tok)) return 'pct';
+  if (/^\d+$/.test(tok)) return 'int';
+  return 'word';
+}
+
+// Creditor names print in caps ("MERRICK BANK CORP", "JPMCB CARD"); the tag
+// lines between the name and the bureau header are title case ("Bank Negative
+// Closed Late Payment", "Revolving"). Walk back to the first caps line.
+function ctLooksLikeCreditor(l) {
+  const s = l.trim();
+  if (!s || s.length < 2 || s.length > 60) return false;
+  if (CT_SECTIONS.test(s)) return false;
+  if (CT_LABELS.has(s)) return false;
+  if (/^[®\s]+$/.test(s)) return false;
+  if (/^(TransUnion|Experian|Equifax)\b/.test(s)) return false;
+  if (/^\d/.test(s)) return false;
+  if (/NONE REPORTED/i.test(s)) return false;
+  if (/^(NA|N\/A)$/i.test(s)) return false;
+  const letters = s.replace(/[^A-Za-z]/g, '');
+  if (letters.length < 2) return false;
+  const upper = s.replace(/[^A-Z]/g, '').length;
+  return upper / letters.length >= 0.7;
+}
+
+function ctSplitRow(raw, n) {
+  // Values are separated by single spaces and are themselves multi-word, so a
+  // plain split is wrong. Pull tokens by shape from the left for the first
+  // n-1 columns is unreliable too; instead split on runs of whitespace and
+  // regroup using the em-dash placeholders, which always stand alone.
+  const toks = raw.trim().split(/\s+/);
+  if (toks.length === n) return toks;
+  // Group tokens into n cells: dashes and shape-complete tokens end a cell.
+  const cells = [];
+  let cur = [];
+  for (const t of toks) {
+    if (CT_DASH.test(t)) {
+      if (cur.length) { cells.push(cur.join(' ')); cur = []; }
+      cells.push(t);
+      continue;
+    }
+    cur.push(t);
+    const sh = ctShape(t);
+    if (sh === 'money' || sh === 'date' || sh === 'acct' || sh === 'pct') {
+      cells.push(cur.join(' ')); cur = [];
+    }
+  }
+  if (cur.length) cells.push(cur.join(' '));
+  if (cells.length === n) return cells;
+  return null;
+}
+
+// Word rows ("Bank - Mortgage Loans Bank - Mortgage Loans Mortgage Companies -
+// Finance") cannot be split on whitespace, and guessing the boundary would put
+// one bureau's value under another bureau's name. Where the row is three equal
+// repeats the split is certain; otherwise the row is kept whole and marked
+// approximate, and callers test it by containment rather than by column.
+function ctSplitWordRow(raw, n) {
+  const toks = raw.trim().split(/\s+/);
+  if (toks.length === n) return {cells: toks, exact: true};
+  if (toks.length % n === 0) {
+    const size = toks.length / n;
+    const parts = [];
+    for (let i = 0; i < n; i++) parts.push(toks.slice(i * size, (i + 1) * size).join(' '));
+    if (new Set(parts).size === 1) return {cells: parts, exact: true};
+  }
+  const dashSplit = ctSplitRow(raw, n);
+  if (dashSplit) return {cells: dashSplit, exact: false};
+  return {cells: null, raw, exact: false};
+}
+
+function ctStopsBlock(l) {
+  const s = l.trim();
+  if (!s) return false;
+  if (CT_SECTIONS.test(s)) return true;
+  if (/^Payment History - Last 2 Years/.test(s)) return true;
+  if (/^Days Late - Last 7 Years/.test(s)) return true;
+  if (/^Creditor Contacts/.test(s)) return true;
+  return false;
+}
+
+function ctNearestNameAbove(lines, headerIdx, span) {
+  for (let k = headerIdx - 1; k >= 0 && k >= headerIdx - span; k--) {
+    const s = (lines[k] || '').trim();
+    if (!s || /^[®\s]+$/.test(s)) continue;
+    if (CT_SECTIONS.test(s)) return null;
+    if (ctLooksLikeCreditor(s)) return s;
+    if (CT_LABELS.has(s)) continue;
+    return null;
+  }
+  return null;
+}
+
+function ctParseAccountsV2(lines) {
+  const rosterMulti = ctBuildRosterMulti(lines);
+  const hasRoster = Object.keys(rosterMulti).length >= 5;
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const order = ctHeaderOrder(lines[i]);
+    if (!order || order.length < 2) continue;
+
+    const per = {};
+    order.forEach(b => per[b] = {});
+    const rawRows = {};
+    let fi = 0, j = i + 1, consumed = 0, firstShape = null;
+
+    while (j < lines.length && fi < CT_FIELDS.length) {
+      const raw = lines[j].trim();
+      if (!raw) { j++; continue; }
+      if (ctStopsBlock(raw) || ctHeaderOrder(raw)) break;
+      if (CT_LABELS.has(raw)) { j++; continue; }
+      if (/^[®\s]+$/.test(raw)) { j++; continue; }
+      if (ctLooksLikeCreditor(raw) && consumed > 0) break;
+
+      const [field, type] = CT_FIELDS[fi];
+      let cells = null, exact = true;
+      if (type === 'word') {
+        const w = ctSplitWordRow(raw, order.length);
+        cells = w.cells; exact = w.exact;
+        if (!cells) { rawRows[field] = raw; fi++; j++; consumed++; continue; }
+      } else {
+        cells = ctSplitRow(raw, order.length);
+        if (!cells) { fi++; continue; }
+        const shapes = cells.filter(c => !ctIsBlank(c)).map(ctShape);
+        if (shapes.length && !shapes.some(s => s === type)) { fi++; continue; }
+      }
+      if (firstShape === null) firstShape = ctShape((cells.find(c => !ctIsBlank(c)) || ''));
+      order.forEach((b, ci) => {
+        const v = ctClean(cells[ci]);
+        if (v !== null) per[b][field] = exact ? v : {value: v, approx: true};
+      });
+      fi++; j++; consumed++;
+    }
+
+    // A tradeline block opens with a masked account number or a dollar figure.
+    // The credit-score and summary blocks share the same header line and would
+    // otherwise be filed as accounts named after whatever caps text sat above.
+    if (consumed < 3) continue;
+    if (firstShape !== 'acct' && firstShape !== 'money') continue;
+
+    let acctNum = null;
+    for (const b of order) { if (per[b].account_number) { acctNum = per[b].account_number; break; } }
+    const res = ctResolveCreditor(acctNum, rosterMulti, ctNearestNameAbove(lines, i, 3), hasRoster);
+    if (!res) continue;
+
+    const reported = order.filter(b => Object.keys(per[b]).length > 0);
+    out.push({
+      creditor: res.creditor,
+      creditor_uncertain: !!res.uncertain,
+      creditor_alternatives: res.alternatives || null,
+      account_number: acctNum,
+      per_bureau: per,
+      bureaus_reported: reported,
+      unsplit_rows: rawRows,
+      _start: i,
+      _end: j
+    });
+    i = j - 1;
+  }
+  return out;
+}
+
+
+// ---------- Creditor resolution, final ----------
+// Masked account numbers are the first six digits plus stars, so they are a BIN
+// prefix, not an identifier: "444796****" is both CREDIT ONE BANK NA and LVNV
+// FUNDING on the same report, and "546630****" collides on another. A lookup
+// keyed on them alone will file one creditor's balances under another
+// creditor's name, which is the single worst thing this parser can do, because
+// the result is a dispute letter naming the wrong company.
+//
+// So the roster maps each masked number to every name that claims it. One name
+// resolves the block. More than one, or none, leaves the block named but marked
+// uncertain — and an uncertain block is shown to the consumer for confirmation
+// instead of being written into a letter on a guess.
+function ctBuildRosterMulti(lines) {
+  const map = {};
+  const re = /^([A-Z0-9][A-Za-z0-9 &/.,'\-]{2,40}?)\s+([A-Z0-9]{4,}\*+)$/;
+  for (const l of lines) {
+    const m = l.trim().match(re);
+    if (!m) continue;
+    const name = m[1].trim();
+    if (CT_LABELS.has(name) || CT_SECTIONS.test(name)) continue;
+    if (/^(TransUnion|Experian|Equifax)/.test(name)) continue;
+    (map[m[2]] = map[m[2]] || []).push(name);
+  }
+  Object.keys(map).forEach(k => map[k] = [...new Set(map[k])]);
+  return map;
+}
+
+// The two exports of this layout are mutually exclusive on roster presence.
+// Where a roster exists the name stream is detached from the value stream and
+// adjacency is meaningless, so the roster decides. Where no roster exists at
+// all, the export prints each creditor directly above its own bureau header
+// and adjacency is the only signal there is — and is reliable there.
+function ctResolveCreditor(acctNum, rosterMulti, fallbackName, hasRoster) {
+  if (!hasRoster) {
+    return fallbackName ? {creditor: fallbackName, uncertain: false} : null;
+  }
+  if (acctNum && rosterMulti[acctNum]) {
+    const names = rosterMulti[acctNum];
+    if (names.length === 1) return {creditor: names[0], uncertain: false};
+    if (fallbackName && names.includes(fallbackName)) return {creditor: fallbackName, uncertain: false};
+    return {creditor: names[0], uncertain: true, alternatives: names};
+  }
+  if (fallbackName) return {creditor: fallbackName, uncertain: true};
+  return null;
+}
+
+
+// ---------- Late-payment counts ----------
+// Printed two ways in the exports seen: a per-bureau "30: 9 60: 0 90: 0" line,
+// or a "30 days 60 days 90 days" header with "TransUnion 0 0 0" rows under it.
+function ctLateCounts(lines, from, to) {
+  const res = {};
+  let bureau = null;
+  for (let i = from; i < Math.min(to, lines.length); i++) {
+    const s = (lines[i] || '').trim();
+    if (!s) continue;
+    if (/^Payment History/.test(s) || CT_SECTIONS.test(s)) break;
+    let m = s.match(/^(TransUnion|Experian|Equifax)\s+30:\s*(\d+)\s+60:\s*(\d+)\s+90:\s*(\d+)/);
+    if (m) { res[m[1]] = {d30: +m[2], d60: +m[3], d90: +m[4]}; continue; }
+    m = s.match(/^(TransUnion|Experian|Equifax)\s+(\d+)\s+(\d+)\s+(\d+)$/);
+    if (m) { res[m[1]] = {d30: +m[2], d60: +m[3], d90: +m[4]}; continue; }
+    m = s.match(/^(TransUnion|Experian|Equifax)$/);
+    if (m) { bureau = m[1]; continue; }
+    m = s.match(/^30:\s*(\d+)\s+60:\s*(\d+)\s+90:\s*(\d+)/);
+    if (m && bureau) { res[bureau] = {d30: +m[1], d60: +m[2], d90: +m[3]}; bureau = null; continue; }
+  }
+  return res;
+}
+
+function ctVal(v) { return (v && typeof v === 'object' && 'value' in v) ? v.value : v; }
+function ctMoneyNum(v) {
+  const s = ctVal(v);
+  if (!s) return null;
+  const m = String(s).replace(/[$,]/g, '').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+function ctAllText(rec) {
+  const bits = [];
+  Object.values(rec.per_bureau || {}).forEach(p => Object.values(p).forEach(v => bits.push(String(ctVal(v)))));
+  Object.values(rec.unsplit_rows || {}).forEach(v => bits.push(String(v)));
+  return bits.join(' ');
+}
+
+
+// ---------- Scores, summary, personal ----------
+function ctFirstHeaderIdx(lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const h = ctHeaderOrder(lines[i]);
+    if (h && h.length >= 2) return i;
+  }
+  return -1;
+}
+
+function ctParseScores(lines) {
+  const hi = ctFirstHeaderIdx(lines);
+  if (hi < 0) return [];
+  const order = ctHeaderOrder(lines[hi]);
+  for (let k = hi - 1; k >= 0 && k >= hi - 4; k--) {
+    const s = (lines[k] || '').trim();
+    const m = s.match(/^(\d{3})\s+(\d{3})\s+(\d{3})$/);
+    if (!m) continue;
+    const vals = [+m[1], +m[2], +m[3]];
+    if (vals.every(v => v >= 300 && v <= 900)) {
+      return order.map((b, i) => ({bureau: b, score: vals[i]}));
+    }
+  }
+  return [];
+}
+
+// The summary block is a run of tri-column rows in a fixed order. It is found
+// by shape — five integer rows, two money rows, two more integer rows — rather
+// than by a heading, because the headings print in a separate stream.
+const CT_SUMMARY_ROWS = ['total_accounts', 'open_accounts', 'closed_accounts',
+  'delinquent', 'derogatory', 'balances', 'payments', 'public_records', 'inquiries'];
+
+function ctParseSummary(lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const order = ctHeaderOrder(lines[i]);
+    if (!order || order.length < 2) continue;
+    const rows = [];
+    let j = i + 1;
+    while (j < lines.length && rows.length < CT_SUMMARY_ROWS.length) {
+      const s = (lines[j] || '').trim();
+      if (!s || CT_LABELS.has(s) || /^[®\s]+$/.test(s)) { j++; continue; }
+      const cells = ctSplitRow(s, order.length);
+      if (!cells) break;
+      const sh = cells.filter(c => !ctIsBlank(c)).map(ctShape);
+      if (!sh.every(x => x === 'int' || x === 'money')) break;
+      rows.push(cells); j++;
+    }
+    if (rows.length < CT_SUMMARY_ROWS.length) continue;
+    const out = {};
+    CT_SUMMARY_ROWS.forEach((name, ri) => {
+      out[name] = {};
+      order.forEach((b, ci) => out[name][b] = ctClean(rows[ri][ci]));
+    });
+    return out;
+  }
+  return null;
+}
+
+
+// ---------- Personal information ----------
+// Addresses print as street/city pairs, one pair per bureau, with no marker
+// saying which bureau reported which. They are deduplicated and listed without
+// bureau attribution rather than guessed, because the identity review asks the
+// consumer whether an address is theirs — a wrong bureau label there would send
+// a mixed-file letter to a bureau that never reported the address.
+function ctParsePersonal(lines) {
+  const hi = ctFirstHeaderIdx(lines);
+  const out = {name: null, name_raw: null, aka: [], year_of_birth: null, addresses: [], employers: [], statement: null};
+  if (hi < 0) return out;
+  const order = ctHeaderOrder(lines[hi]) || CT_BUREAUS;
+  const n = order.length;
+
+  let end = lines.length;
+  for (let i = hi + 1; i < lines.length; i++) {
+    const h = ctHeaderOrder(lines[i]);
+    if (h && h.length >= 2) { end = i; break; }
+  }
+
+  const seen = new Set();
+  let wordRows = 0, pendingStreet = null, afterDate = false;
+  const stmt = [];
+  for (let i = hi + 1; i < end; i++) {
+    const s = (lines[i] || '').trim();
+    if (!s || CT_LABELS.has(s) || /^[®\s]+$/.test(s)) continue;
+    if (/^NONE REPORTED/i.test(s)) continue;
+
+    const yr = s.match(/^(\d{4})(\s+\d{4}){0,2}$/);
+    if (yr && +yr[1] > 1900 && +yr[1] < 2100) { if (!out.year_of_birth) out.year_of_birth = +yr[1]; continue; }
+    // The Credit Report Date row separates the employer list above it from the
+    // consumer's own statement below. Without that boundary the statement text
+    // reads as employers — and, in the old generic parser, as tradelines.
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(s)) { afterDate = true; continue; }
+
+    if (/^[A-Za-z .'\-]+,\s*[A-Z]{2}\s+\d{5}/.test(s)) {
+      const full = (pendingStreet ? pendingStreet + ', ' : '') + s;
+      const key = full.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 28);
+      if (!seen.has(key)) { seen.add(key); out.addresses.push({address: full, bureaus: [], status: null}); }
+      pendingStreet = null;
+      continue;
+    }
+    if (/^\d+\s+\S/.test(s) || /^(PO|P\.O\.)\s*BOX/i.test(s)) { pendingStreet = s; continue; }
+
+    if (wordRows === 0) {
+      out.name_raw = s;
+      // The three bureaus print three spellings of the name side by side. They
+      // are rarely identical ("MICHAEL ANTHONY GIBSON MICHAEL A GIBSON ..."),
+      // so an equal-thirds split is used when the token count allows it.
+      const toks = s.split(/\s+/);
+      const repeat = toks.indexOf(toks[0], 1);
+      if (repeat > 0) out.name = toks.slice(0, repeat).join(' ');
+      else if (toks.length % n === 0) out.name = toks.slice(0, toks.length / n).join(' ');
+      else out.name = s;
+      wordRows++; continue;
+    }
+    if (wordRows === 1) {
+      const cells = ctSplitWordRow(s, n).cells;
+      (cells || [s]).forEach(v => { const c = ctClean(v); if (c && c !== out.name) out.aka.push(c); });
+      wordRows++; continue;
+    }
+    if (!afterDate && ctLooksLikeCreditor(s) && s.length < 40) {
+      if (!out.employers.includes(s)) out.employers.push(s);
+      continue;
+    }
+    stmt.push(s);
+  }
+  if (stmt.length) out.statement = stmt.join(' ');
+  out.aka = [...new Set(out.aka)];
+  return out;
+}
+
+
+// ---------- Assemble into the shape the rest of the app consumes ----------
+function ctPickFirst(per, order, field) {
+  for (const b of order) { const v = ctVal((per[b] || {})[field]); if (v) return v; }
+  return null;
+}
+// The cross-bureau analysis reads these as a positional array in Equifax,
+// Experian, TransUnion order (TB_BUREAU_COLS) — not as an object keyed by
+// bureau. This report prints its columns in TransUnion, Experian, Equifax
+// order, so the values are re-ordered here rather than passed through. Handing
+// the analysis the report's own order would have every contradiction reported
+// against the wrong bureau, and the dispute letter would then tell Equifax what
+// TransUnion said.
+const CT_ANALYSIS_ORDER = ['Equifax', 'Experian', 'TransUnion'];
+
+function ctTriple(per, order, field, asMoney) {
+  return CT_ANALYSIS_ORDER.map(b => {
+    if (!order.includes(b)) return null;
+    const v = ctVal((per[b] || {})[field]);
+    if (!v) return null;
+    return asMoney ? ctMoneyNum(v) : v;
+  });
+}
+
+function parseColumnarTriMerge(text) {
+  const lines = text.split(/\r?\n/).map(l => l.replace(/\s+$/, ''));
+  const contacts = ctParseContacts(lines);
+  const rawAccts = ctParseAccountsV2(lines);
+  const summary = ctParseSummary(lines);
+  const scores = ctParseScores(lines);
+  const personal = ctParsePersonal(lines);
+  const inquiries = ctParseInquiries(lines, contacts);
+
+  const bureausSeen = new Set();
+  rawAccts.forEach(a => a.bureaus_reported.forEach(b => bureausSeen.add(b)));
+  inquiries.forEach(q => bureausSeen.add(q.bureau));
+  scores.forEach(s => bureausSeen.add(s.bureau));
+  const bureaus = CT_BUREAUS.filter(b => bureausSeen.has(b));
+
+  const accounts = rawAccts.map(a => {
+    const order = a.bureaus_reported.length ? a.bureaus_reported : CT_BUREAUS;
+    const per = a.per_bureau;
+    const blob = ctAllText(a);
+    const late = ctLateCounts(lines, a._end, a._end + 40);
+    const d30 = Object.values(late).reduce((m, x) => Math.max(m, x.d30 || 0), 0);
+    const d60 = Object.values(late).reduce((m, x) => Math.max(m, x.d60 || 0), 0);
+    const d90 = Object.values(late).reduce((m, x) => Math.max(m, x.d90 || 0), 0);
+    const status = ctPickFirst(per, order, 'account_status') || ctPickFirst(per, order, 'account_rating') || 'unknown';
+    const remarks = ctPickFirst(per, order, 'creditor_remarks') || a.unsplit_rows.creditor_remarks || '';
+    const ctype = ctPickFirst(per, order, 'creditor_type') || a.unsplit_rows.creditor_type || '';
+    return {
+      creditor: a.creditor,
+      creditor_uncertain: a.creditor_uncertain,
+      creditor_alternatives: a.creditor_alternatives,
+      reported_by: a.bureaus_reported,
+      bureaus: a.bureaus_reported.map(b => b.toLowerCase()),
+      account_number: a.account_number || '',
+      balance: ctMoneyNum(ctPickFirst(per, order, 'balance_owed')),
+      credit_limit: ctMoneyNum(ctPickFirst(per, order, 'credit_limit')),
+      high_credit: ctMoneyNum(ctPickFirst(per, order, 'high_balance')),
+      past_due: ctMoneyNum(ctPickFirst(per, order, 'past_due')),
+      status: status,
+      closed: /closed|paid/i.test(status),
+      responsibility: ctPickFirst(per, order, 'account_description') || null,
+      account_type: ctPickFirst(per, order, 'account_type') || null,
+      per_bureau_status: ctTriple(per, order, 'account_status'),
+      per_bureau_balance: ctTriple(per, order, 'balance_owed', true),
+      per_bureau_limit: ctTriple(per, order, 'credit_limit', true),
+      per_bureau_high: ctTriple(per, order, 'high_balance', true),
+      date_opened: ctPickFirst(per, order, 'date_opened'),
+      date_reported: ctPickFirst(per, order, 'date_reported'),
+      date_of_last_activity: ctPickFirst(per, order, 'date_last_activity'),
+      dofd: null,
+      comments: [remarks, ctype].filter(Boolean),
+      late_counts: {d30, d60, d90, d120: 0},
+      has_late_payments: (d30 + d60 + d90) > 0 || /late/i.test(blob),
+      is_charge_off: /charge[\s-]?off/i.test(blob),
+      // "Collection Agencies" is the creditor type; "Collection account" and
+      // "Factoring Company Account" appear in remarks and ratings. A bare
+      // "collection" test would also catch the section heading text that bleeds
+      // into a block, so the phrases are matched rather than the word.
+      is_collection: /collection agenc|collection account|factoring company|placed for collection|collection\b.*\bagency/i.test(blob),
+      is_repossession: /repossess/i.test(blob),
+      in_bankruptcy: /bankrupt/i.test(blob)
+    };
+  });
+
+  const prCount = summary && summary.public_records
+    ? Math.max(...Object.values(summary.public_records).map(v => parseInt(v, 10) || 0)) : 0;
+
+  return {
+    format: 'columnar_tri_merge',
+    provider: null,
+    bureau: bureaus[0] ? bureaus[0].toLowerCase() : null,
+    bureaus: bureaus,
+    accounts: accounts,
+    collections: accounts.filter(a => a.is_collection),
+    inquiries: inquiries,
+    publicRecords: [],
+    public_records_count: prCount,
+    personal: personal,
+    scores: scores,
+    summary: summary,
+    creditorContacts: contacts
+  };
+}
+
 function parseCreditReport(text) {
   // Prefer the structured parser when the document is a recognised tri-merge layout.
   // The heuristics below stay as the fallback for formats we have not seen.
@@ -4431,6 +5143,14 @@ function parseCreditReport(text) {
       if (structured && structured.accounts.length > 0) return structured;
     } catch (e) {
       // Fall through to the generic heuristics rather than failing the upload.
+    }
+  }
+  if (ctIsColumnarTriMerge(text)) {
+    try {
+      const columnar = parseColumnarTriMerge(text);
+      if (columnar && columnar.accounts.length > 0) return columnar;
+    } catch (e) {
+      // Fall through, same as above.
     }
   }
   const result = {accounts:[], inquiries:[], collections:[], personal:{}, publicRecords:[]};
@@ -4509,7 +5229,18 @@ function parseCreditReport(text) {
       });
     });
   }
-  
+
+  // Nothing structured claimed this document, so everything above came from the
+  // generic heuristics. Those over-capture badly on layouts they have not seen:
+  // on three real reports they read the consumer's own name, home address,
+  // employer and personal statement as tradelines, found none of the fourteen
+  // inquiries, and reported a tri-merge as a single bureau. Letters built from
+  // that would dispute the consumer's own address. The flag travels with the
+  // parse so the upload screen can say so and the packet can withhold every
+  // letter that names a specific item.
+  result.format = 'generic_heuristic';
+  result.low_confidence = true;
+
   return result;
 }
 
@@ -4909,6 +5640,16 @@ const letterTemplates = {
   },
   
   // ========== CORE LETTER 10: FRAUD ALERT REQUEST ==========
+  fcba_billing_error: {
+    id: 'fcba_billing_error',
+    title: 'Billing Error Notice',
+    subtitle: 'Fair Credit Billing Act \u00a7 1666 \u2014 the account is yours, the charges are not',
+    recipient: 'creditor',
+    description: 'For an account that really is yours but carries charges you did not make. This goes to the creditor, not the bureau, and it must reach them within 60 days of the statement that first showed the error.',
+    when_to_use: 'Fraudulent transactions on a real account of yours. Do NOT use the identity theft block for this \u2014 that asks for the whole account to be deleted, and if it is an old account with clean history that costs you more than the charges do.',
+    compile: (ctx) => compileFcbaBillingError(ctx)
+  },
+
   fraud_alert: {
     id: 'fraud_alert',
     title: 'Initial Fraud Alert Request',
@@ -5073,9 +5814,37 @@ const letterTemplates = {
 // ========== LETTER COMPILERS ==========
 // Each returns {mail, portal, short} formats for the letter.
 
+// Letters that are mailed on day one, and are therefore the only ones that can
+// honestly carry today's date.
+//
+// Everything else in a packet goes out weeks or months later: a method-of-
+// verification demand answers a reply that has not arrived yet, a CFPB
+// complaint cannot be filed until 45 days have passed, goodwill and
+// pay-for-delete come after the disputes resolve, and every round-two letter
+// waits on a bureau response. Printing today's date on those is wrong twice
+// over — it is stale by the time it is mailed, and a follow-up dispute bearing
+// the same date as the first one reads as a batch mailing from a form mill,
+// which is the § 1022.43 frivolous-resubmission trigger this whole tool is
+// built to avoid. Those letters get a rule to write the date on instead.
+const DAY_ONE_LETTERS = new Set([
+  'initial_bureau_dispute', 'furnisher_dispute', '609_request',
+  'inquiry_dispute', 'inquiry_permissible_purpose', 'cd_dv_combo',
+  'idtheft_block', 'fraud_alert', 'breach_notification',
+  'mixed_file', 'personal_info_correction',
+  'scra_interest_cap', 'scra_default_protection', 'scra_credit_reporting',
+  'bankruptcy_discharged', 'bankruptcy_automatic_stay', 'bankruptcy_pre_filing',
+  'student_loan_federal', 'student_loan_private', 'tax_cdp_hearing', 'tax_cnc'
+]);
+
+function letterDateLine() {
+  const id = state._letterBeingCompiled;
+  if (id && !DAY_ONE_LETTERS.has(id)) return 'Date: ______________________';
+  return new Date().toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'});
+}
+
 function userHeader() {
   const p = state.userInfo || {};
-  const date = new Date().toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'});
+  const date = letterDateLine();
   return {
     name: p.name || '[YOUR FULL NAME]',
     address: p.address || '[YOUR STREET ADDRESS]',
@@ -5850,6 +6619,21 @@ function compileInquiryPermissiblePurpose(ctx) {
     'This letter is sent by certified mail so that the date of your receipt is a matter of record. I am also disputing this inquiry with the consumer reporting agencies directly.'
   ];
 
+  // Each unauthorised pull is a separate company and a separate violation, so
+  // each needs its own letter to its own address. The packet can only hold one
+  // copy of a template, so the rest are named here with the detail each one
+  // needs, on the separator sheet side of the packet rather than inside the
+  // letter that gets mailed.
+  const others = inquiries.slice(1);
+  if (others.length) {
+    body.push('');
+    body.push('---');
+    body.push(`NOT PART OF THE LETTER — REMOVE THIS SECTION BEFORE MAILING. You flagged ${inquiries.length} inquiries you did not authorise. This letter is addressed to the first one. Send the same letter to each of the others, changing the company, the address and the date each time:`);
+    others.forEach((o, i) => {
+      body.push(`  ${i + 2}. ${o.creditor} — pulled ${o.date}, showing on ${o.bureau}${o.address ? '\n     ' + o.address.replace(/\n/g, ', ') : '\n     Address: printed beside the inquiry on your report'}`);
+    });
+  }
+
   const mail = mailEnvelope(body, recipientBlock, {
     re: `Demand for Permissible Purpose — Unauthorized Inquiry Dated ${inqDateStr}`,
     ssnLine: true
@@ -5898,7 +6682,9 @@ function compile605B(ctx) {
     '• A copy of my government-issued photo identification;',
     '• Proof of my current address;',
     '• A signed Identity Theft Affidavit;',
-    '• Any police report, if filed.',
+    (state.policeReportFiled === 'yes'
+      ? '• A copy of the police report I filed.'
+      : '• No police report is enclosed. The FTC Identity Theft Report above is an identity theft report for the purposes of § 605B, and § 605B(a) does not condition the block on a police report.'),
     '',
     timeline,
     '',
@@ -8294,15 +9080,52 @@ function applyIntakeBasedAnalysis(analysis) {
 function determineLetterPacket(analysis) {
   const f = analysis.flags;
   const packet = [];
-  
+
+  // A report we could not read structurally gives us item names we do not
+  // believe. Every letter below names items, so none of them is safe to build.
+  const parsedNow = (state.upload && state.upload.parsed) || {};
+  const lowConf = !!parsedNow.low_confidence;
+
+  // Identity theft comes FIRST when it is confirmed. The order of a fraud
+  // packet is not cosmetic: the FTC Identity Theft Report unlocks the § 605B
+  // block, the block is mandatory within four business days, and the extended
+  // fraud alert is free and immediate. A generic § 611 dispute mailed ahead of
+  // them is slower, weaker, and asks the bureau to treat fraud as an ordinary
+  // inaccuracy — which is how a victim ends up in a re-investigation loop
+  // instead of a block.
+  const neverMine = (typeof reviewedAccounts === 'function') ? reviewedAccounts('never') : [];
+  const badCharges = (typeof reviewedAccounts === 'function') ? reviewedAccounts('charges') : [];
+  const notAuthorised = (typeof unauthorizedInquiries === 'function') ? unauthorizedInquiries() : [];
+
+  if (f.identity_theft || analysis.situation === 'idtheft') {
+    packet.push(letterTemplates.fraud_alert);
+    // The block letter only exists once the consumer has named the accounts
+    // that are not theirs. Producing it from the derogatory list would put a
+    // sworn statement in their hands about accounts they may well have opened.
+    if (!lowConf && neverMine.length) packet.push(letterTemplates.idtheft_block);
+  }
+
+  // Fraud on a real account is a billing-error dispute to the creditor, not a
+  // block request to the bureau — a different statute, a different recipient
+  // and a 60-day clock.
+  if (!lowConf && badCharges.length) packet.push(letterTemplates.fcba_billing_error);
+
   // Always include if they have a report or are cleaning up
-  if (f.has_report || analysis.situation === 'cleanup' || analysis.situation === 'denied' || analysis.situation === 'rebuilding') {
+  if (!lowConf && (f.has_report || analysis.situation === 'cleanup' || analysis.situation === 'denied' || analysis.situation === 'rebuilding')) {
     packet.push(letterTemplates.initial_bureau_dispute);
     packet.push(letterTemplates.furnisher_dispute);
     packet.push(letterTemplates['609_request']);
     packet.push(letterTemplates.mov);
-    packet.push(letterTemplates.inquiry_dispute);
-    packet.push(letterTemplates.inquiry_permissible_purpose);
+    // Both inquiry letters state, in the consumer's name, that they did not
+    // apply to the companies listed. That sentence is only true for inquiries
+    // they have actually said they did not authorise — so with none flagged,
+    // neither letter is built. One permissible-purpose demand goes to each
+    // flagged company; a single letter aimed at whichever inquiry parsed first
+    // was accusing a company for being first in a list.
+    if (notAuthorised.length) {
+      packet.push(letterTemplates.inquiry_dispute);
+      packet.push(letterTemplates.inquiry_permissible_purpose);
+    }
     packet.push(letterTemplates.goodwill);
     packet.push(letterTemplates.pay_for_delete);
   }
@@ -8337,11 +9160,6 @@ function determineLetterPacket(analysis) {
     packet.push(letterTemplates.personal_info_correction);
   }
 
-  // Identity theft
-  if (f.identity_theft || analysis.situation === 'idtheft') {
-    packet.push(letterTemplates.idtheft_block);
-    packet.push(letterTemplates.fraud_alert);
-  }
   
   // Data breach
   if (f.data_breach || analysis.situation === 'breach') {
@@ -8410,7 +9228,7 @@ function buildActionPlan(analysis) {
       'Get your credit reports: AnnualCreditReport.com (free, all three bureaus, weekly). Pull all three.',
       'Pull your Innovis report (free) — it\'s a fourth bureau many mortgage lenders use.',
       'Freeze your credit at: Equifax, Experian, TransUnion, Innovis, LexisNexis/SageStream, ChexSystems, NCTUE. All free.',
-      f.identity_theft ? 'File your Identity Theft Report at IdentityTheft.gov BEFORE sending any §605B letter.' : 'Consider placing a 1-year fraud alert as a precaution (free, no ID theft required).',
+      f.identity_theft ? 'File your Identity Theft Report at IdentityTheft.gov BEFORE sending any §605B letter. You do NOT need a police report first — the FTC report is the identity theft report the block runs on, and §605B does not condition the block on a police report. Do not let anyone stall you into getting one before you mail.' : 'Consider placing a 1-year fraud alert as a precaution (free, no ID theft required).',
       'Set up a dedicated folder — physical or digital — for every letter you send and every response you receive. Keep this forever.',
       'Buy certified mail envelopes at the post office ($7 each) or use USPS Click-N-Ship online.'
     ]
@@ -8915,6 +9733,11 @@ function renderAnalysis(analysis) {
   }
   
   html += renderPrioritySection(analysis);
+  // The confirmation pass sits high on the page, directly under the priorities.
+  // Everything below it is reading; this is the only part that changes what
+  // gets written, so burying it under the findings would mean most people never
+  // answer it and every accusing letter stays unbuilt.
+  html += renderItemReview();
   html += renderBankruptcyChapterAsk(analysis);
   html += renderRoundTwoSection(analysis);
   html += renderResponseGuide();
@@ -9240,7 +10063,9 @@ function regenerateLetter(letterId) {
   if (!tmpl) return;
   
   const ctx = buildLetterContext(tmpl);
+  state._letterBeingCompiled = letterId;
   state.letterOutputs[letterId] = tmpl.compile(ctx);
+  state._letterBeingCompiled = null;
   
   // Refresh the current tab
   const card = document.getElementById('letter-card-' + letterId);
@@ -9268,7 +10093,9 @@ function regenerateAllLetters() {
   
   analysis.letters.forEach(tmpl => {
     const ctx = buildLetterContext(tmpl);
+    state._letterBeingCompiled = tmpl.id;
     state.letterOutputs[tmpl.id] = tmpl.compile(ctx);
+    state._letterBeingCompiled = null;
     // Update display for the mail tab (default)
     const textEl = document.getElementById('letter-text-' + tmpl.id);
     if (textEl) {
@@ -9278,6 +10105,227 @@ function regenerateAllLetters() {
       textEl.textContent = state.letterOutputs[tmpl.id][format];
     }
   });
+}
+
+
+// ========== ITEM REVIEW — THE CONSUMER CONFIRMS BEFORE WE ACCUSE ==========
+// Three letters in this packet accuse a named company of something: the
+// permissible-purpose demand says a company pulled a report it had no right to,
+// the inquiry dispute says the same to the bureaus, and the § 605B block is
+// sworn under penalty of perjury. None of those can be written from parsed data
+// alone — only the consumer knows whether they applied to a company or opened
+// an account. Until this section is answered, those letters are not built.
+//
+// The questions are deliberately plain. The people using this are not in the
+// industry, they are often under financial stress, and a form that reads like a
+// legal instrument gets abandoned or answered carelessly. One item per row, one
+// question, three buttons, no jargon, and no answer pre-selected.
+
+function accountKey(a, i) {
+  return (a.creditor || 'item') + '|' + (a.account_number || i);
+}
+
+function setPoliceReport(v) {
+  state.policeReportFiled = v;
+  regenerateAllLetters();
+  if (state.analysis) renderAnalysis(state.analysis);
+}
+
+function setInquiryAnswer(idx, v) {
+  state.itemReview.inquiries[idx] = v;
+  state.itemReview.reviewed = true;
+  rerenderItemReview();
+}
+
+function setAccountAnswer(key, v) {
+  state.itemReview.accounts[key] = v;
+  state.itemReview.reviewed = true;
+  rerenderItemReview();
+}
+
+function rerenderItemReview() {
+  const host = document.getElementById('item-review');
+  if (host) host.outerHTML = renderItemReview();
+  // The packet and the letters both depend on these answers.
+  if (state.analysis) {
+    state.analysis.letters = determineLetterPacket(state.analysis);
+    regenerateAllLetters();
+  }
+  const c = document.getElementById('review-count');
+  if (c) c.textContent = itemReviewSummaryText();
+}
+
+function unauthorizedInquiries() {
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const inq = parsed.inquiries || [];
+  return inq.filter((q, i) => state.itemReview.inquiries[i] === 'no');
+}
+
+function reviewedAccounts(kind) {
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const accts = parsed.accounts || [];
+  return accts.filter((a, i) => state.itemReview.accounts[accountKey(a, i)] === kind);
+}
+
+function itemReviewSummaryText() {
+  const n = unauthorizedInquiries().length;
+  const never = reviewedAccounts('never').length;
+  const charges = reviewedAccounts('charges').length;
+  const bits = [];
+  if (n) bits.push(n + (n === 1 ? ' inquiry' : ' inquiries') + ' you did not authorise');
+  if (never) bits.push(never + ' account' + (never === 1 ? '' : 's') + ' that is not yours');
+  if (charges) bits.push(charges + ' account' + (charges === 1 ? '' : 's') + ' with charges you did not make');
+  return bits.length ? bits.join(', ') : 'Nothing flagged yet.';
+}
+
+function reviewBtn(active, label, onclick, tone) {
+  const cls = active ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost';
+  return `<button type="button" class="${cls}" style="margin:2px 4px 2px 0;" onclick="${onclick}">${label}</button>`;
+}
+
+function renderItemReview() {
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const inq = parsed.inquiries || [];
+  const accts = parsed.accounts || [];
+  if (!inq.length && !accts.length) return '<div id="item-review"></div>';
+  if (parsed.low_confidence) return '<div id="item-review"></div>';
+
+  // This vendor's report already separates inquiries that have a matching
+  // account from ones that do not. The ones with no matching account are where
+  // an unauthorised pull actually shows up, so they are asked about first
+  // instead of being buried in a flat list of fourteen.
+  const idx = inq.map((q, i) => i);
+  const noMatch = idx.filter(i => inq[i].matched_account === false);
+  const rest = idx.filter(i => inq[i].matched_account !== false);
+  const ordered = noMatch.concat(rest);
+
+  const inqRows = ordered.map(i => {
+    const q = inq[i];
+    const a = state.itemReview.inquiries[i];
+    const flag = q.matched_account === false
+      ? `<span class="review-flag review-flag-warn">no matching account</span>`
+      : '';
+    return `<div class="review-row">
+      <div class="review-item">
+        <div class="review-label">
+          <strong>${q.creditor}</strong>${flag}
+          <div class="review-sub">Pulled ${q.date} · showing on ${q.bureau}</div>
+        </div>
+        <div class="review-actions">
+          ${reviewBtn(a === 'yes', 'I applied here', `setInquiryAnswer(${i},'yes')`)}
+          ${reviewBtn(a === 'no', "I never applied here", `setInquiryAnswer(${i},'no')`)}
+          ${reviewBtn(a === 'unsure', "I'm not sure", `setInquiryAnswer(${i},'unsure')`)}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const acctRows = accts.map((acc, i) => {
+    const key = accountKey(acc, i);
+    const a = state.itemReview.accounts[key];
+    const uncertain = acc.creditor_uncertain
+      ? `<span class="review-flag review-flag-check">check this name</span>`
+      : '';
+    const sub = [acc.account_number, acc.date_opened ? 'opened ' + acc.date_opened : null,
+                 acc.balance != null ? 'balance $' + acc.balance.toLocaleString() : null]
+                .filter(Boolean).join(' · ');
+    return `<div class="review-row">
+      <div class="review-item">
+        <div class="review-label">
+          <strong>${acc.creditor}</strong>${uncertain}
+          <div class="review-sub">${sub || 'on your report'}</div>
+        </div>
+        <div class="review-actions">
+          ${reviewBtn(a === 'mine', 'This is mine', `setAccountAnswer('${key.replace(/'/g, "\\'")}','mine')`)}
+          ${reviewBtn(a === 'charges', "Mine \u2014 but some charges aren't", `setAccountAnswer('${key.replace(/'/g, "\\'")}','charges')`)}
+          ${reviewBtn(a === 'never', "I never opened this", `setAccountAnswer('${key.replace(/'/g, "\\'")}','never')`)}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div id="item-review">
+  <section class="module-card" style="margin-top:var(--space-16);">
+    <div class="module-header">
+      <p class="eyebrow">Step 1 of your packet</p>
+      <h2>Check what's actually yours</h2>
+      <p>We read these off your report. We do not know which of them you recognise — only you do, and it changes what we write. Nothing you tap here leaves your computer.</p>
+    </div>
+
+    <div class="alert" style="margin:var(--space-4) 0;background:var(--surface-2,#f6f7f9);">
+      <p style="margin:0;"><strong>Why this matters.</strong> A letter that disputes something you actually did open is the fastest way to have your whole dispute thrown out as frivolous. We would rather send three accurate letters than eleven guesses.</p>
+    </div>
+
+    ${inq.length ? `<h3 style="margin-top:var(--space-8);">Companies that looked at your credit</h3>
+    <p style="color:var(--text-tertiary);">Did you apply for anything with these? If a company pulled your credit without your permission, that is a violation worth real money — but only if you genuinely never applied.</p>
+    <div style="margin-top:var(--space-4);">${inqRows}</div>` : ''}
+
+    ${accts.length ? `<h3 style="margin-top:var(--space-8);">Accounts on your report</h3>
+    <p style="color:var(--text-tertiary);">Three answers, and the difference matters. An account that was never yours gets blocked as identity theft. An account that <em>is</em> yours with charges you did not make is a different process — and asking for the whole account to be removed would cost you the good history on it.</p>
+    <div style="margin-top:var(--space-4);">${acctRows}</div>` : ''}
+
+    <p style="margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--border);">
+      <strong>Flagged so far:</strong> <span id="review-count">${itemReviewSummaryText()}</span>
+    </p>
+  </section>
+  </div>`;
+}
+
+
+// ========== COMPILER: FCBA BILLING ERROR (account is theirs, charges are not) ==========
+// The remedy nobody reaches for. When the account genuinely belongs to the
+// consumer but carries transactions they did not make, a § 605B block is the
+// wrong instrument twice over: it asks the bureau to remove a tradeline that IS
+// theirs, and it is sworn under penalty of perjury. If the account is old and
+// otherwise clean, deleting it also costs them the age that is holding their
+// file up.
+//
+// The right route is the Fair Credit Billing Act. It runs to the CREDITOR, not
+// the bureau, and it is on a clock the FCRA does not have: the written notice
+// must reach the creditor within 60 days of the first statement showing the
+// error. So the letter says that clock out loud rather than burying it.
+function compileFcbaBillingError(ctx) {
+  const items = ctx.billingErrorItems || [];
+  const u = userHeader();
+  const first = items[0] || {};
+  const creditorName = first.creditor || '[Creditor name]';
+
+  const list = items.length
+    ? items.map((it, i) => `${i + 1}. ${it.creditor}${it.account_number ? ' — Account ending ' + it.account_number : ''}`).join('\n')
+    : '[Account name and number]';
+
+  const body = [
+    `This is a written notice of billing error under the Fair Credit Billing Act, 15 U.S.C. § 1666, regarding the following account:`,
+    '',
+    list,
+    '',
+    'The account is mine. The charges below are not. I did not make them, I did not authorise them, and I received no goods or services for them:',
+    '',
+    '[List each transaction: date, amount, and merchant as it appears on the statement]',
+    '',
+    'Under § 1666(a) you must acknowledge this notice in writing within 30 days of receiving it, and resolve the matter within two complete billing cycles — and in no case later than 90 days. Until the dispute is resolved, § 1666(d) prohibits you from restricting or closing the account solely because I have disputed these amounts, and § 1666a prohibits you from reporting the disputed amount as delinquent to any consumer reporting agency without also reporting that it is disputed.',
+    '',
+    'I am asking you to:',
+    '',
+    '(a) Remove the disputed transactions and any interest, late charge or fee assessed on them;',
+    '(b) Send me written confirmation of what you found, and copies of any documentary evidence you relied on if you conclude the charges were authorised;',
+    '(c) Correct any information you have already furnished to the consumer reporting agencies about this account, including any late payment that resulted from the disputed amount.',
+    '',
+    'I am also asking you, separately and under FCRA § 623(a)(3) (15 U.S.C. § 1681s-2), to mark this account as disputed with every consumer reporting agency you report it to while you investigate.',
+    '',
+    'Please send this to your billing inquiries address rather than the payment address if they differ. This notice is sent by certified mail so the date you received it is a matter of record.'
+  ];
+
+  const mail = mailEnvelope(body, `${creditorName}\n[Billing Inquiries address — printed on the back of your statement, NOT the payment address]`, {
+    re: 'Notice of Billing Error — Fair Credit Billing Act, 15 U.S.C. § 1666',
+    ssnLine: false
+  });
+
+  const portal = `Billing error notice under FCBA § 1666 on ${creditorName}. The account is mine; the listed transactions are not — I did not make or authorise them. Acknowledge within 30 days and resolve within two billing cycles. Do not report the disputed amount as delinquent without noting the dispute (§ 1666a), and mark the account disputed with the bureaus under FCRA § 623(a)(3). — ${u.name}`;
+
+  const short = `FCBA billing error, ${creditorName}: account is mine, the listed charges are not. Remove them and any fees, and mark the account disputed with the bureaus. — ${u.name}`;
+
+  return {mail, portal: portal.length > 2000 ? portal.substring(0, 1990) + '…' : portal, short};
 }
 
 function buildLetterContext(tmpl) {
@@ -9318,7 +10366,25 @@ function buildLetterContext(tmpl) {
   });
   
   ctx.items = disputableItems.length > 0 ? disputableItems : [];
-  ctx.inquiries = parsed.inquiries || [];
+
+  // Only the inquiries the consumer said they did not authorise. Sending the
+  // whole parsed list would have the letter swear they applied to none of
+  // fourteen companies, which is not true and is exactly the over-claim that
+  // gets a dispute answered and closed.
+  ctx.inquiries = unauthorizedInquiries();
+
+  // The \u00a7 605B block is sworn under penalty of perjury, so it carries only
+  // what the consumer marked as never theirs \u2014 never the generic derogatory
+  // list. Accounts that are theirs with charges they did not make go to the
+  // FCBA letter instead.
+  if (tmpl.id === 'idtheft_block') {
+    ctx.items = reviewedAccounts('never').map(a => ({
+      creditor: a.creditor,
+      account: a.account_number,
+      reason: 'This account was not opened by me.'
+    }));
+  }
+  ctx.billingErrorItems = reviewedAccounts('charges');
   ctx.bureau = parsed.bureau ? parsed.bureau.toLowerCase() : 'experian';
   ctx.bureaus = (parsed.bureaus || []).map(b => b.toLowerCase());
   
@@ -9332,7 +10398,14 @@ function buildLetterContext(tmpl) {
   }
   
   if (tmpl.id === 'idtheft_block') {
-    ctx.ftcReportNumber = '[Your FTC Report Number from IdentityTheft.gov]';
+    // The walkthrough asks for the FTC Identity Theft Report number and stores
+    // it on state. This used to overwrite it with the placeholder on every
+    // regenerate, so typing the number actively erased it and the § 605B letter
+    // went out saying "[Your FTC Report Number]" — the one field the four
+    // business day block depends on.
+    ctx.ftcReportNumber = (state.ftcReportNumber && state.ftcReportNumber.trim())
+      ? state.ftcReportNumber.trim()
+      : '[Your FTC Report Number from IdentityTheft.gov]';
     // Find breach ref if available
     if (analysis.flags && analysis.flags.data_breach && state.selectedBreach) {
       ctx.breachRef = state.selectedBreach;
@@ -9369,14 +10442,22 @@ function renderIdentityTheftWalkthrough() {
           <li>At the end, you'll receive an <strong>FTC Identity Theft Report number</strong> and an <strong>Identity Theft Affidavit</strong>. Save both. Print multiple copies.</li>
           <li>Record this FTC Report Number here (stays in your browser only):</li>
         </ul>
-        <input type="text" placeholder="FTC Report Number" style="padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius);width:300px;margin-top:var(--space-3);" id="ftc-report-number" oninput="state.ftcReportNumber = this.value; regenerateAllLetters();">
+        <input type="text" placeholder="FTC Report Number" style="padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius);width:300px;max-width:100%;box-sizing:border-box;margin-top:var(--space-3);" id="ftc-report-number" value="${state.ftcReportNumber || ''}" oninput="state.ftcReportNumber = this.value; regenerateAllLetters();">
         
-        <h3 style="margin-top:var(--space-8);">Step 2: File a police report (recommended)</h3>
-        <p>Not strictly required by federal law, but many creditors and some state bureaus require a police report for full relief. File in the jurisdiction where you live.</p>
+        <h3 style="margin-top:var(--space-8);">Step 2: A police report — optional, and worth understanding</h3>
+        <p><strong>You do not need a police report to file your FTC report, and you do not need one to get the § 605B block.</strong> This trips people up constantly, and it costs them weeks. The FTC report you just filed is itself an identity theft report, and § 605B does not make the block conditional on a police report. If a bureau tells you otherwise, they are wrong, and the letter in your packet says so.</p>
+        <p style="margin-top:var(--space-3);">A police report is still worth having in three situations, and they are the only three:</p>
         <ul>
-          <li>Bring your FTC Identity Theft Report, your ID, and any documentation of the fraud (collection letters, credit reports showing fraudulent items).</li>
-          <li>Get the report number and a certified copy. Keep originals safe.</li>
+          <li><strong>A specific furnisher demands one.</strong> Some creditors and collectors ask for it before they will stop reporting, even though the bureau cannot require it. If one does, get the report rather than argue.</li>
+          <li><strong>You know who did it.</strong> A named suspect — a relative, an ex, a former employee — is a criminal matter, and the report is the only route to that.</li>
+          <li><strong>The loss is large or ongoing.</strong> Accounts still being opened, or money actually gone, rather than a tradeline to remove.</li>
         </ul>
+        <p style="margin-top:var(--space-3);">If none of those apply, skip it for now and mail your letters today. You can always file later and send it on.</p>
+        <p style="margin-top:var(--space-4);"><strong>Have you filed one?</strong> This changes what we list as enclosures in your § 605B letter.</p>
+        <div style="margin-top:var(--space-2);">
+          <button type="button" class="btn btn-sm ${state.policeReportFiled === 'yes' ? 'btn-primary' : 'btn-ghost'}" onclick="setPoliceReport('yes')">Yes, I have a police report</button>
+          <button type="button" class="btn btn-sm ${state.policeReportFiled === 'no' ? 'btn-primary' : 'btn-ghost'}" onclick="setPoliceReport('no')">No — going without one</button>
+        </div>
         
         <h3 style="margin-top:var(--space-8);">Step 3: Place a 7-year extended fraud alert</h3>
         <p>With your FTC Report in hand, you qualify for an <strong>extended fraud alert</strong> under FCRA § 605A(b) — 7 years of protection. Free. Only need to contact one bureau; they notify the others.</p>
