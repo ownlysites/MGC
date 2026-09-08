@@ -3631,6 +3631,31 @@ function tbDate(s) {
 // the reading least likely to tell someone a debt is time-barred when it is
 // not. Erring the other way would encourage a person to ignore a lawsuit they
 // could still lose.
+// Per-bureau dates, kept in TB_BUREAU_COLS order rather than collapsed to the
+// latest. The consistency rules compare the same field between bureaus, so the
+// column each date came from is the whole point — tbDateTripleLatest throws
+// exactly that away.
+//
+// N/A and dashes hold a column's place so the remaining values stay aligned
+// with their bureau; dropping them would shift Experian's date under Equifax's
+// name, which is how a dispute letter ends up telling the wrong bureau what it
+// said.
+function tbDateTriple(row) {
+  if (!row) return [null, null, null];
+  const toks = String(row).trim().split(/\s+/);
+  const out = [];
+  for (let i = 0; i < toks.length && out.length < 3; i++) {
+    const t = toks[i];
+    if (/^(N\/?A|-{1,2}|—{1,2}|–{1,2})$/i.test(t)) { out.push(null); continue; }
+    // "Mon DD, YYYY" arrives as three tokens.
+    const three = toks.slice(i, i + 3).join(' ');
+    if (/^[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}$/.test(three)) { out.push(three); i += 2; continue; }
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(t)) { out.push(t); continue; }
+  }
+  while (out.length < 3) out.push(null);
+  return out;
+}
+
 function tbDateTripleLatest(row) {
   if (!row) return null;
   const found = String(row).match(/[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g) || [];
@@ -3897,7 +3922,38 @@ function parseThreeBureauReport(text) {
       is_charge_off: chargeCount > 0 || /charge[\s-]?off/i.test(comments.join(' ')),
       is_collection: collCount > 0,
       is_repossession: repoCount > 0,
-      in_bankruptcy: bkCount > 0
+      in_bankruptcy: bkCount > 0,
+      // Per-bureau field map, in the same shape the columnar parser produces,
+      // so the factual consistency rules work on both formats. This layout
+      // actually carries two fields the other one does not — Date Of First
+      // Delinquency, which sets the seven-year clock, and Monthly Payment,
+      // which is what proves a closed account is still reporting one.
+      per_bureau_fields: (function () {
+        const cols = TB_BUREAU_COLS;
+        const dla  = tbDateTriple(tbRow(blk, 'Date Of Last Activity'));
+        const dop  = tbDateTriple(tbRow(blk, 'Date Opened'));
+        const dfd  = tbDateTriple(tbRow(blk, 'Date Of First Delinquency'));
+        const bal  = tbMoneyTriple(tbRow(blk, 'Reported Balance')) || tbMoneyTriple(tbRow(blk, 'Balance'));
+        const lim  = tbMoneyTriple(tbRow(blk, 'Credit Limit'));
+        const high = tbMoneyTriple(tbRow(blk, 'High Credit'));
+        const due  = tbMoneyTriple(tbRow(blk, 'Amount Past Due'));
+        const pay  = tbMoneyTriple(tbRow(blk, 'Monthly Payment'));
+        const per = {};
+        cols.forEach((b, i) => {
+          const f = {};
+          if (dla[i])  f.date_last_activity = dla[i];
+          if (dop[i])  f.date_opened        = dop[i];
+          if (dfd[i])  f.dofd               = dfd[i];
+          if (bal && bal[i] !== null && bal[i] !== undefined)   f.balance_owed   = bal[i];
+          if (lim && lim[i] !== null && lim[i] !== undefined)   f.credit_limit   = lim[i];
+          if (high && high[i] !== null && high[i] !== undefined) f.high_balance  = high[i];
+          if (due && due[i] !== null && due[i] !== undefined)   f.past_due       = due[i];
+          if (pay && pay[i] !== null && pay[i] !== undefined)   f.payment_amount = pay[i];
+          if (statusTriple && statusTriple[i]) f.account_status = statusTriple[i];
+          if (Object.keys(f).length) per[b] = f;
+        });
+        return per;
+      })()
     });
   });
 
@@ -5922,6 +5978,16 @@ const letterTemplates = {
   },
   
   // ========== CORE LETTER 10: FRAUD ALERT REQUEST ==========
+  reinsertion: {
+    id: 'reinsertion',
+    title: 'Reinsertion Demand',
+    subtitle: 'FCRA \u00a7 611(a)(5)(B) \u2014 they deleted it, then put it back',
+    recipient: 'bureau',
+    description: 'For an item that was deleted after a dispute and has reappeared on your report. The bureau cannot reinsert deleted information without a certification from the furnisher, and it must tell you in writing within five business days when it does.',
+    when_to_use: 'Only when you can show an item was deleted and has come back. Keep the earlier report that shows the deletion \u2014 that copy is the whole case. If you were never notified, that is a separate violation from the reinsertion itself.',
+    compile: (ctx) => compileReinsertion(ctx)
+  },
+
   fcba_billing_error: {
     id: 'fcba_billing_error',
     title: 'Billing Error Notice',
@@ -7949,12 +8015,21 @@ function renderResponseGuide() {
 //
 // Nothing is stored, so we cannot remember their round one. What we can do is
 // let them tell us what happened, per item, and route each one correctly.
+// A deletion that did not stick is its own outcome, and it routes to its own
+// letter — the reinsertion rules in § 611(a)(5)(B) are stricter than the rules
+// for the original dispute, so this is a stronger position than round one was.
 const DISPUTE_OUTCOMES = {
   deleted: {
     label: 'Deleted — it is gone',
     tone: 'good',
     next: null,
     advice: 'Nothing more to do here, but two things are worth knowing. Get the updated report and keep it: an item that was deleted can be re-inserted, and if it comes back the bureau must notify you in writing within five business days under FCRA § 611(a)(5)(B), and must have certified with the furnisher first. Reinsertion without that notice is its own violation. Second, deletion at one bureau does nothing at the others — check whether the same item is still sitting at the other two.'
+  },
+  reinserted: {
+    label: 'It was deleted — and now it is back',
+    tone: 'bad',
+    next: 'reinsertion',
+    advice: 'This is a better position than the original dispute was, not a worse one. Reinsertion is governed by FCRA § 611(a)(5)(B), and it is strict: the bureau may not put deleted information back unless the furnisher first certified that it is complete and accurate, and if it does reinsert, it must notify you in writing within five business days — a notice that has to name the furnisher and tell you about your right to add a statement to your file. Two separate violations are available here, and the second one you prove by simply never having received anything. The one thing you must do is keep the earlier report showing the deletion. That copy is the case; without it you are back to arguing about the debt itself.'
   },
   corrected: {
     label: 'Corrected — but not removed',
@@ -8175,6 +8250,18 @@ function findFactualInconsistencies(parsed) {
     const dop = fiMismatch(acc, 'date_opened', 'date_opened',
       'The account opening date is a different month on each bureau', true);
     if (dop) out.push(dop);
+
+    // The date of first delinquency is the one date on a derogatory account
+    // that decides when it comes off. Bureaus disagreeing about it means at
+    // least one of them is running the wrong seven-year clock, and the one
+    // running late is keeping the item on the file past its own fall-off date.
+    const dfd = fiMismatch(acc, 'dofd', 'first_delinquency',
+      'The bureaus disagree about when this account first went delinquent', true);
+    if (dfd) {
+      dfd.detail += '. This date sets the seven-year clock, so whichever bureau ' +
+        'is reporting the later one is keeping this on your file longer than the others will.';
+      out.push(dfd);
+    }
 
     // --- conditions the report makes impossible ---
     Object.keys(per).forEach(b => {
@@ -10778,6 +10865,71 @@ function renderItemReview() {
   </div>`;
 }
 
+
+
+// ========== COMPILER: REINSERTION AFTER DELETION ==========
+// The situation nobody warns people about. An item is deleted, the consumer
+// relaxes, and weeks later it is back on the report — because the furnisher
+// re-reported it and the bureau accepted it.
+//
+// FCRA § 611(a)(5)(B) governs this and it is unusually strict, because Congress
+// clearly anticipated exactly this behaviour:
+//
+//   (i)  deleted information may not be reinserted unless the furnisher
+//        CERTIFIES that the information is complete and accurate;
+//   (ii) if it is reinserted, the agency must notify the consumer IN WRITING
+//        within FIVE BUSINESS DAYS, and that notice must include a statement
+//        that the consumer may add a statement to the file, plus the business
+//        name, address and telephone number of the furnisher.
+//
+// Two things follow, and both are worth more than the deletion was. If the
+// bureau reinserted without a certification, the reinsertion itself is the
+// violation. If it reinserted without sending the five-day notice, that is a
+// second, separate violation — and it is one the consumer can prove by simply
+// never having received anything.
+function compileReinsertion(ctx) {
+  const bureau = ctx.bureau || 'experian';
+  const items = ctx.items || [];
+  const u = userHeader();
+
+  const itemsList = items.length
+    ? items.map((it, i) => `${i + 1}. ${it.creditor || '[Creditor]'}${it.account ? ' — Account #' + it.account : ''}`).join('\n')
+    : '[Name each item that was deleted and has come back, exactly as it appears now]';
+
+  const body = [
+    'You previously deleted the following information from my credit file as a result of a dispute. It has since reappeared on my report:',
+    '',
+    itemsList,
+    '',
+    'Deleted information that comes back is governed by Section 611(a)(5)(B) of the Fair Credit Reporting Act, 15 U.S.C. § 1681i(a)(5)(B), and that section sets conditions you must have met before reinserting it.',
+    '',
+    'First, under § 611(a)(5)(B)(i), previously deleted information may not be reinserted in a consumer file unless the person who furnishes it certifies that the information is complete and accurate.',
+    '',
+    'Second, under § 611(a)(5)(B)(ii), if you do reinsert the information, you are required to notify me of the reinsertion in writing not later than five business days after it occurs, or in the notice of results of the reinvestigation. That notice must include a statement that I have the right to add a statement to my file disputing the accuracy or completeness of the information, and the business name, address and telephone number of the furnisher.',
+    '',
+    'I received no such notice. Accordingly, within 15 days of receiving this letter, please provide:',
+    '',
+    '(a) A copy of the certification of completeness and accuracy you received from the furnisher before reinserting each item, and the date you received it;',
+    '(b) The exact date each item was reinserted;',
+    '(c) A copy of the written notice of reinsertion you say you sent me, and the date and address it was sent to;',
+    '(d) The business name, address and telephone number of the furnisher of each reinserted item.',
+    '',
+    'If you cannot produce a furnisher certification for an item, that item was reinserted in violation of § 611(a)(5)(B)(i) and must be deleted again immediately. If you cannot produce the five-day notice, that is a separate violation of § 611(a)(5)(B)(ii) regardless of whether the underlying information is accurate.',
+    '',
+    'I am keeping a copy of the earlier report showing the deletion, and of the current report showing the item returned. Please treat this letter as notice that I intend to rely on both.'
+  ];
+
+  const mail = mailEnvelope(body, bureauHeader(bureau), {
+    re: 'Reinsertion of Deleted Information — FCRA § 611(a)(5)(B)',
+    ssnLine: true
+  });
+
+  const portal = `Information you deleted after a dispute has reappeared on my report:\n${itemsList}\nUnder FCRA § 611(a)(5)(B)(i) you may not reinsert deleted information without a furnisher certification of completeness and accuracy, and under § 611(a)(5)(B)(ii) you must notify me in writing within five business days of reinserting it. I received no notice. Provide the certification, the reinsertion date, and a copy of the notice, or delete these items again. — ${u.name}`;
+
+  const short = `Deleted items are back on my report. FCRA § 611(a)(5)(B) requires a furnisher certification before reinsertion and written notice to me within 5 business days. I got no notice. Produce both or delete again. — ${u.name}`;
+
+  return {mail, portal: portal.length > 2000 ? portal.substring(0, 1990) + '…' : portal, short};
+}
 
 // ========== COMPILER: FCBA BILLING ERROR (account is theirs, charges are not) ==========
 // The remedy nobody reaches for. When the account genuinely belongs to the
