@@ -17,6 +17,14 @@
   --rose-gold-dark: #8d5058;
   --rose-gold-bright: #c9909a;
   --rose-gold-gradient: linear-gradient(135deg, #d4a5a5 0%, #b76e79 50%, #8d5058 100%);
+  /* The button ramp is separate from the decorative one. White text over the
+     decorative gradient runs 2.16:1 at its light end — the primary button is
+     the most-pressed control on the site, so it gets a ramp whose lightest
+     stop still passes AA (4.58:1) and whose dark end is 6.14:1. */
+  --rose-gold-gradient-cta: linear-gradient(135deg, #a8616b 0%, #98525c 55%, #8d5058 100%);
+  /* Small rose text — eyebrows, labels — needs the dark token: #b76e79 is
+     3.80:1 on white and fails at 13px uppercase. #8d5058 is 6.14:1. */
+  --rose-text: #8d5058;
   --rose-gold-metallic: linear-gradient(135deg, #f4c9c9 0%, #d4a5a5 25%, #b76e79 50%, #d4a5a5 75%, #f4c9c9 100%);
   
   /* Pink tones */
@@ -160,7 +168,7 @@ em { font-style: italic; }
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--rose-gold);
+  color: var(--rose-text);
   margin-bottom: var(--space-4);
   display: inline-block;
 }
@@ -209,7 +217,7 @@ section { padding: var(--space-20) 0; }
   min-height: 52px;
 }
 .btn-primary {
-  background: var(--rose-gold-gradient);
+  background: var(--rose-gold-gradient-cta);
   color: var(--white);
   box-shadow: var(--shadow-md);
 }
@@ -1206,6 +1214,70 @@ section { padding: var(--space-20) 0; }
    sideways on a phone. */
 .util-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--white); }
 
+/* ---- accessibility ----
+   None of this existed before today. The audience for this tool includes
+   people in financial distress reading it on a phone, and some of them use a
+   screen reader or a keyboard rather than a mouse. Four things matter most:
+   they can see where focus is, they can skip the nav, motion can be turned
+   off, and something is announced when the page changes under them. */
+
+/* A focus ring that is actually visible. :focus-visible so it appears for
+   keyboard users without ringing every mouse click. */
+:focus-visible {
+  outline: 3px solid var(--rose-text);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.btn:focus-visible,
+.option-card:focus-within {
+  outline: 3px solid var(--rose-text);
+  outline-offset: 3px;
+}
+
+/* Skip link: first thing in the tab order, invisible until focused. Without it
+   a keyboard user tabs the whole nav on every screen. */
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 999;
+  background: var(--white);
+  color: var(--rose-text);
+  padding: var(--space-3) var(--space-5);
+  border: 2px solid var(--rose-text);
+  border-radius: var(--radius);
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-to-content:focus,
+.skip-to-content:focus-visible {
+  left: 16px;
+  top: 16px;
+}
+
+/* Announced to a screen reader, invisible on screen. */
+.sr-only-live {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Motion is decoration here, never information. If the reader has asked the
+   system to reduce it, honour that rather than overriding it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .btn-primary:hover { transform: none; }
+}
+
 /* ---- item review rows ----
    One item per row: what we read off the report on the left, the answer buttons
    on the right. The buttons must be allowed to shrink and wrap — a fixed-width
@@ -1221,6 +1293,13 @@ section { padding: var(--space-20) 0; }
 .review-sub { font-size: 0.875rem; color: var(--text-tertiary); overflow-wrap: anywhere; }
 .review-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
 .review-actions .btn { white-space: normal; }
+
+/* A button whose label is a sentence has to be allowed to wrap, or it decides
+   the width of the page. */
+.btn { max-width: 100%; }
+@media (max-width: 560px) {
+  .btn { white-space: normal; }
+}
 .review-flag { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; margin-left: 6px; white-space: nowrap; }
 .review-flag-warn { background: #fff4e5; color: #8a5200; }
 .review-flag-check { background: #fdecec; color: #8a1c1c; }
@@ -1707,6 +1786,8 @@ section { padding: var(--space-20) 0; }
 </head>
 <body>
 
+
+<a class="skip-to-content" href="#main-content">Skip to the main content</a>
 <!-- ========== NAVIGATION ========== -->
 <nav class="nav no-print">
   <div class="container nav-inner">
@@ -1723,6 +1804,7 @@ section { padding: var(--space-20) 0; }
 </nav>
 
 <!-- ========== VIEW: LANDING ========== -->
+<main id="main-content" tabindex="-1">
 <div id="view-landing" class="view">
 
   <!-- Hero with dedication logo treatment -->
@@ -2056,6 +2138,8 @@ section { padding: var(--space-20) 0; }
 </div>
 
 <!-- ========== FOOTER ========== -->
+</main>
+<div id="a11y-live" class="sr-only-live" role="status" aria-live="polite" aria-atomic="true"></div>
 <footer class="footer no-print">
   <div class="container">
     <div class="footer-disclaimer">
@@ -2153,6 +2237,7 @@ const state = {
   itemReview: {
     inquiries: {},      // index -> 'no' (did not apply) | 'yes' | 'unsure'
     accounts: {},       // key   -> 'mine' | 'charges' | 'never'
+    showAll: false,     // reveal the rows whose answer would change nothing
     reviewed: false
   },
   ftcReportNumber: null,
@@ -10772,6 +10857,17 @@ function regenerateAllLetters() {
 // legal instrument gets abandoned or answered carelessly. One item per row, one
 // question, three buttons, no jargon, and no answer pre-selected.
 
+// Speak a short sentence into the live region. The analysis re-renders when a
+// review button is tapped, and with no live region a screen-reader user got
+// silence — no way to know their answer registered at all.
+function announce(msg) {
+  const el = document.getElementById('a11y-live');
+  if (!el) return;
+  el.textContent = '';
+  // A beat, so the same message twice is still announced twice.
+  setTimeout(function () { el.textContent = msg; }, 60);
+}
+
 function accountKey(a, i) {
   return (a.creditor || 'item') + '|' + (a.account_number || i);
 }
@@ -10786,12 +10882,14 @@ function setInquiryAnswer(idx, v) {
   state.itemReview.inquiries[idx] = v;
   state.itemReview.reviewed = true;
   rerenderItemReview();
+  announce(itemReviewSummaryText());
 }
 
 function setAccountAnswer(key, v) {
   state.itemReview.accounts[key] = v;
   state.itemReview.reviewed = true;
   rerenderItemReview();
+  announce(itemReviewSummaryText());
 }
 
 function rerenderItemReview() {
@@ -10834,6 +10932,49 @@ function reviewBtn(active, label, onclick, tone) {
   return `<button type="button" class="${cls}" style="margin:2px 4px 2px 0;" onclick="${onclick}">${label}</button>`;
 }
 
+// Which rows are worth a tap.
+//
+// The first version of this review asked about every inquiry and every account
+// — fifty-two rows on a real report, thirty-seven of which were ordinary open
+// tradelines the client obviously recognises. Tapping "this is mine" thirty-
+// seven times produces nothing and it is the opposite of the speed this tool
+// is supposed to give people.
+//
+// An account is worth asking about when an answer could change a letter: it is
+// derogatory, in collection, closed with a balance still on it, or the parser
+// was not certain whose it is. An inquiry is worth asking about when the report
+// itself could not match it to an account — which is where an unauthorised pull
+// actually shows up, and which this vendor has already worked out for us.
+//
+// Everything else is still reviewable behind "show all", and still defaults to
+// no claim: an account nobody flags is never disputed either way.
+function reviewWorthAsking(acc) {
+  if (!acc) return false;
+  if (acc.creditor_uncertain) return true;
+  if (acc.is_collection || acc.is_charge_off || acc.is_repossession) return true;
+  if (acc.has_late_payments) return true;
+  if (acc.past_due && acc.past_due > 0) return true;
+  const st = String(acc.status || '').toLowerCase();
+  if (/charge|collect|derog|repo|delinq|late|default/.test(st)) return true;
+  // Closed but still carrying a balance is the classic reporting error.
+  if (acc.closed && acc.balance && acc.balance > 0) return true;
+  return false;
+}
+
+function inquiryWorthAsking(q) {
+  // The columnar reports sort inquiries themselves into ones with a matching
+  // account and ones without. Where that sorting exists, trust it.
+  if (q && q.matched_account === false) return true;
+  if (q && q.matched_account === true) return false;
+  return true;   // no sorting available — ask about all of them
+}
+
+function toggleReviewAll() {
+  state.itemReview.showAll = !state.itemReview.showAll;
+  rerenderItemReview();
+  announce(state.itemReview.showAll ? 'Showing every item' : 'Showing only the items that need an answer');
+}
+
 function renderItemReview() {
   const parsed = (state.upload && state.upload.parsed) || {};
   const inq = parsed.inquiries || [];
@@ -10845,10 +10986,13 @@ function renderItemReview() {
   // account from ones that do not. The ones with no matching account are where
   // an unauthorised pull actually shows up, so they are asked about first
   // instead of being buried in a flat list of fourteen.
+  const showAll = !!state.itemReview.showAll;
   const idx = inq.map((q, i) => i);
   const noMatch = idx.filter(i => inq[i].matched_account === false);
   const rest = idx.filter(i => inq[i].matched_account !== false);
-  const ordered = noMatch.concat(rest);
+  const orderedAll = noMatch.concat(rest);
+  const ordered = showAll ? orderedAll : orderedAll.filter(i => inquiryWorthAsking(inq[i]));
+  const inqHidden = orderedAll.length - ordered.length;
 
   const inqRows = ordered.map(i => {
     const q = inq[i];
@@ -10871,7 +11015,12 @@ function renderItemReview() {
     </div>`;
   }).join('');
 
-  const acctRows = accts.map((acc, i) => {
+  const acctPairs = accts.map((acc, i) => ({acc: acc, i: i}))
+    .filter(p => showAll || reviewWorthAsking(p.acc) || state.itemReview.accounts[accountKey(p.acc, p.i)]);
+  const acctHidden = accts.length - acctPairs.length;
+
+  const acctRows = acctPairs.map(function (pair) {
+    const acc = pair.acc, i = pair.i;
     const key = accountKey(acc, i);
     const a = state.itemReview.accounts[key];
     const uncertain = acc.creditor_uncertain
@@ -10895,6 +11044,20 @@ function renderItemReview() {
     </div>`;
   }).join('');
 
+  const hiddenTotal = inqHidden + acctHidden;
+  const showAllControl = (hiddenTotal > 0 || showAll)
+    ? `<div style="margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--border);">
+         <button type="button" class="btn btn-sm btn-ghost" onclick="toggleReviewAll()">
+           ${showAll ? 'Show only what needs an answer' : 'Show all ' + (inq.length + accts.length) + ' items'}
+         </button>
+         <p style="margin:var(--space-2) 0 0;font-size:0.875rem;color:var(--text-tertiary);">
+           ${showAll
+             ? 'Every inquiry and account we read off your report.'
+             : 'We are hiding ' + hiddenTotal + ' item' + (hiddenTotal === 1 ? '' : 's') + ' where your answer would not change any letter \u2014 ordinary open accounts in good standing, and inquiries your report already matched to an account. Nothing hidden here is disputed.'}
+         </p>
+       </div>`
+    : '';
+
   return `<div id="item-review">
   <section class="module-card" style="margin-top:var(--space-16);">
     <div class="module-header">
@@ -10914,6 +11077,8 @@ function renderItemReview() {
     ${accts.length ? `<h3 style="margin-top:var(--space-8);">Accounts on your report</h3>
     <p style="color:var(--text-tertiary);">Three answers, and the difference matters. An account that was never yours gets blocked as identity theft. An account that <em>is</em> yours with charges you did not make is a different process — and asking for the whole account to be removed would cost you the good history on it.</p>
     <div style="margin-top:var(--space-4);">${acctRows}</div>` : ''}
+
+    ${showAllControl}
 
     <p style="margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--border);">
       <strong>Flagged so far:</strong> <span id="review-count">${itemReviewSummaryText()}</span>
