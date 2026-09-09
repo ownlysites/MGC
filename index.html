@@ -9668,6 +9668,141 @@ function roundTwoOutcomes() {
   return Object.keys(items).map(k => ({key: k, outcome: items[k], meta: DISPUTE_OUTCOMES[items[k]]})).filter(x => x.meta);
 }
 
+// ========== WHAT IS STILL CURRENT ==========
+// Round two is not round one with a new date on it. Three of the eight answers
+// mean stop writing about that item now: it was deleted, or it is still inside
+// its thirty days, or it was reinserted and belongs to a stricter letter.
+// Three mean write again but not the same letter — a second dispute that
+// repeats the first ground can be refused as substantially similar under FCRA
+// § 623(a)(8)(F)(i)(II) and called frivolous under § 611(a)(3). Two mean send
+// the same substance again, because nobody ever worked it.
+//
+// Nothing is stored between visits, so what the person marked on screen is the
+// only record of round one that exists. An item with no mark is an item they
+// have not told us about: it keeps its round-one letter unchanged. That is the
+// absence of an assumption, not one.
+const R2_STOP   = {deleted: true, waiting: true, reinserted: true};
+const R2_ROTATE = {verified: true, frivolous: true, corrected: true};
+const R2_RESEND = {no_response: true, identity: true};
+
+const R2_DROP_WHY = {
+  deleted:    'You told us this one was deleted. There is nothing left to dispute, and a dispute about an item that is no longer reporting gets answered with exactly that.',
+  waiting:    'Your thirty days are not up. A second letter into an open reinvestigation can be treated as a duplicate and it clouds the record you are building. Diary the thirtieth day from the date on your return receipt.',
+  reinserted: 'This one is no longer an ordinary dispute. A deleted item that came back is governed by § 611(a)(5)(B), which is stricter than the rule for the first dispute, and it has its own letter in this packet.',
+  exhausted:  'You told us this came back verified, and this report contradicts itself on only one field of this account — the field your first letter already used. Writing again on the same ground is the resubmission a furnisher may refuse under § 623(a)(8)(F)(i)(II). Method of verification is the move, and that letter is in this packet.'
+};
+
+// The letters whose entire content is the round-one item list. If nothing on
+// that list is still live they have nothing left to say, so they are not
+// printed. Everything else in the packet is left alone.
+const R2_ROUND_ONE_ONLY = {
+  initial_bureau_dispute: true,
+  furnisher_dispute: true,
+  '609_request': true,
+  mov: true
+};
+
+function r2Active() {
+  return !!(state.roundTwo && Object.keys(state.roundTwo.items || {}).length);
+}
+
+function r2Status(creditor) {
+  const items = (state.roundTwo && state.roundTwo.items) || {};
+  return items[String(creditor || '').toUpperCase()] || null;
+}
+
+// The date the bureau received round one, if they gave it. Cited so a second
+// dispute reads as a second dispute and the reader can count the days himself.
+// Never invented — with no date the letter says "my earlier dispute" and stops.
+function r2MailedOn() { return String((state.roundTwo || {}).mailedOn || ''); }
+
+function r2LongDate(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(v || '');
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (isNaN(d.getTime())) return String(v || '');
+  return d.toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'});
+}
+
+function r2PriorRef() {
+  const d = r2LongDate(r2MailedOn());
+  return d ? 'my dispute dated ' + d : 'my earlier dispute';
+}
+
+function setRoundTwoMailed(v) {
+  state.roundTwo = state.roundTwo || {items: {}};
+  state.roundTwo.mailedOn = v || '';
+  if (state.analysis) runAnalysis();
+}
+
+// Every item that came out of round one, rewritten for round two or dropped.
+// The dropped ones are carried back so the packet can say what it is not
+// mailing and why: an item that silently vanishes from a letter reads as a bug
+// to the one person who knows it should be there.
+function r2ReviseItems(items, analysis) {
+  const kept = [];
+  const dropped = [];
+  const angles = (analysis || {}).angles || {};
+  (items || []).forEach(it => {
+    const st = r2Status(it.creditor);
+    if (!st) { kept.push(it); return; }
+
+    if (R2_STOP[st]) {
+      dropped.push({creditor: it.creditor, outcome: st, why: R2_DROP_WHY[st]});
+      return;
+    }
+
+    if (R2_RESEND[st]) {
+      kept.push(Object.assign({}, it, {round: 2, reason:
+        'This item was disputed in ' + r2PriorRef() + '. ' +
+        (st === 'no_response'
+          ? 'No result of that reinvestigation was ever sent to me. Section 611(a)(1)(A) allowed thirty days, and § 611(a)(5)(A) requires an item that cannot be verified within that period to be deleted. My proof of delivery is enclosed, and I am asking you to delete this item on that basis. The grounds I gave were: '
+          : 'It was returned to me unworked because you could not confirm my identity, so the substance below has never been investigated at all. Copies of my identification and proof of my current address are enclosed. The grounds I gave were: ') +
+        it.reason}));
+      return;
+    }
+
+    if (R2_ROTATE[st]) {
+      const next = (typeof drAngleForRound === 'function') ? drAngleForRound(angles, it.creditor, 2) : null;
+      if (!next) {
+        dropped.push({creditor: it.creditor, outcome: st, why: R2_DROP_WHY.exhausted});
+        return;
+      }
+      kept.push(Object.assign({}, it, {round: 2, reason:
+        (next.sentence ? next.sentence + '. ' : '') + next.label + '. ' + next.detail +
+        ' This is not a resubmission of ' + r2PriorRef() + '. That dispute concerned a different field of this account. The ground stated here is the ' +
+        next.element + ', which I have not previously disputed and which your own report contradicts on its face.'}));
+      return;
+    }
+
+    kept.push(it);
+  });
+  return {items: kept, dropped: dropped};
+}
+
+// How many items would still get a letter. Counted from the outcomes directly
+// rather than by rebuilding a letter context, because this runs inside packet
+// selection and a context built there would be built from a half-finished
+// analysis.
+function r2LiveItemCount(analysis) {
+  const items = (state.roundTwo && state.roundTwo.items) || {};
+  const angles = (analysis || {}).angles || {};
+  const names = {};
+  const note = c => { if (c) names[String(c).toUpperCase()] = true; };
+  (analysis.factual || []).forEach(fx => note(fx.creditor));
+  (analysis.findings || []).forEach(f => { if (f.account) note(f.account.creditor); });
+  (analysis.contradictions || []).forEach(c => note(c.creditor));
+  let n = 0;
+  Object.keys(names).forEach(k => {
+    const st = items[k];
+    if (!st) { n++; return; }
+    if (R2_STOP[st]) return;
+    if (R2_ROTATE[st]) { if (typeof drAngleForRound === 'function' && drAngleForRound(angles, k, 2)) n++; return; }
+    n++;
+  });
+  return n;
+}
+
 // ========== CROSS-BUREAU CONTRADICTIONS ==========
 // The single most useful thing a three-bureau report contains, and the thing no
 // single-bureau pull can ever show you: the places where the bureaus flatly
@@ -11731,9 +11866,18 @@ function determineLetterPacket(analysis) {
     packet.push(letterTemplates.cfpb_complaint);
   }
   
+  // Round two: stop printing round one. A dispute letter whose whole item list
+  // was deleted, answered, or is still inside its thirty days has nothing left
+  // to say, and mailing it anyway is the substantially similar resubmission
+  // § 623(a)(8)(F)(i)(II) lets a furnisher refuse. The letters that answer an
+  // outcome were added above and are not touched here.
+  const r2live = (typeof r2Active === 'function' && r2Active()) ? r2LiveItemCount(analysis) : null;
+  const gated = (r2live === null) ? packet
+    : packet.filter(l => !R2_ROUND_ONE_ONLY[l.id] || r2live > 0);
+
   // Dedupe
   const seen = new Set();
-  return packet.filter(l => {
+  return gated.filter(l => {
     if (seen.has(l.id)) return false;
     seen.add(l.id);
     return true;
@@ -12301,6 +12445,16 @@ function renderRoundTwoSection(analysis) {
   let html = '<section style="margin-top:var(--space-10);">';
   html += '<h2 style="margin-bottom:var(--space-3);">What happened to what you sent</h2>';
   html += `<p style="color:var(--text-secondary);margin-bottom:var(--space-6);">Mark what each one came back as. Leave anything you have not heard about. <button type="button" class="btn btn-ghost btn-sm" onclick="setRoundTwo(false)">Hide this</button></p>`;
+
+  // The date earns its place twice: it is what the second letter cites so it
+  // reads as a second letter rather than a repeat, and it is what the thirty
+  // days are counted from. The date on the green card, not the day it was
+  // posted — that difference is several days of a deadline.
+  html += `<div class="card" style="border:1px solid var(--rose-gold-light);margin-bottom:var(--space-6);">
+    <label for="r2-mailed" style="display:block;font-size:0.9375rem;font-weight:600;margin-bottom:var(--space-2);">When did the bureau receive your first letter?</label>
+    <p style="font-size:0.875rem;color:var(--text-secondary);margin:0 0 var(--space-3);">The date on the green card, not the day you posted it. Every letter this round cites it, which is what stops the second dispute being read as a repeat of the first.</p>
+    <input type="date" id="r2-mailed" value="${idEsc(r2MailedOn())}" onchange="setRoundTwoMailed(this.value)" style="padding:var(--space-3);border:1px solid var(--rose-gold-light);border-radius:8px;font:inherit;background:var(--paper);color:var(--text-primary);">
+  </div>`;
 
   if (!targets.length) {
     html += '<p style="color:var(--text-secondary);">There are no disputable items on this report to track. If you disputed something that is no longer showing, that is a deletion — check the other two bureaus for the same item.</p></section>';
@@ -13070,6 +13224,9 @@ function letterFanTargets(tmpl, ctx) {
       if (!a || !a.creditor) return;
       if (!a.has_late_payments && !a.is_charge_off) return;
       if (a.is_collection) return;                  // a collector has no goodwill to give
+      // Round two: they have told us this one is already gone, or is still
+      // inside its thirty days. Neither is a moment to write to its creditor.
+      if (typeof r2Status === 'function' && R2_STOP[r2Status(a.creditor)]) return;
       const k = mgcNorm(a.creditor);
       if (seen[k]) return;
       seen[k] = 1;
@@ -13088,11 +13245,19 @@ function letterFanTargets(tmpl, ctx) {
   if (tmpl.id === 'pay_for_delete') {
     const seen = {};
     const out = [];
+    // Whether anything was deliberately held back below. An empty list because
+    // a report carried no collections section is not the same thing as an empty
+    // list because every agency on it was gated out, and the fallback at the
+    // bottom must only answer the first.
+    let gated = false;
     (parsed.collections || []).forEach(c => {
       const name = c.agency || c.creditor;
       if (!name) return;
       // With a plan loaded, an account it is protecting is not settled either.
-      if (typeof apBlocksRemoval === 'function' && apBlocksRemoval(name)) return;
+      if (typeof apBlocksRemoval === 'function' && apBlocksRemoval(name)) { gated = true; return; }
+      // Same for a settlement offer: an account they told us was deleted does
+      // not get bought off the report a second time.
+      if (typeof r2Status === 'function' && R2_STOP[r2Status(name)]) { gated = true; return; }
       const k = mgcNorm(name);
       if (seen[k]) return;
       seen[k] = 1;
@@ -13104,8 +13269,13 @@ function letterFanTargets(tmpl, ctx) {
         label: name
       });
     });
-    if (!out.length) {
+    // The fallback is for a report whose collections never parsed into
+    // parsed.collections. It must not fire because the plan or round two took
+    // every agency out — that is a deliberate empty list, not a missing one.
+    if (!out.length && !gated) {
       (parsed.accounts || []).filter(a => a.is_collection).forEach(a => {
+        if (typeof r2Status === 'function' && R2_STOP[r2Status(a.creditor)]) return;
+        if (typeof apBlocksRemoval === 'function' && apBlocksRemoval(a.creditor)) return;
         const k = mgcNorm(a.creditor);
         if (!a.creditor || seen[k]) return;
         seen[k] = 1;
@@ -13196,6 +13366,18 @@ function regenerateAllLetters() {
       return;
     }
 
+    // A letter that goes to one named company, with no company left to send it
+    // to, is not a letter. That happens when round two says every account it
+    // would have gone to is already deleted, and it used to fall through to the
+    // generic compile below and print a goodwill request addressed to nobody.
+    // letterFanTargets returns an array only for these letters, so an empty
+    // array is the whole signal: drop it, and let the prune below take it out
+    // of the packet.
+    if (Array.isArray(targets) && !targets.length) {
+      state._letterBeingCompiled = null;
+      return;
+    }
+
     state.letterOutputs[tmpl.id] = tmpl.compile(ctx);
     state._letterBeingCompiled = null;
     // Update display for the mail tab (default)
@@ -13207,6 +13389,12 @@ function regenerateAllLetters() {
       textEl.textContent = state.letterOutputs[tmpl.id][format];
     }
   });
+
+  // Anything that produced nothing comes out of the packet. The list drives the
+  // on-screen cards and the printed sheets, so a template left in it with no
+  // output is a card with no letter in it.
+  analysis.letters = analysis.letters.filter(t =>
+    state.letterOutputs[t.id] || (state.letterVariants[t.id] || []).length);
 }
 
 
@@ -14164,6 +14352,20 @@ function buildLetterContext(tmpl) {
   }
   ctx.items = disputableItems.length > 0 ? disputableItems : [];
 
+  // Round two: an item the bureau has already answered does not get the same
+  // letter again. What survives is rewritten to lead on a field the first
+  // letter did not use, or to say on its face that it is a resend of a dispute
+  // nobody ever worked.
+  if (typeof r2Active === 'function' && r2Active()) {
+    const rev = r2ReviseItems(ctx.items, analysis);
+    ctx.items = rev.items;
+    ctx.round = 2;
+    ctx.priorDisputeRef = r2PriorRef();
+    state.r2Dropped = rev.dropped;
+  } else {
+    state.r2Dropped = [];
+  }
+
   // Only the inquiries the consumer said they did not authorise. Sending the
   // whole parsed list would have the letter swear they applied to none of
   // fourteen companies, which is not true and is exactly the over-claim that
@@ -14829,6 +15031,43 @@ function buildActionPlanDoc() {
       <div class="plan-rule plan-rule-check mt">
         <b>Why an account you might expect to see is not being disputed</b>
         <p>An account your plan is paying down, keeping open or building with is worth more to you where it is than it would be removed. Age and available limit are the two things a dispute cannot give back, and a removal request on an account you are actively working can cost you both. Nothing in this packet asks for any account above to come off your file. If your plan has changed, say so and print again.</p>
+      </div>
+    </section>`;
+  })();
+
+  // ================= ROUND TWO =================
+  // The page that says what this packet is NOT doing. Somebody on their second
+  // round is looking for the letters they expected to see, and the honest
+  // answer to "where is the letter for that one" is on paper next to the
+  // reason.
+  (function () {
+    if (typeof r2Active !== 'function' || !r2Active()) return;
+    const outs = (typeof roundTwoOutcomes === 'function') ? roundTwoOutcomes() : [];
+    if (!outs.length) return;
+    const dropped = state.r2Dropped || [];
+    const when = r2LongDate(r2MailedOn());
+    const rows = outs.map(o =>
+      '<tr><td>' + planEsc(o.key) + '</td><td>' + planEsc(o.meta.label) + '</td></tr>').join('');
+    const drops = dropped.map(d =>
+      '<tr><td>' + planEsc(d.creditor) + '</td><td>' + planEsc(d.why) + '</td></tr>').join('');
+    h += `<section class="plan-sheet">
+      ${planHead('This is round two')}
+      ${planTitle('This is round two', 'What you told us came back, and what this packet does about it.' + (when ? ' Your first letter was received on ' + planEsc(when) + '.' : ''))}
+      <table class="plan-table">
+        <thead><tr><th>Account</th><th>What came back</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${drops ? `<div class="plan-rule plan-rule-check mt">
+        <b>What is deliberately not in this packet</b>
+        <p>These accounts have no letter this round, and that is the point of having a second round at all. Writing again about an item that was already answered is what gets a dispute thrown out rather than worked.</p>
+      </div>
+      <table class="plan-table">
+        <thead><tr><th>Account</th><th>Why there is no letter</th></tr></thead>
+        <tbody>${drops}</tbody>
+      </table>` : ''}
+      <div class="plan-rule plan-rule-check mt">
+        <b>Every letter in this packet is a second letter</b>
+        <p>None of them repeats the ground your first letter used. Under FCRA § 623(a)(8)(F)(i)(II) a furnisher may refuse a dispute that is substantially the same as one it has already answered, and under § 611(a)(3) a bureau may call a repeat frivolous. So each letter here either leads on a different field of the same account, or says on its face that it is a resend of a dispute nobody worked. Send a copy of your proof of delivery from the first round with every one of them.</p>
       </div>
     </section>`;
   })();
