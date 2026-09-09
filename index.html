@@ -6407,9 +6407,245 @@ function parseColumnarTriMerge(text) {
   };
 }
 
+// ========== TRANSUNION ONLINE SERVICE CENTER ==========
+// The report TransUnion hands a consumer from its own dispute portal. It is a
+// single-bureau document with a stacked label/value layout and its own section
+// vocabulary, and no existing parser claimed it — it was falling through to the
+// generic heuristics, which read its accounts by luck and missed every inquiry.
+//
+// Layout, per account:
+//
+//   BANK OF AMERICA 414734209465****      <- creditor, then the masked number
+//   Account Information
+//   Date Opened 06/09/2011                <- label and value on one line
+//   High Balance (Hist.)                  <- ...unless the value is long, and
+//   High balance of $8,132 from 02/2024      then it runs on the next lines
+//   Payment History                       <- end of the field block
+//
+// Sections are "Satisfactory Accounts", "Adverse Accounts" and "Collections".
+const TU_LABELS = [
+  ['High Balance (Hist.)', 'high_balance'],
+  ['Credit Limit (Hist.)', 'credit_limit'],
+  ['Maximum Delinquency', 'maximum_delinquency'],
+  ['Last Payment Made', 'date_last_payment'],
+  ['Monthly Payment', 'monthly_payment'],
+  ['Original Creditor', 'original_creditor'],
+  ['Responsibility', 'responsibility'],
+  ['Date Updated', 'date_reported'],
+  ['Date Opened', 'date_opened'],
+  ['Date Closed', 'date_closed'],
+  ['Account Type', 'account_type'],
+  ['High Balance', 'high_balance'],
+  ['Credit Limit', 'credit_limit'],
+  ['Date Paid', 'date_paid'],
+  ['Pay Status', 'status'],
+  ['Past Due', 'past_due'],
+  ['Loan Type', 'loan_type'],
+  ['Balance', 'balance'],
+  ['Address', 'address'],
+  ['Remarks', 'comments'],
+  ['Terms', 'terms'],
+  ['Phone', 'phone']
+];
+const TU_LABEL_RE = new RegExp('^(' + TU_LABELS.map(p => p[0].replace(/[.()]/g, '\\$&')).join('|') + ')(?:\\s+(.*))?$');
+
+const TU_SECTIONS = /^(Satisfactory Accounts|Adverse Accounts|Collections?|Public Records|Inquiries|Regular Inquiries|Promotional Inquiries|Account Review Inquiries|Personal Information|Employers|Addresses)$/;
+
+function tuIsOnlineServiceCenter(text) {
+  if (!/^Account Information$/m.test(text)) return false;
+  if (!/^Pay Status\b/m.test(text) && !/^Responsibility\b/m.test(text)) return false;
+  return /Your TransUnion Credit Report/i.test(text)
+      || /^Personal Credit Report for:$/m.test(text)
+      || (/^Satisfactory Accounts$/m.test(text) && /^Regular Inquiries$/m.test(text));
+}
+
+// The creditor line sits above "Account Information": a name followed by a
+// masked account number. PDF extraction drops fragments ("A f", a row of
+// "Rating" headers) in between, so we look back a few lines rather than one.
+function tuCreditorAbove(lines, idx) {
+  for (let k = idx - 1; k >= 0 && k >= idx - 8; k--) {
+    const t = (lines[k] || '').trim();
+    if (!t || TU_SECTIONS.test(t)) continue;
+    const m = t.match(/^(.{2,60}?)\s+([0-9A-Z]*[X*#]{2,}[0-9A-Z*#]*|\d{6,})$/);
+    if (m && /[A-Za-z]/.test(m[1])) return {creditor: m[1].trim(), account_number: m[2].trim()};
+  }
+  // A name with no number printed still identifies the tradeline.
+  for (let k = idx - 1; k >= 0 && k >= idx - 4; k--) {
+    const t = (lines[k] || '').trim();
+    if (!t || TU_SECTIONS.test(t)) continue;
+    if (/^[A-Z][A-Z0-9 &'\/.,-]{3,50}$/.test(t)) return {creditor: t, account_number: null};
+  }
+  return null;
+}
+
+function tuSectionAt(lines, idx) {
+  for (let k = idx; k >= 0; k--) {
+    const t = (lines[k] || '').trim();
+    if (/^(Satisfactory Accounts|Adverse Accounts|Collections?)$/.test(t)) return t;
+  }
+  return null;
+}
+
+function parseTransUnionOSC(text) {
+  const result = {accounts: [], inquiries: [], collections: [],
+                  personal: {}, publicRecords: [], scores: [],
+                  format: 'transunion_osc', bureau: 'TransUnion', bureaus: ['TransUnion']};
+  const lines = text.split(/\r?\n/).map(l => l.trim());
+
+  const starts = [];
+  lines.forEach((l, i) => { if (/^Account Information$/.test(l)) starts.push(i); });
+
+  starts.forEach((s, n) => {
+    const stop = (n + 1 < starts.length) ? starts[n + 1] : lines.length;
+    const head = tuCreditorAbove(lines, s);
+    if (!head) return;
+    const section = tuSectionAt(lines, s);
+
+    const f = {};
+    let cur = null;
+    for (let i = s + 1; i < stop; i++) {
+      const t = lines[i];
+      if (!t) continue;
+      if (/^(Payment History|Remarks Key|Ratings|Payment\/Remarks Key)$/.test(t)) break;
+      if (TU_SECTIONS.test(t)) break;
+      const m = t.match(TU_LABEL_RE);
+      if (m) {
+        const key = TU_LABELS.find(p => p[0] === m[1])[1];
+        cur = key;
+        if (m[2] && m[2].trim()) { f[key] = m[2].trim(); cur = null; }
+        continue;
+      }
+      if (cur) { f[cur] = (f[cur] ? f[cur] + ' ' : '') + t; }
+    }
+    if (!Object.keys(f).length) return;
+
+    // "Credit limit of $26,800 from 02/2024 to 03/2026; $23,800 from 04/2026 to
+    // 08/2026" is a history, and the figure that matters now is the last one.
+    // Left as a sentence it reads as $0 to every downstream money parser, which
+    // is how a fully-drawn card would show as unused.
+    const lastMoney = v => {
+      if (!v) return v;
+      const m = String(v).match(/\$[\d,]+(?:\.\d{2})?/g);
+      return m && m.length ? m[m.length - 1] : v;
+    };
+    if (f.credit_limit && /[A-Za-z]/.test(f.credit_limit)) f.credit_limit = lastMoney(f.credit_limit);
+    if (f.high_balance && /[A-Za-z]/.test(f.high_balance)) f.high_balance = lastMoney(f.high_balance);
+
+    const status = f.status || '';
+    const remarks = f.comments || '';
+    const evidence = (status + ' ' + remarks + ' ' + (f.account_type || '')).toLowerCase();
+    const isCollection = /collection/.test(evidence) || section === 'Collections' || section === 'Collection';
+    const isChargeOff = /charge[\s-]?off|charged off/.test(evidence);
+    const closed = /closed|paid, closed/.test(evidence) || !!f.date_closed;
+
+    const acct = {
+      creditor: head.creditor,
+      account_number: head.account_number,
+      account_type: f.loan_type || f.account_type || null,
+      date_opened: f.date_opened || null,
+      date_closed: f.date_closed || null,
+      date_reported: f.date_reported || null,
+      date_last_payment: f.date_last_payment || null,
+      open_closed: closed ? 'Closed' : 'Open',
+      status: status || null,
+      balance: f.balance || null,
+      high_balance: f.high_balance || null,
+      credit_limit: f.credit_limit || null,
+      monthly_payment: f.monthly_payment || null,
+      past_due: f.past_due || null,
+      responsibility: f.responsibility || null,
+      terms: f.terms || null,
+      address: f.address || null,
+      phone: f.phone || null,
+      comments: remarks || null,
+      dofd: null,
+      reported_by: ['TransUnion'],
+      section: section || null,
+      is_collection: isCollection,
+      is_charge_off: isChargeOff,
+      has_late_payments: isChargeOff || isCollection || /late|delinq|past due/.test(evidence) || section === 'Adverse Accounts',
+      is_repossession: /repossess/.test(evidence),
+      in_bankruptcy: /bankrupt/.test(evidence)
+    };
+    result.accounts.push(acct);
+    if (isCollection) {
+      result.collections.push({agency: acct.creditor, original_creditor: f.original_creditor || null,
+        date_reported: acct.date_reported, balance: acct.balance, bureau: 'TransUnion', status: 'collection'});
+    }
+  });
+
+  // ---------- Inquiries ----------
+  // TransUnion prints the company names in one column and the detail blocks in
+  // another, so extraction interleaves them: a block does not always sit under
+  // its own name. The names stay in document order and so do the three section
+  // headers, so the Nth regular name pairs with the Nth detail block.
+  //
+  // Only "Regular Inquiries" are recorded. Promotional and account-review pulls
+  // are soft, are not disputable, and pairing them past the first section is
+  // exactly where the interleaving stops being reliable — so they are counted
+  // and not named. A letter must never name a company we are not certain of.
+  const iReg = lines.findIndex(l => /^Regular Inquiries$/.test(l));
+  if (iReg >= 0) {
+    const after = (re) => { const k = lines.findIndex((l, i) => i > iReg && re.test(l)); return k < 0 ? lines.length : k; };
+    const regEnd = Math.min(after(/^Promotional Inquiries$/), after(/^Account Review Inquiries$/));
+
+    const NOISE = /^(Name|Location|Requested On|Phone|Inquiry Type|Individual|Joint|Authorized|Undesignated)$/;
+    const isCompany = (t) => {
+      if (!t || NOISE.test(t) || TU_SECTIONS.test(t)) return false;
+      if (/^\(\d{3}\)/.test(t)) return false;                        // phone
+      if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(t)) return false;           // any date
+      if (/,\s*[A-Z]{2}\s+\d{5}/.test(t)) return false;              // city, ST zip
+      if (/^(P\.?\s?O\.?\s*BOX|STE|SUITE|APT|\d+\s)/i.test(t)) return false;  // street
+      if (/[a-z]{4}/.test(t) && t.split(/\s+/).length > 4) return false;      // prose
+      return /^[A-Z][A-Z0-9 &'\/.,-]{2,49}$/.test(t);
+    };
+
+    const names = [];
+    for (let i = iReg + 1; i < regEnd; i++) {
+      if (isCompany(lines[i])) names.push(lines[i]);
+      if (names.length > 60) break;
+    }
+
+    const blocks = [];
+    for (let i = iReg + 1; i < lines.length && blocks.length <= names.length; i++) {
+      if (!/^Requested On$/.test(lines[i])) continue;
+      const d = (lines[i + 1] || '').trim();
+      if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(d)) continue;
+      const addr = [];
+      for (let k = i - 1; k > iReg && addr.length < 3; k--) {
+        if (/^Location$/.test(lines[k])) break;
+        if (lines[k]) addr.unshift(lines[k]);
+      }
+      blocks.push({date: d, address: addr.join('\n')});
+    }
+
+    const n = Math.min(names.length, blocks.length);
+    for (let k = 0; k < n; k++) {
+      result.inquiries.push({creditor: names[k], address: blocks[k].address, date: blocks[k].date,
+                             bureau: 'TransUnion', business_type: null, type: 'hard'});
+    }
+
+    // Counted, not named: the analysis can say they exist without offering a
+    // dispute for a pull that is not disputable in the first place.
+    let soft = 0;
+    for (let i = regEnd; i < lines.length; i++) if (/^Requested On$/.test(lines[i])) soft++;
+    result.soft_inquiry_count = Math.max(0, soft - Math.max(0, blocks.length - n));
+  }
+
+  return result;
+}
+
 function parseCreditReport(text) {
   // Prefer the structured parser when the document is a recognised tri-merge layout.
   // The heuristics below stay as the fallback for formats we have not seen.
+  if (tuIsOnlineServiceCenter(text)) {
+    try {
+      const tu = parseTransUnionOSC(text);
+      if (tu && tu.accounts.length > 0) return tu;
+    } catch (e) {
+      // fall through
+    }
+  }
   if (isExperianPrintable(text)) {
     try {
       const single = parseExperianPrintable(text);
