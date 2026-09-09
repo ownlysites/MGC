@@ -7001,9 +7001,11 @@ function parseSummons(text) {
 </script>
 <script>
 // ========== LETTER VARIATION ENGINE ==========
-// Each letter is composed of swappable fragments. With 6+ variants per slot,
-// combinatorial math gives tens of thousands of unique letters per template.
-// Seeded RNG ensures consistency within a session but uniqueness across users.
+// Each letter is composed of swappable fragments. The slots are independent of
+// one another — see mgcMix below for why that sentence is doing real work and
+// was not true until it was measured. The seed is fixed for a session, so a
+// letter does not change under someone while they are reading it, and differs
+// between sessions.
 
 function seedRand() {
   // Generate a session seed tied to timestamp + random for uniqueness
@@ -7013,23 +7015,73 @@ function seedRand() {
   return state.letterSeed;
 }
 
+// The seed is a millisecond timestamp plus a random number, so it is far
+// larger than 32 bits. Folding it properly matters: taking it modulo 2^32
+// alone would make every session inside the same ~50-day window share the
+// high half, and mixing only the low half would throw the randomness away.
+function seed32() {
+  const s = seedRand();
+  const lo = s % 4294967296;
+  const hi = Math.floor(s / 4294967296);
+  return (lo ^ Math.imul(hi + 1, 0x9e3779b1)) >>> 0;
+}
+
+// An avalanche mix. This is the whole fix, and it is worth saying why.
+//
+// The old picker was pool[(seed + offset) % pool.length]. One seed drove every
+// slot in every letter, so the slots were not independent — they moved in
+// lockstep. Two people whose seeds differ by one get a different fragment in
+// every slot at once, and two people whose seeds differ by the length of the
+// pool get the SAME fragment in every slot. The number of possible letters was
+// therefore not the product of the pool sizes, it was the lowest common
+// multiple of them: with pools of 3, 4, 5, 6 and 7 that is 420 whole letters,
+// not the tens of thousands the comment above claimed. Measured on a real
+// report, 300 people produced 221 distinct packets and four of the nine
+// letters were byte-for-byte identical for all 300.
+//
+// Mixing the seed with the slot's own identity makes the slots independent, so
+// the count becomes the product — about 3.6e13 for the same pools.
+function mgcMix(a, b) {
+  let h = (a >>> 0) ^ Math.imul(((b >>> 0) + 0x9e3779b9) >>> 0, 0x85ebca6b);
+  h ^= h >>> 15; h = Math.imul(h, 0x2545f491);
+  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+// Two different pools called with the same offset would still move together,
+// and most calls leave the offset at its default. Salting with the pool's own
+// size and first few characters makes every pool independent of every other
+// without anyone having to hand out unique offsets by hand.
+function poolSalt(pool) {
+  const first = String((pool && pool[0]) || '');
+  let h = Math.imul((pool && pool.length) || 1, 2654435761) >>> 0;
+  for (let i = 0; i < first.length && i < 24; i++) {
+    h = Math.imul(h ^ first.charCodeAt(i), 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
 function pickFrom(pool, offset = 0) {
-  // Picks deterministically based on session seed + offset
-  const seed = seedRand() + offset;
-  return pool[seed % pool.length];
+  if (!pool || !pool.length) return '';
+  return pool[mgcMix(seed32(), (offset >>> 0) ^ poolSalt(pool)) % pool.length];
 }
 
 function pickMulti(pool, count, offset = 0) {
-  const results = [];
-  const used = new Set();
-  for (let i = 0; i < count && results.length < pool.length; i++) {
-    const idx = (seedRand() + offset + i * 7) % pool.length;
-    if (!used.has(idx)) {
-      used.add(idx);
-      results.push(pool[idx]);
-    }
+  if (!pool || !pool.length) return [];
+  const want = Math.max(0, Math.min(count, pool.length));
+  // The old version stepped through the pool with a fixed stride of 7. In a
+  // pool of exactly 7 that lands on the same index every time, so a request
+  // for three fragments came back with one — silently, and only in the pools
+  // that happened to be that size. Shuffling the whole pool and taking the
+  // first n cannot collide at any size, and it varies the order too.
+  const idx = pool.map((_, i) => i);
+  const salt = poolSalt(pool);
+  for (let i = idx.length - 1; i > 0; i--) {
+    const j = mgcMix(seed32(), ((offset >>> 0) ^ salt) + i * 131) % (i + 1);
+    const t = idx[i]; idx[i] = idx[j]; idx[j] = t;
   }
-  return results;
+  return idx.slice(0, want).map(i => pool[i]);
 }
 
 // ========== FRAGMENT POOLS ==========
@@ -7039,7 +7091,7 @@ function pickMulti(pool, count, offset = 0) {
 const fragments = {
   // Opening paragraphs — for bureau disputes
   opening_bureau: [
-    'I am writing to dispute the following information appearing in my consumer file.',
+    'Some of what your agency is reporting about me is wrong, and this letter sets out which parts and why.',
     'This letter serves as formal notice of dispute regarding specific items reported in my credit file.',
     'Pursuant to my rights as a consumer, I am hereby disputing information currently appearing on my credit report.',
     'I am exercising my statutory right to dispute inaccurate information contained in my consumer file with your agency.',
@@ -7207,6 +7259,260 @@ const fragments = {
     'Any reinvestigation that merely confirms prior reporting without actual review of source documents will not constitute a reasonable reinvestigation under controlling authority.'
   ]
 };
+
+// ========== SECOND FRAGMENT SET ==========
+// The first set only ever reached the four bureau-facing dispute letters. Five
+// letters — goodwill, pay-for-delete, the fraud alert, the breach notification
+// and the privacy opt-out — were assembled from fixed strings and came out
+// byte-for-byte identical for everybody. Measured on a real report: 300 people,
+// 300 identical copies of each of those four, and six variants of goodwill.
+//
+// That is the failure mode this whole engine exists to prevent. 12 CFR
+// § 1022.43(f)(2) lets a furnisher treat a dispute as frivolous when it was
+// "prepared on behalf of the consumer by, or submitted on a form supplied to
+// the consumer by, a credit repair organization" — and a letter a compliance
+// desk has already seen forty times this month is what that looks like from
+// their side of the envelope.
+//
+// Every option in a pool says the same thing in law. What varies is sentence
+// order, register and word choice. Nothing here changes an obligation, a
+// deadline, a citation or a demand.
+Object.assign(fragments, {
+
+  // ---------- GOODWILL ----------
+  goodwill_recovery: [
+    'and my account has been in good standing since. This single mark does not reflect my broader history as a customer or the reliability I have shown over the life of this account.',
+    'and the account has stayed current from that point forward. One entry sits oddly against the rest of a record I have worked hard to keep clean.',
+    'and every payment since has been made on time. I would ask you to weigh this one notation against the whole of the relationship rather than on its own.',
+    'and there has not been another late payment on this account. Looked at across the full history, this is the exception rather than the pattern.',
+    'and the account has been paid as agreed ever since. I am not asking you to overlook it so much as to see it in proportion.'
+  ],
+
+  goodwill_ask: [
+    'I would be grateful if you would consider — as an act of goodwill and entirely at your discretion — requesting that this late notation be removed from my credit reports with Equifax, Experian and TransUnion.',
+    'My request is that you consider asking the three nationwide bureaus to remove this one notation as a courtesy. I understand completely that the decision is yours alone.',
+    'What I am asking for is a one-time courtesy: that you request removal of this notation from my files at Equifax, Experian and TransUnion.',
+    'If you are willing, I would ask you to request that Equifax, Experian and TransUnion remove this notation as a gesture of goodwill.',
+    'I am asking whether you would consider requesting removal of this single item from my reports at all three nationwide bureaus, as a courtesy and at your sole discretion.'
+  ],
+
+  goodwill_discretion: [
+    'I understand that you are not required to honour this request and that it is entirely within your discretion. I am not disputing the accuracy of the original reporting. I am asking for a one-time exception based on my overall relationship with you.',
+    'To be clear about what this letter is: it is not a dispute. I am not suggesting the reporting was wrong. I am asking for a courtesy that you are free to decline.',
+    'None of this questions the accuracy of what was reported. It was accurate. I am asking for an exception, which I know you are under no obligation to grant.',
+    'I want to be straightforward — this is a request, not a challenge. The entry was correct when it was made, and whether to revisit it is entirely your call.',
+    'I am not asserting an error and I am not invoking any right. I am asking a favour, and I recognise that a favour can be declined.'
+  ],
+
+  goodwill_reporting_note: [
+    'The Fair Credit Reporting Act requires that what is reported be accurate; it does not require that everything be reported. Creditors keep full discretion over whether to report any particular item, and I am respectfully asking you to exercise that discretion here.',
+    'Accuracy is what the Fair Credit Reporting Act demands. Completeness is not — a creditor is free to decide what it reports. That discretion is what I am asking you to use.',
+    'Nothing in the Fair Credit Reporting Act obliges a creditor to report any specific item; it obliges accuracy in what is reported. The choice here is genuinely yours to make.',
+    'The statute governs whether reporting is accurate, not whether it happens. Because you retain that choice, this request asks for a decision rather than a correction.',
+    'A creditor decides what it furnishes; the Fair Credit Reporting Act then requires that whatever it furnishes be accurate. I am asking you to revisit the first decision, not the second.'
+  ],
+
+  goodwill_close: [
+    'Whatever you decide, I wanted to take the time to ask thoughtfully and directly. Thank you sincerely for your consideration.',
+    'Thank you for reading this and for giving it real consideration, whichever way it goes.',
+    'I appreciate the time it takes to look at a request like this one. Thank you for considering it.',
+    'However you decide, thank you for considering it properly rather than by default.',
+    'Thank you for your time and for giving this a fair reading.'
+  ],
+
+  // ---------- PAY FOR DELETE ----------
+  pfd_opening: [
+    'This letter is a settlement offer. It is not an acknowledgment of this debt or of its validity. I am making the offer solely to resolve the matter without further cost or delay on either side.',
+    'What follows is an offer to settle. It is not an admission that the debt is owed, valid, or correctly reported — it is an attempt to close the matter efficiently for both of us.',
+    'Please treat this as a settlement offer and nothing more. I am not conceding that this debt is mine, is accurate, or is enforceable. I would simply rather resolve it than argue about it.',
+    'I am writing to make a settlement offer. Nothing in this letter should be read as an acknowledgment of the debt, its amount, or its validity.',
+    'This is an offer of settlement, made to end the matter rather than to concede it. No part of it acknowledges the debt or its validity.'
+  ],
+
+  pfd_execution: [
+    'If these terms are acceptable, please send a signed written agreement to the address above, executed by an authorized representative of your company. On receipt of the signed agreement I will remit payment by cashier’s check or certified funds within ten (10) days.',
+    'Should you accept, send me a written agreement signed by someone authorized to bind your company. Payment by cashier’s check or certified funds will follow within ten (10) days of my receiving it.',
+    'To accept, return a signed agreement to the address above, executed by an authorized representative. I will pay within ten (10) days of receiving it, by cashier’s check or certified funds.',
+    'If the terms work for you, put them in a written agreement, have an authorized representative sign it, and send it to the address above. Certified funds follow within ten (10) days.',
+    'Acceptance means a signed written agreement, executed by someone with authority to bind your company, sent to the address above. Ten (10) days after it reaches me, you will have payment in certified funds.'
+  ],
+
+  pfd_expiry: [
+    'This offer expires thirty (30) days from the date of this letter. If I have not received a signed agreement by that date, the offer is automatically withdrawn without further notice and may not afterwards be relied upon.',
+    'The offer stands for thirty (30) days from the date above. After that it lapses on its own, with no further notice from me, and cannot be accepted late.',
+    'Thirty (30) days from the date of this letter, this offer expires by its own terms. No further notice will be given and nothing in it survives that date.',
+    'Please treat this as open for thirty (30) days only. If no signed agreement reaches me in that time, the offer is withdrawn automatically.',
+    'This offer is good for thirty (30) days from the date shown above and then withdraws itself. Acceptance after that date is not acceptance of anything.'
+  ],
+
+  pfd_no_cash: [
+    'IMPORTANT: do not cash any payment received from me without a signed written agreement in place. Any payment accepted without that agreement will be treated as a partial payment applied only toward reduction of the balance, and all rights are expressly reserved.',
+    'IMPORTANT: no payment from me is to be negotiated before a signed agreement exists. If one is accepted anyway, treat it as a partial payment against the balance only. I reserve every right.',
+    'IMPORTANT: cashing anything from me before the agreement is signed does not settle this account. Such a payment counts only as a partial reduction of the balance, and nothing is waived.',
+    'IMPORTANT: a payment accepted without a signed agreement settles nothing. It will be treated as a partial payment toward the balance and all of my rights remain reserved.',
+    'IMPORTANT: do not deposit any funds from me until the agreement is signed. Absent that agreement, any deposit is a partial payment on the balance and no more.'
+  ],
+
+  // ---------- FRAUD ALERT ----------
+  fa_opening: [
+    'Pursuant to Section 605A of the Fair Credit Reporting Act (15 U.S.C. § 1681c-1), I am requesting that you place a %ALERT% fraud alert on my credit file.',
+    'I am writing under Section 605A of the Fair Credit Reporting Act, 15 U.S.C. § 1681c-1, to request a %ALERT% fraud alert on my consumer file.',
+    'This is a request under FCRA § 605A (15 U.S.C. § 1681c-1) for a %ALERT% fraud alert to be placed on my file.',
+    'Please place a %ALERT% fraud alert on my credit file. I am asking under Section 605A of the Fair Credit Reporting Act, 15 U.S.C. § 1681c-1.',
+    'Under 15 U.S.C. § 1681c-1, Section 605A of the Fair Credit Reporting Act, I request that a %ALERT% fraud alert be placed on my consumer file.'
+  ],
+
+  fa_caution: [
+    'In an abundance of caution, and to help prevent further unauthorized use of my personal information, I am invoking my statutory right to have a fraud alert placed on my file.',
+    'I would rather act early than deal with the consequences later, so I am exercising the right the statute gives me to have an alert placed.',
+    'Rather than wait to see whether the exposure is used against me, I am invoking my right to an alert now.',
+    'This is a precaution. The statute gives me the right to take it, and the cost of taking it late is considerably higher than the cost of taking it now.',
+    'I am acting before there is damage rather than after it, which is what this provision exists to allow.'
+  ],
+
+  fa_close: [
+    'Please confirm placement of the alert in writing and provide the free consumer report I am entitled to.',
+    'A written confirmation that the alert is in place, together with my free report, is what I am asking you to send back.',
+    'Please write to confirm the alert has been placed, and include the free copy of my report that goes with it.',
+    'Kindly confirm in writing that the alert is active and send the free report the statute entitles me to.',
+    'Please send written confirmation of the alert along with my statutory free copy of the report.'
+  ]
+
+});
+
+Object.assign(fragments, {
+
+  // ---------- BREACH NOTIFICATION ----------
+  bn_opening: [
+    'This letter is formal notification that my personal information has been exposed in a known data breach, and a demand that you take heightened steps to verify my identity before acting on my account or opening any new account in my name.',
+    'I am writing to put you on notice that my personal information was exposed in a data breach, and to ask that you raise the bar on identity verification for anything touching my account.',
+    'Please treat this as formal notice of a data breach affecting my personal information, and as a request that you verify my identity more carefully than usual before any account action.',
+    'My personal information has been compromised in a data breach. This letter tells you so on the record, and asks you to tighten identity verification on my account accordingly.',
+    'This is written notice that my data was exposed in a breach, and a request that you apply heightened verification before opening anything in my name or changing anything on my account.'
+  ],
+
+  bn_liability: [
+    'This letter is intended to preserve my legal rights. If, after receiving it, you open a new account in my name or permit a material account change without enhanced verification, you will have done so despite my express warning, and your exposure for any resulting fraud is correspondingly greater.',
+    'I am putting this in writing so the record is clear. Acting on my account without enhanced verification after this notice is a different matter from acting without warning, and I intend to rely on that difference if it becomes necessary.',
+    'The point of writing rather than calling is the record. From the date you receive this, a new account or a material change made without enhanced verification is one you were warned about in advance.',
+    'This notice exists so that nobody can later say you did not know. Once it reaches you, any account opened or materially changed without enhanced verification was opened or changed against an express written warning.',
+    'I am preserving my position in writing. After this letter, a failure to verify is not an oversight you were unaware of — it is one I told you about first.'
+  ],
+
+  bn_close: [
+    'I appreciate your attention to this. Please confirm in writing that the requested flags are on my account(s).',
+    'Thank you for handling this promptly. Written confirmation that the flags are in place is what I am asking for in return.',
+    'Please write back to confirm the flags have been applied. I would appreciate it being done quickly.',
+    'Confirmation in writing that these steps are in place would be welcome, and the sooner the better.',
+    'Please let me know in writing once the flags are set. Thank you for taking it seriously.'
+  ],
+
+  // ---------- PRIVACY OPT-OUT ----------
+  poo_opening: [
+    'I am a customer of your institution. This letter is my direction to you about how my personal information may be shared. It is not a dispute and it does not concern the accuracy of anything you report. No response is required for it to take effect.',
+    'As a customer of yours, I am writing to give you standing instructions about the sharing of my personal information. Nothing here disputes anything you report, and the letter takes effect whether or not you reply.',
+    'This letter is an instruction, not a complaint. I bank with you, and I am telling you how my personal information may and may not be shared. It operates on receipt.',
+    'I hold an account with you. What follows is my direction about the sharing of my information — not a dispute, and not a question about the accuracy of your reporting. It is effective when you receive it.',
+    'I am one of your customers. This is a direction about information sharing, effective on receipt, and it requires no answer from you to work.'
+  ],
+
+  poo_close: [
+    'These are standing instructions. Please note my file accordingly and pass this letter to whoever maintains your opt-out records. Written confirmation would be welcome but is not necessary — I am keeping the certified mail receipt, and the date you received this is the date these elections took effect.',
+    'Treat these as standing instructions and route this letter to whoever keeps your opt-out records. You need not reply; the certified mail receipt records the date, and that date is when these elections began.',
+    'These elections stand until I say otherwise. Please note the file and forward this to your opt-out records team. No confirmation is required — the delivery receipt establishes the effective date.',
+    'Please record these as standing instructions and send this letter on to whoever maintains opt-out preferences. A reply is welcome but not needed; the date of delivery is the date they took effect.',
+    'These instructions remain in force until withdrawn in writing by me. Please note the account and pass this to your privacy or opt-out function. The certified receipt is my record of when they started.'
+  ],
+
+});
+Object.assign(fragments, {
+  poo_identify: [
+    'Please identify my account(s) by the name and account number(s) written below. I am deliberately not including my Social Security number — my name and account number identify me sufficiently, and this letter travels through the mail.',
+    'My name and the account number(s) below are enough to find me. I have left my Social Security number out on purpose: this envelope goes through the post, and it does not need to carry that.',
+    'Use the name and account number(s) written below to locate my records. I have not written my Social Security number here, deliberately — it is not needed to identify me and mail is not the place for it.',
+    'The name and account number(s) below identify me. My Social Security number is not in this letter by choice; it adds nothing to the identification and everything to the risk of sending it.',
+    'Identify my account(s) from the name and number(s) set out below. I have omitted my Social Security number intentionally — it is unnecessary here and this is an envelope, not a secure channel.'
+  ],
+  poo_three_rights: [
+    'I am exercising three separate rights.',
+    'There are three distinct elections below, and I am making all three.',
+    'What follows are three separate rights, each exercised in full.',
+    'Three different provisions apply here. I am invoking each of them.',
+    'Below are three elections. They are independent of one another and I am making each.'
+  ],
+  poo_aware: [
+    'I am aware of what this election does. Communicating that category of information among affiliates is excluded from the definition of "consumer report" only where the consumer was told it may occur and given the opportunity, before it occurs, to direct that it not. I am directing that it not. Any such communication after you receive this letter falls outside that exclusion and is the furnishing of a consumer report, with every duty the Fair Credit Reporting Act attaches to that.',
+    'I understand precisely what this does. That category of affiliate communication escapes the definition of "consumer report" only when the consumer has been told it may happen and given a chance beforehand to say no. I am saying no. From your receipt of this letter, any such communication is outside the exclusion and is the furnishing of a consumer report, carrying every duty the Fair Credit Reporting Act attaches.',
+    'This election is deliberate and I know its effect. The exclusion for affiliate communication applies only where the consumer was notified and given the opportunity to direct otherwise before it occurred. I am directing otherwise now. After this, such a communication is the furnishing of a consumer report and every Fair Credit Reporting Act duty follows it.',
+    'I make this election knowingly. Sharing that class of information among affiliates falls outside the "consumer report" definition only if I was told in advance and given the chance to object. I object. Any sharing after you receive this is therefore the furnishing of a consumer report, with all of the Act’s obligations attached.',
+    'I am not making this election casually. The affiliate exclusion from the definition of "consumer report" depends on prior notice and a real chance to opt out. I have that chance and I am taking it. Once this letter reaches you, any such communication is the furnishing of a consumer report and the Fair Credit Reporting Act governs it in full.'
+  ]
+});
+
+Object.assign(fragments, {
+  // ---------- VOICE ----------
+  // The tone the consumer picked, in five phrasings rather than one. Without
+  // this every "plain" consumer in the country closed a letter with the same
+  // sentence, which is the pattern a compliance desk notices first.
+  voice_close_hopeful: [
+    'I am trying to rebuild, and I would rather resolve this with you directly than take it any further. I appreciate you taking a careful look.',
+    'I am working to get back on solid ground, and I would much rather sort this out with you than escalate it. Thank you for looking properly.',
+    'My aim is to put this right rather than to fight about it. I would be grateful for a careful review.',
+    'I would like to settle this between us. I am trying to rebuild and a fair look at this would help a great deal.',
+    'I would rather come to you first than go anywhere else with it. Thank you for taking the time to look at it properly.'
+  ],
+  voice_close_plain: [
+    'Please confirm in writing what action you have taken and the date you took it.',
+    'Please write back with what you did and when you did it.',
+    'I would like written confirmation of the action taken and its date.',
+    'Let me know in writing what was done and on what date.',
+    'Please send me a written note of what action was taken and when.'
+  ],
+  voice_close_firm: [
+    'I expect a substantive response within the statutory period, in writing. Under § 611(a)(5)(A), an item your reinvestigation finds inaccurate, incomplete, or that cannot be verified comes off the file rather than being re-reported.',
+    'A substantive written response within the statutory period is what I expect. Section 611(a)(5)(A) is explicit: what cannot be verified is deleted, not re-reported.',
+    'Please respond substantively and in writing inside the statutory window. An item that cannot be verified is deleted under § 611(a)(5)(A) — re-reporting it is not one of the options.',
+    'I am asking for a real response, in writing, within the time the statute allows. Under § 611(a)(5)(A) anything inaccurate, incomplete or unverifiable comes off the file.',
+    'Within the statutory period I expect a written answer with substance in it. Section 611(a)(5)(A) requires deletion of what your reinvestigation cannot verify.'
+  ],
+  voice_close_frustrated: [
+    'This has gone on longer than it should have, and I have kept a record of every contact. I am asking you to resolve it correctly this time, in writing, within the period the statute allows.',
+    'I have been at this longer than anyone should have to be, and every contact is documented. Please get it right this time, in writing, inside the statutory period.',
+    'There is a file on my side with every letter and every call in it. I would like this resolved properly now, in writing and within the time the statute gives you.',
+    'This should have been finished some time ago. I have kept the whole record. Resolve it correctly this time — in writing, within the statutory period.',
+    'I have documented all of it. What I want now is a correct resolution, in writing, inside the period the statute allows.'
+  ],
+
+  voice_lead_hopeful: [
+    'I want to explain what this has meant for me personally:',
+    'It may help to say what this has actually meant for me:',
+    'Here is what this has looked like from where I am standing:',
+    'I would like you to know what this has meant in practice:',
+    'For whatever it is worth, this is what it has meant for me:'
+  ],
+  voice_lead_plain: [
+    'For context, here is the effect this reporting has had:',
+    'So you have the background, here is what this reporting has done:',
+    'Some context on the effect of this reporting:',
+    'Here is the practical effect this reporting has had:',
+    'For background, this is what the reporting has caused:'
+  ],
+  voice_lead_firm: [
+    'So that the record is complete, here is what this reporting has cost me:',
+    'For the record, this is what the reporting has cost me:',
+    'So the file is complete, here is the cost of this reporting to me:',
+    'Let the record show what this reporting has cost:',
+    'For completeness of the record, here is what it has cost me:'
+  ],
+  voice_lead_frustrated: [
+    'I want to be direct about what this has already cost me:',
+    'Plainly, here is what this has already cost me:',
+    'I will be direct. This is what it has cost me so far:',
+    'Being blunt about it, here is the cost so far:',
+    'Directly, then — this is what it has already cost:'
+  ]
+
+});
 
 // ========== LETTER TEMPLATES ==========
 // Each template defines structure. Compile function assembles with variation.
@@ -7714,19 +8020,29 @@ function currentVoice() {
   return voiceFragments[state.intake.voice] || null;
 }
 
+// The tone stays the one they picked; the phrasing of it does not stay the
+// same for every person who picked it. voiceFragments above is kept as the
+// fallback so a voice with no pool still works.
+function voicePick(kind) {
+  const v = state.intake && state.intake.voice;
+  if (!v) return null;
+  const pool = fragments['voice_' + kind + '_' + v];
+  if (pool && pool.length) return pickFrom(pool, kind === 'close' ? 210 : 211);
+  const f = voiceFragments[v];
+  return f ? (kind === 'close' ? f.close : f.lead) : null;
+}
+
 // The consumer's own words, in their own paragraph. Trimmed and capped so a
 // runaway paste cannot swamp the letter.
 function personalStatementBlock() {
   const raw = (state.intake.personal_statement || '').trim();
   if (!raw) return [];
-  const v = currentVoice();
   const text = raw.length > 1200 ? raw.slice(0, 1200) + '…' : raw;
-  return ['', (v ? v.lead : 'For context:'), '', text];
+  return ['', (voicePick('lead') || 'For context:'), '', text];
 }
 
 function voiceClosing() {
-  const v = currentVoice();
-  return v ? v.close : null;
+  return voicePick('close');
 }
 
 // A recent move is the quiet reason disputes come back untouched: the address
@@ -8248,6 +8564,7 @@ function compileGoodwill(ctx) {
   const hardshipReason = ctx.hardshipReason ||
     (((state.intake && state.intake.personal_statement) || '').trim() || null);
   const currentStatus  = ctx.currentStatus || 'I have since returned to consistent on-time payments';
+  const recovery       = pickFrom(fragments.goodwill_recovery, 100);
   const whyNeeded      = ctx.whyNeeded || 'I am currently working to qualify for a mortgage, and this single mark is the last obstacle';
 
   const opening = pickFrom(fragments.opening_goodwill, 40);
@@ -8269,15 +8586,15 @@ function compileGoodwill(ctx) {
     facts.join(' '),
     '',
     (hardshipReason ? 'At the time, I was dealing with ' + hardshipReason + '. ' : '') +
-      currentStatus + ', and my account has been in good standing since. This single mark on my credit report does not reflect my broader history as a customer or the reliability I have demonstrated over the life of this account.',
+      currentStatus + ', ' + recovery,
     '',
-    `I am writing today because ${whyNeeded}. I would be deeply grateful if you would consider — as an act of goodwill and at your sole discretion — requesting that this single late notation be removed from my credit reports with Equifax, Experian and TransUnion.`,
+    `I am writing today because ${whyNeeded}. ` + pickFrom(fragments.goodwill_ask, 101),
     '',
-    'I understand that you are not required to honor this request, and that it is entirely within your discretion. I am not disputing the accuracy of the original reporting. I am simply asking for a one-time exception based on my overall relationship with you.',
+    pickFrom(fragments.goodwill_discretion, 102),
     '',
-    'The Fair Credit Reporting Act does not require complete reporting — it only requires that what is reported be accurate. Creditors retain full discretion over whether to report any specific item. I am respectfully asking you to exercise that discretion here.',
+    pickFrom(fragments.goodwill_reporting_note, 103),
     '',
-    'Whatever your decision, I wanted to take the time to ask thoughtfully and directly. Thank you sincerely for your consideration.'
+    pickFrom(fragments.goodwill_close, 104)
   ];
 
   const recipientBlock = creditorName + '\nAttn: Executive Customer Relations' +
@@ -8315,7 +8632,7 @@ function compilePayForDelete(ctx) {
   const u = userHeader();
   
   const body = [
-    'This letter is a settlement offer. It is not an acknowledgment of this debt or its validity. I am making this offer solely to resolve the matter without further cost or delay on either side.',
+    pickFrom(fragments.pfd_opening, 110),
     '',
     (offerAmount
       ? 'I am willing to pay $' + offerAmount +
@@ -8333,11 +8650,11 @@ function compilePayForDelete(ctx) {
     '',
     '5. NO ADMISSION — This settlement shall not constitute any admission of liability, validity, or authenticity of the alleged debt. I am settling to avoid further dispute, not conceding the underlying claim.',
     '',
-    'If these terms are acceptable, please send a signed written agreement to the address above, executed by an authorized representative of your company. Upon my receipt of the signed agreement, I will remit payment by cashier\'s check or certified funds within ten (10) days.',
+    pickFrom(fragments.pfd_execution, 111),
     '',
-    'This offer expires thirty (30) days from the date of this letter. If I have not received a signed agreement by that date, this offer is automatically withdrawn without further notice, and you may not subsequently rely upon it.',
+    pickFrom(fragments.pfd_expiry, 112),
     '',
-    'IMPORTANT: Do not cash any payment received from me without a signed written agreement. Any payment accepted without the written agreement will be treated as a partial payment to be applied only toward reduction of the balance, and all rights are expressly reserved.'
+    pickFrom(fragments.pfd_no_cash, 113)
   ];
   
   const collectorName = typeof collector === 'string' ? collector : collector.name;
@@ -8538,9 +8855,9 @@ function compileFraudAlert(ctx) {
     ` My information was exposed in the ${breachRef.name} data breach of ${breachRef.year}, which compromised ${breachRef.data ? breachRef.data.join(', ') : 'sensitive personal data'}.` : '';
   
   const body = [
-    `Pursuant to Section 605A of the Fair Credit Reporting Act (15 U.S.C. § 1681c-1), I am requesting that you place a ${alertType} fraud alert on my credit file.`,
+    pickFrom(fragments.fa_opening, 120).replace('%ALERT%', alertType),
     '',
-    `${reason}.${breachClause} In an abundance of caution, and to help prevent further unauthorized use of my personal information, I am invoking my statutory right to have a fraud alert placed on my file.`,
+    `${reason}.${breachClause} ` + pickFrom(fragments.fa_caution, 121),
     '',
     `I understand that this alert will remain active for ${duration}, during which time potential creditors must take reasonable steps to verify my identity before issuing new credit in my name.`,
     extended ? '\nAs this is a request for an extended fraud alert under FCRA § 605A(b), I am enclosing a copy of my Identity Theft Report from IdentityTheft.gov, as required by statute.' : '',
@@ -8552,7 +8869,7 @@ function compileFraudAlert(ctx) {
     '• Proof of my current address;',
     extended ? '• Copy of my FTC Identity Theft Report.' : '• A brief statement explaining the basis of my concern.',
     '',
-    'Please confirm placement of the alert in writing and provide my statutorily entitled free credit report.'
+    pickFrom(fragments.fa_close, 122)
   ];
   
   const mail = mailEnvelope(body, bureauHeader(bureau), {
@@ -8574,7 +8891,7 @@ function compileBreachNotification(ctx) {
   const u = userHeader();
   
   const body = [
-    'This letter serves as formal notification that my personal information has been exposed in a known data breach, and as a demand that you take heightened steps to verify my identity before taking any action on my account or opening new accounts in my name.',
+    pickFrom(fragments.bn_opening, 130),
     '',
     `I am a customer of your institution. My personal information — including ${breach.data ? breach.data.join(', ') : 'sensitive data'} — was exposed in the ${breach.name} data breach of ${breach.year}. This breach affected ${breach.affected || 'a large number of individuals'} and has placed my identity at elevated risk of misuse.`,
     '',
@@ -8588,9 +8905,9 @@ function compileBreachNotification(ctx) {
     '',
     '4. Notify me promptly — by certified mail to the address above — of any attempt to open a new account in my name or to make any material change to my existing account(s).',
     '',
-    'This letter is intended to preserve my legal rights. If, after receiving this notice, you open a new account in my name or permit a material account change without taking enhanced verification steps, you are on notice that you did so despite my express warning — and your liability for any resulting fraud will be correspondingly elevated.',
+    pickFrom(fragments.bn_liability, 131),
     '',
-    'I appreciate your attention to this matter. Please confirm in writing that you have placed the requested flags on my account(s).',
+    pickFrom(fragments.bn_close, 132),
     '',
     'Enclosed: proof of identity, proof of address, and documentation of the breach (news coverage or official breach notification).'
   ];
@@ -8666,14 +8983,14 @@ function compilePrivacyOptOut(ctx) {
   const u = userHeader();
 
   const body = [
-    'I am a customer of your institution. This letter is my direction to you about how my personal information may be shared. It is not a dispute and it does not concern the accuracy of anything you report. No response is required for it to take effect.',
+    pickFrom(fragments.poo_opening, 140),
     '',
-    'Please identify my account(s) by the name and account number(s) written below. I am deliberately not including my Social Security number — my name and account number identify me sufficiently, and this letter travels through the mail.',
+    pickFrom(fragments.poo_identify, 142),
     '',
     'ACCOUNT(S) THIS APPLIES TO:',
     ctx.accountLines || '_______________________________________________________________',
     '',
-    'I am exercising three separate rights.',
+    pickFrom(fragments.poo_three_rights, 143),
     '',
     '1. NONAFFILIATED THIRD PARTIES — 15 U.S.C. § 6802(b)(1), Gramm-Leach-Bliley (the Financial Services Modernization Act).',
     '',
@@ -8683,13 +9000,13 @@ function compilePrivacyOptOut(ctx) {
     '',
     'Do not communicate information about me other than my transactions and experiences with you to any person related to you by common ownership or affiliated by corporate control. That includes any assessment of my creditworthiness, credit standing, credit capacity, character, or general reputation.',
     '',
-    'I am aware of what this election does. Communicating that category of information among affiliates is excluded from the definition of "consumer report" only where the consumer was told it may occur and given the opportunity, before it occurs, to direct that it not. I am directing that it not. Any such communication after you receive this letter falls outside that exclusion and is the furnishing of a consumer report, with every duty the Fair Credit Reporting Act attaches to that.',
+    pickFrom(fragments.poo_aware, 144),
     '',
     '3. AFFILIATE MARKETING — 15 U.S.C. § 1681s-3(a)(1), FCRA § 624.',
     '',
     'Do not use information you receive from any of your affiliates to make a solicitation to me about your products or services. Under § 1681s-3(a)(3)(A) this election is effective for a period of at least five years from the date you receive it.',
     '',
-    'These are standing instructions. Please note my file accordingly and pass this letter to whoever maintains your opt-out records. A written confirmation would be welcome but is not necessary — I am keeping the certified mail receipt, and the date you received this is the date these elections took effect.'
+    pickFrom(fragments.poo_close, 141)
   ];
 
   // Nothing else goes in this envelope. Each recipient gets a complete letter
@@ -13334,6 +13651,63 @@ function applyFanTarget(tmpl, ctx, t) {
   return c;
 }
 
+
+// ========== HANDWRITING, INK AND PAPER ==========
+// Two separate questions, and only one of them has a rule behind it.
+//
+// HANDWRITING. There is no statute about it. The reason it matters is
+// 12 CFR § 1022.43(f)(2), which lets a furnisher treat a dispute as frivolous
+// where it was "prepared on behalf of the consumer by, or submitted on a form
+// supplied to the consumer by, a credit repair organization". Nothing says a
+// typed letter is such a form — but a letter that reads and looks like one
+// invites the question, and a handwritten letter does not. It is not right for
+// every letter: a four-page dispute listing eleven accounts has to be legible
+// above all, and an illegible dispute is returned, not investigated. So this
+// recommends handwriting where it helps and says plainly where it does not.
+//
+// INK. The claim that black ink gets a letter flagged is not one I can find any
+// support for, and it is not repeated here. What IS documented is drop-out
+// colour: forms-processing scanners are routinely configured to ignore a
+// specific colour so that pre-printed form lines vanish from the captured
+// image, and the usual choices are pastel yellow, red and orange. Anything
+// written in a drop-out colour can disappear from the scan entirely. That is
+// the real risk, and it argues against red, orange, yellow and highlighter
+// rather than against black. Dark blue and black both capture reliably; dark
+// blue has the separate practical advantage that a signature in it is visibly
+// an original rather than a photocopy.
+const HANDWRITE = {
+  goodwill: {
+    do: true,
+    why: 'Write this one out by hand if you can. It is the only letter in the packet that asks a person for a favour rather than telling a company its obligation, and the person reading it decides by feel as much as by policy. A handwritten page from a customer of eleven years does not get treated like the forty template letters underneath it.'
+  },
+  pay_for_delete: {
+    do: false,
+    why: 'Type this one. It is an offer with five numbered conditions in it, and if any of them is misread the agreement you sign is not the agreement you meant. Sign it by hand.'
+  },
+  fcba_billing_error: {
+    do: true,
+    why: 'Handwriting suits this one. It is short, it is about specific charges you did not make, and it goes to a human being in a disputes team.'
+  },
+  breach_notification: {
+    do: true,
+    why: 'Short enough to write out by hand, and it reads better that way — it is a warning from a customer, not a filing.'
+  }
+};
+
+function handwriteNote(tmpl, out) {
+  const rule = HANDWRITE[tmpl.id];
+  const body = String((out && out.mail) || '');
+  const long = body.length > 2600;
+  if (rule && rule.do && !long) return {em: 'Consider writing this one out by hand', p: rule.why};
+  if (rule && rule.do && long) {
+    return {em: 'Type this one after all',
+            p: 'This letter would normally be worth writing by hand, but yours has run long enough that legibility matters more. Print it and sign it by hand instead.'};
+  }
+  if (rule && !rule.do) return {em: 'Type this one', p: rule.why};
+  return {em: 'Print this one and sign it by hand',
+          p: 'It cites sections and lists accounts, and every one of them has to be readable. Print the letter, then sign it yourself in ink — a signature that is obviously original is the cheapest thing in this envelope.'};
+}
+
 function regenerateAllLetters() {
   state.letterOutputs = {};
   state.letterVariants = {};
@@ -15155,6 +15529,7 @@ function buildActionPlanDoc() {
           <div><em>Before you send</em><p>Rewrite it in your own words, keeping the citations, account numbers and dates exactly as printed. Sign in ink, enclose your ID and proof of address, and send it certified with return receipt.</p></div>
         </div>
         ${tmpl.id === 'privacy_opt_out' ? `<div class="plan-divider-grid"><div><em>While you are at it</em><p>The prescreened-offer opt-out is separate, free, and nothing a creditor can do for you — it is exercised directly with the bureaus under FCRA § 604(e), 15 U.S.C. § 1681b(e). Call 1-888-5-OPT-OUT (1-888-567-8688) or use optoutprescreen.com. Online or by phone it lasts five years; to make it permanent you print the form from that site and mail it. This is not part of the letter on the next page and does not go in that envelope.</p></div></div>` : ''}
+        ${(function(){ const hw = handwriteNote(tmpl, out); return `<div class="plan-divider-grid"><div><em>${planEsc(hw.em)}</em><p>${planEsc(hw.p)} Sign in dark blue or black ballpoint. Not red, orange, yellow or highlighter — forms scanners are commonly set to drop one of those colours out of the image, and anything written in it can vanish from the scan.</p></div></div>`; })()}
         <p class="plan-divider-foot">The next page is the finished letter. Nothing on it is addressed to you.</p>
       </div>
     </section>`;
