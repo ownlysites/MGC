@@ -649,7 +649,7 @@ already how the § 605B letter reads.
 
 ---
 
-## 7d. The privacy opt-out letter (added in the same session as 7b/7c)
+## 7d. The privacy opt-out letter (added `8e48cdf`)
 
 Rebuilt from the "CREDITOR OPT OUT FORM" in the Dispute Plan folder. Three
 rights, each read verbatim from the U.S. Code before it went in the letter:
