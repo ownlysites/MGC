@@ -596,6 +596,34 @@ section.section-tinted { padding: var(--space-20) 0; }
 }
 .plan-offer-b { font-size: 0.9375rem; margin-bottom: var(--space-4); }
 
+/* ---------- The Action Plan's own slot ---------- */
+.ap-slot {
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--brand-600);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  padding: var(--space-5);
+  margin-top: var(--space-6);
+}
+.ap-slot-main { flex: 1 1 20rem; min-width: 0; }
+.ap-slot-action { flex: 0 0 auto; }
+.ap-slot-h {
+  font-family: var(--font-display); font-weight: 700; letter-spacing: -0.015em;
+  font-size: 1.0625rem; color: var(--ink-900); margin-bottom: var(--space-2);
+}
+.ap-slot-b { font-size: 0.9375rem; margin-bottom: var(--space-3); }
+.ap-slot-state {
+  font-size: 0.8125rem; color: var(--text-tertiary);
+  margin: 0; padding: var(--space-2) var(--space-3);
+  background: var(--ink-50); border-radius: var(--radius-sm);
+}
+.ap-slot.is-loaded { border-left-color: var(--sev-clear); }
+.ap-slot.is-loaded .ap-slot-state {
+  color: var(--sev-clear); background: var(--sev-clear-bg);
+  font-weight: 600;
+}
+
 /* ---------- The film ---------- */
 .filmband { display: grid; gap: var(--space-8); align-items: center; }
 @media (min-width: 940px) {
@@ -2699,6 +2727,22 @@ section.section-tinted { padding: var(--space-20) 0; }
           <input type="file" id="file-input" accept=".pdf,application/pdf" multiple onchange="handleFileUpload(event)" style="display:none;">
         </div>
 
+        <!-- The Action Plan gets its own target. It is not another credit
+             report and it is not optional colour: it decides what this packet
+             will and will not ask to have removed. A line of prose above a
+             shared drop zone was not enough to say that. -->
+        <div class="ap-slot" id="ap-slot">
+          <div class="ap-slot-main">
+            <p class="ap-slot-h">Your Action Plan, if you have one</p>
+            <p class="ap-slot-b">The monthly plan from your advisor &mdash; score tiles, balance targets, &ldquo;keep this one open&rdquo; notes. It comes from the funding programme and it says what should and should not be disputed, so where it and your report disagree, <strong>the plan decides</strong>. Nothing in it leaves your browser either.</p>
+            <p class="ap-slot-state" id="ap-slot-state">No Action Plan added yet. That is fine &mdash; everything here still works without one.</p>
+          </div>
+          <div class="ap-slot-action">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('ap-file-input').click()">Add Action Plan</button>
+            <input type="file" id="ap-file-input" accept=".pdf,application/pdf" onchange="handleFileUpload(event)" style="display:none;">
+          </div>
+        </div>
+
         <!-- Each format carries something the other does not, and which one a
              person uploads changes what this tool can tell them. Worth saying
              before they choose, not after. -->
@@ -4145,7 +4189,7 @@ async function handleFileUpload(event) {
   // The Action Plan travels separately from the credit report: it is a second
   // document about the same person, not another source of tradelines.
   const planPart = parts.find(p => p.type === 'action_plan');
-  if (planPart) state.actionPlan = planPart.parsed;
+  if (planPart) { state.actionPlan = planPart.parsed; renderActionPlanSlot(); }
   state.upload.doc_type = parts[0].type;
   state.upload.parsed = parsed;
 
@@ -4257,7 +4301,11 @@ const AP_SECTIONS = {
   'Federal Student Loans Over Initial Amount': 'student_loan',
   'Private Student Loans Over Initial Amount': 'student_loan',
   'Pay On Your Federal Student Loans':       'student_loan',
-  'High-Yield Savings Account':              'savings'
+  'High-Yield Savings Account':              'savings',
+  // Both of these say, in the plan's own words, do not close these accounts.
+  // Without them the plan's clearest protective instruction was invisible.
+  'Accounts in Good Standing':               'keep_open',
+  'Self-Reported Accounts':                  'keep_open'
 };
 
 function apIsActionPlan(text) {
@@ -4395,10 +4443,112 @@ function apProtects(reportCreditor) {
   return null;
 }
 
+// The Action Plan is not a second opinion. It comes out of the mortgage and
+// funding programme and it states what should and should not be disputed, so
+// where it speaks it decides. Sections it lists an account under are the
+// instruction:
+//
+//   keep_open / pay_down / build / savings / student_loan
+//       the plan is working this account. A dispute aimed at removing it works
+//       against the plan, and a removal request on an account somebody is
+//       actively paying down can cost them the tradeline and its age.
+//       Protected: no letter in this packet asks for it to come off.
+//
+//   derogatory / settle / late
+//       the plan has already marked this one as a problem. These are the
+//       targets, and they sort to the front.
+//
+// Anything the plan does not mention is neutral and follows the report.
+const AP_PROTECT_INTENTS = ['keep_open', 'pay_down', 'build', 'savings', 'student_loan'];
+const AP_TARGET_INTENTS  = ['derogatory', 'settle', 'late'];
+
+function apStance(reportCreditor) {
+  const m = (typeof apMatchAccount === 'function') ? apMatchAccount(reportCreditor) : null;
+  if (!m) return {stance: 'neutral', plan: null, intents: []};
+  const intents = m.intents || [];
+  if (m.keepOpen || intents.some(i => AP_PROTECT_INTENTS.indexOf(i) >= 0)) {
+    return {stance: 'protect', plan: m, intents: intents,
+            why: m.keepOpen ? 'your plan says to keep this one open'
+                            : 'your plan is working this account'};
+  }
+  if (intents.some(i => AP_TARGET_INTENTS.indexOf(i) >= 0)) {
+    return {stance: 'target', plan: m, intents: intents,
+            why: 'your plan already has this one marked as a problem'};
+  }
+  return {stance: 'neutral', plan: m, intents: intents};
+}
+
+// True when this packet may not ask for the account to be REMOVED.
+//
+// The distinction matters and the plan makes it itself: under "Late Credit
+// Cards" it says in as many words that late payments can be challenged through
+// the dispute process. So an account the plan is paying down or keeping open is
+// protected from deletion — losing it costs the age and the limit — while a
+// dispute that corrects the payment history on that same account is exactly
+// what the plan wants. Blocking the whole account would have thrown the second
+// away with the first.
+//
+// The dispute-reason grammar already carries the outcome per rule, so the gate
+// reads it: Delete and Remove are blocked, Correct and Update are not.
+const AP_REMOVAL_OUTCOMES = ['Delete', 'Remove'];
+function apBlocksRemoval(reportCreditor, outcome) {
+  if (!state.actionPlan) return false;
+  if (apStance(reportCreditor).stance !== 'protect') return false;
+  if (!outcome) return true;                       // asked without one: assume removal
+  return AP_REMOVAL_OUTCOMES.indexOf(outcome) >= 0;
+}
+
+// The outcome a factual rule is going to ask for, before the letter is built.
+function apOutcomeOfRule(rule) {
+  const m = (typeof DR_RULE_MAP === 'object' && DR_RULE_MAP) ? DR_RULE_MAP[rule] : null;
+  return m ? m.outcome : null;
+}
+
+// Everything the plan had an opinion about, for the page that says so out loud.
+function apStanceSummary() {
+  if (!state.actionPlan) return null;
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const seen = {}, protectedRows = [], targetRows = [];
+  (parsed.accounts || []).forEach(a => {
+    if (!a || !a.creditor) return;
+    const k = String(a.creditor).toUpperCase();
+    if (seen[k]) return;
+    seen[k] = 1;
+    const st = apStance(a.creditor);
+    if (st.stance === 'protect') protectedRows.push({creditor: a.creditor, why: st.why, intents: st.intents});
+    else if (st.stance === 'target') targetRows.push({creditor: a.creditor, why: st.why, intents: st.intents});
+  });
+  if (!protectedRows.length && !targetRows.length) return null;
+  return {protected: protectedRows, targets: targetRows};
+}
+
 function apSettleList() {
   const plan = state.actionPlan;
   if (!plan) return [];
   return plan.accounts.filter(a => a.intents.includes('settle') || a.intents.includes('derogatory'));
+}
+
+// The slot has to answer "did it work" without the person having to hunt for
+// the answer three screens later.
+function renderActionPlanSlot() {
+  const slot = document.getElementById('ap-slot');
+  const state_el = document.getElementById('ap-slot-state');
+  if (!slot || !state_el) return;
+  const p = state.actionPlan;
+  if (!p) {
+    slot.classList.remove('is-loaded');
+    state_el.textContent = 'No Action Plan added yet. That is fine — everything here still works without one.';
+    return;
+  }
+  const n = (p.accounts || []).length;
+  const keep = (p.accounts || []).filter(a => a.keepOpen).length;
+  const bits = ['Action Plan read'];
+  if (p.month) bits.push(p.month);
+  if (p.goal) bits.push('goal: ' + p.goal);
+  bits.push(n + (n === 1 ? ' account' : ' accounts'));
+  if (keep) bits.push(keep + ' marked keep-open, which nothing here will ask to remove');
+  slot.classList.add('is-loaded');
+  state_el.textContent = bits.join(' · ') + '.';
 }
 
 function apPlanSummary() {
@@ -12088,7 +12238,7 @@ function roundTwoTargets(analysis) {
   //    the letters, so it is kept out of the tracker too — otherwise the person
   //    is asked what a bureau said about a dispute nobody sent.
   (analysis.factual || []).forEach(fx => {
-    if (typeof apProtects === 'function' && apProtects(fx.creditor)) return;
+    if (typeof apBlocksRemoval === 'function' && apBlocksRemoval(fx.creditor, apOutcomeOfRule(fx.rule))) return;
     add(fx.creditor, fx.account);
   });
 
@@ -12920,7 +13070,6 @@ function letterFanTargets(tmpl, ctx) {
       if (!a || !a.creditor) return;
       if (!a.has_late_payments && !a.is_charge_off) return;
       if (a.is_collection) return;                  // a collector has no goodwill to give
-      if (typeof apProtects === 'function' && false) return;
       const k = mgcNorm(a.creditor);
       if (seen[k]) return;
       seen[k] = 1;
@@ -12942,6 +13091,8 @@ function letterFanTargets(tmpl, ctx) {
     (parsed.collections || []).forEach(c => {
       const name = c.agency || c.creditor;
       if (!name) return;
+      // With a plan loaded, an account it is protecting is not settled either.
+      if (typeof apBlocksRemoval === 'function' && apBlocksRemoval(name)) return;
       const k = mgcNorm(name);
       if (seen[k]) return;
       seen[k] = 1;
@@ -13938,7 +14089,8 @@ function buildLetterContext(tmpl) {
   // "inaccurate" is answered with "verified". The reason is also what decides
   // how long the campaign runs, so the highest-impact ones lead.
   (analysis.factual || []).forEach(fx => {
-    if (typeof apProtects === 'function' && apProtects(fx.creditor)) return;
+    if (typeof apBlocksRemoval === 'function' &&
+        apBlocksRemoval(fx.creditor, apOutcomeOfRule(fx.rule))) return;
     // The demand goes first, in the closed grammar: one outcome, one field, one
     // defect. Then the claim in plain words, then the evidence out of their own
     // report. A reader who stops after the first sentence still knows exactly
@@ -13989,7 +14141,7 @@ function buildLetterContext(tmpl) {
       // An account the advisor's plan says to keep open never goes into a
       // dispute letter automatically. Removing it takes its age with it, and
       // the client is following two plans at once.
-      if (typeof apProtects === 'function' && apProtects(f.account.creditor)) return;
+      if (typeof apBlocksRemoval === 'function' && apBlocksRemoval(f.account.creditor)) return;
       disputableItems.push({
         creditor: f.account.creditor,
         account: f.account.account_number || '',
@@ -14001,6 +14153,15 @@ function buildLetterContext(tmpl) {
     }
   });
   
+  // Where the plan has already called something a problem, it leads. A letter
+  // is read from the top and the first item is the one that gets the attention.
+  if (state.actionPlan && typeof apStance === 'function') {
+    disputableItems.sort((a, b) => {
+      const sa = apStance(a.creditor).stance === 'target' ? 0 : 1;
+      const sb = apStance(b.creditor).stance === 'target' ? 0 : 1;
+      return sa - sb;
+    });
+  }
   ctx.items = disputableItems.length > 0 ? disputableItems : [];
 
   // Only the inquiries the consumer said they did not authorise. Sending the
@@ -14575,6 +14736,102 @@ function buildActionPlanDoc() {
       </div>`).join('')}
     </section>`;
   }
+
+  // ================= STEP ONE IS A FREEZE =================
+  // When the first move in the plan is a security freeze, that is not a bullet
+  // in a list. It changes what happens to every credit application the person
+  // makes from that moment, and the way most people get hurt by it is not the
+  // freeze — it is forgetting to lift it and then wondering why an approval
+  // came back declined. So it gets its own page, at the front, with the timing
+  // that actually matters: online is an hour, mail is three business days, and
+  // that gap is a week of somebody's life if it lands before a mortgage pull.
+  (function () {
+    const phase0 = (phases[0] || {});
+    const phase0Text = ((phase0.name || '') + ' ' + (phase0.steps || []).join(' ')).toLowerCase();
+    const freezeFirst = /security freeze|freeze your (credit|file)|place a freeze/.test(phase0Text) ||
+      (warnings || []).some(w => /freeze/i.test((w.title || '') + ' ' + (w.detail || '')));
+    if (!freezeFirst) return;
+    h += `<section class="plan-sheet">
+      ${planHead('Step one is a security freeze')}
+      ${planTitle('Step one is a security freeze', 'Read this page before you place it. It is the right move for you — and it is also the one that trips people up later.')}
+      <div class="plan-rule plan-rule-check">
+        <b>What it does</b>
+        <p>A freeze stops any new lender pulling your file at all. Nobody can open credit in your name, including you, until you lift it. It is free at all three bureaus under FCRA &sect; 605A(i), and it does not affect your score.</p>
+      </div>
+      <div class="plan-rule mt">
+        <b>Lift it online. Never by mail.</b>
+        <p>This is the number worth remembering: a bureau must act on an electronic or telephone request to lift a freeze <strong>within one hour</strong>, and on a mailed one <strong>within three business days</strong> &mdash; FCRA &sect; 605A(i)(3)(C), 15 U.S.C. &sect; 1681c-1(i)(3)(C). Mailing a lift request before a mortgage or auto application can cost you the better part of a week for no reason. Placing one is 1 business day online against 3 by mail, &sect; 605A(i)(2)(A).</p>
+      </div>
+      <div class="plan-rule mt">
+        <b>Lift it before you apply for anything</b>
+        <p>Before a mortgage, a car, a card, a business line &mdash; anything where somebody pulls your credit &mdash; lift the freeze first, at every bureau that lender might use. A frozen file usually comes back as a decline or a stall, and the lender is rarely told why. You can lift it for a set window or for one creditor; you do not have to remove it permanently.</p>
+      </div>
+      <div class="plan-rule mt">
+        <b>Where</b>
+        <p>Each bureau must run a page that places and lifts freezes and takes fraud and active-duty alerts &mdash; &sect; 605A(i)(6)(A). The FTC keeps a single page linking to all three at <strong>IdentityTheft.gov</strong>, which is the one to bookmark. Keep the PIN or account login each bureau gives you: losing it turns a one-hour lift into a phone call.</p>
+      </div>
+      <div class="plan-rule mt">
+        <b>Fraud alerts are not the same thing, and they linger</b>
+        <p>An alert asks lenders to verify who you are; a freeze stops the pull. Placing an alert is sensible after identity theft, but an alert left on the file makes funding harder later, and taking one off is its own phone call to each bureau. If you place one, note the date &mdash; an initial alert runs one year, an extended alert seven.</p>
+      </div>
+    </section>`;
+  })();
+
+  // ================= MILITARY =================
+  // Rights that exist only for servicemembers, are free, and are online-first.
+  // Printed only when the intake says so.
+  (function () {
+    const flags = (state.intake && state.intake.special_flags) || [];
+    if (flags.indexOf('scra') < 0) return;
+    h += `<section class="plan-sheet">
+      ${planHead('Because you are serving')}
+      ${planTitle('Because you are serving', 'Three things the law gives you that it gives nobody else. All free, all worth doing before anything in this packet is mailed.')}
+      <div class="plan-rule plan-rule-check">
+        <b>Active-duty alert &mdash; FCRA &sect; 605A(c)</b>
+        <p>On request, with proof of identity, a nationwide bureau must place an active-duty alert on your file for <strong>at least twelve months</strong>, and must keep you off prescreened credit and insurance offer lists for <strong>two years</strong>. You only ask once: the bureau you ask has to refer it to the other two. While it is on, a lender may not open a new account, issue an extra card or raise a limit without forming a reasonable belief that it knows who is asking &mdash; and if you leave a verification phone number, it must call that number first (&sect; 605A(h)(1)).</p>
+      </div>
+      <div class="plan-rule mt">
+        <b>Free credit monitoring &mdash; FCRA &sect; 605A(k)</b>
+        <p>Each nationwide bureau must give you a free electronic monitoring service that tells you when anything material is added to or changed on your file. Proof of active-duty status and contact details is all it takes. <strong>National Guard members are covered by name</strong> in &sect; 605A(k)(1)(A). One thing to know: &sect; 605A(k)(4)(A) says &sect;&sect; 616 and 617 do not apply to this subsection, so if a bureau fails to provide it there is no private lawsuit &mdash; it is enforced by the regulators, and a CFPB complaint is the route.</p>
+      </div>
+      <div class="plan-rule mt">
+        <b>The 6% cap is a different law</b>
+        <p>The interest-rate cap on pre-service debt comes from the Servicemembers Civil Relief Act, not the FCRA, and it works differently: it is a demand you make of the lender with a copy of your orders, and the interest above 6% is forgiven rather than deferred. There is a letter for it in this packet if your intake called for one.</p>
+      </div>
+      <div class="plan-rule mt">
+        <b>If a medical debt from the VA is on your file</b>
+        <p>FCRA &sect; 611(g) gives veterans a dedicated dispute path for VA medical debt, and &sect; 605(a)(7)&ndash;(8) bar reporting a veteran&rsquo;s medical debt that is less than a year old, or that has been fully paid or settled, at all. If you see one, say so and it will be handled on that footing rather than as an ordinary collection.</p>
+      </div>
+    </section>`;
+  })();
+
+  // ================= WHAT YOUR ADVISOR'S PLAN DECIDED =================
+  // The Action Plan is not advice this tool weighs against the report. It comes
+  // from the funding programme and it says what is and is not to be disputed,
+  // so the packet has to show where it overrode what the report alone would
+  // have produced. Otherwise a client sees a derogatory account with no letter
+  // against it and assumes something was missed.
+  (function () {
+    const st = (typeof apStanceSummary === 'function') ? apStanceSummary() : null;
+    if (!st) return;
+    const rows = (list, verb) => list.map(r =>
+      '<tr><td>' + planEsc(r.creditor) + '</td><td>' + planEsc(verb) + '</td><td>' + planEsc(r.why || '') + '</td></tr>').join('');
+    h += `<section class="plan-sheet">
+      ${planHead('What your plan decided')}
+      ${planTitle('What your plan decided', 'Your Action Plan came first. Where it and this report disagreed, the plan won.')}
+      <table class="plan-table">
+        <thead><tr><th>Account</th><th>What happens</th><th>Why</th></tr></thead>
+        <tbody>
+          ${rows(st.protected, 'No removal requested')}
+          ${rows(st.targets, 'Disputed first')}
+        </tbody>
+      </table>
+      <div class="plan-rule plan-rule-check mt">
+        <b>Why an account you might expect to see is not being disputed</b>
+        <p>An account your plan is paying down, keeping open or building with is worth more to you where it is than it would be removed. Age and available limit are the two things a dispute cannot give back, and a removal request on an account you are actively working can cost you both. Nothing in this packet asks for any account above to come off your file. If your plan has changed, say so and print again.</p>
+      </div>
+    </section>`;
+  })();
 
   // ================= ACTION PLAN =================
   if (phases.length) {
