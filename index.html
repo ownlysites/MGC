@@ -2557,14 +2557,14 @@ const intakeQuestions = [
     depends_on: {field:'prior_dispute', value:'yes'},
     options: [
       {v:'lt30', t:'Less than 30 days ago', d:'Still within the bureau\'s investigation window'},
-      {v:'30to45', t:'30 to 45 days ago', d:'Investigation window is closing or closed'},
-      {v:'gt45', t:'More than 45 days ago', d:'Window closed — CFPB escalation available'}
+      {v:'30to45', t:'30 to 45 days ago', d:'Their time to reinvestigate is running out'},
+      {v:'gt45', t:'More than 45 days ago', d:'Their time is up — the dispute is no longer pending'}
     ]
   },
   {
     id: 'prior_dispute_resolved',
     q: 'Has the bureau already answered that dispute?',
-    help: 'The CFPB opens to you either 45 days after you disputed OR as soon as the dispute is no longer pending — whichever comes first. An answer you disagree with still counts as an answer.',
+    help: 'The CFPB has no waiting period. What it requires is that you dispute with the bureau first and let that run its course. So it opens to you the moment your dispute is no longer pending — an answer you disagree with still counts as an answer — or once the bureau has run out of time to give you one, which is thirty days, or forty-five if you sent them more information during the thirty.',
     type: 'single',
     depends_on: {field:'prior_dispute', value:'yes'},
     options: [
@@ -6419,13 +6419,14 @@ const letterTemplates = {
   cfpb_complaint: {
     id: 'cfpb_complaint',
     title: 'CFPB Complaint Text',
-    subtitle: 'Day 46+ only — CFPB requires prior dispute first',
-    description: 'Text to paste into the CFPB complaint portal at consumerfinance.gov/complaint. As of February 2026, CFPB requires you to have disputed with the CRA first and waited 45 days.',
+    subtitle: 'After your bureau dispute closes — the CFPB requires it first',
+    description: 'Text to paste into the CFPB complaint portal at consumerfinance.gov/complaint. The CFPB requires that you dispute with the reporting agency first and exhaust it. There is no waiting period, but a complaint filed while your reinvestigation is still running is one the bureaus can now return as unexhausted.',
     recipient: 'CFPB',
-    when_to_use: 'ONLY after your CRA dispute has passed the 45-day mark and remains unresolved. Filing earlier is auto-discontinued.',
+    when_to_use: 'After your dispute with the bureau is no longer pending: they answered and you disagree, or their time to answer ran out. Not while it is still open.',
     what_to_expect: 'Company has 15 days to respond to CFPB. Many companies act faster on CFPB complaints than regular disputes because CFPB publishes complaint data.',
     gated: true,
-    gate_day: 46,
+    gate_day: 46,   // kept only so the badge has a sort key; the text no longer claims a deadline
+    gate_label: 'After your dispute closes',
     compile: (ctx) => compileCFPB(ctx)
   },
   
@@ -6561,7 +6562,7 @@ const letterTemplates = {
 //
 // Everything else in a packet goes out weeks or months later: a method-of-
 // verification demand answers a reply that has not arrived yet, a CFPB
-// complaint cannot be filed until 45 days have passed, goodwill and
+// complaint waits until the bureau dispute is no longer pending, goodwill and
 // pay-for-delete come after the disputes resolve, and every round-two letter
 // waits on a bureau response. Printing today's date on those is wrong twice
 // over — it is stale by the time it is mailed, and a follow-up dispute bearing
@@ -6675,7 +6676,7 @@ const voiceFragments = {
   },
   firm: {
     lead: 'So that the record is complete, here is what this reporting has cost me:',
-    close: 'I expect a substantive response within the statutory period, in writing. If the item cannot be verified with actual source documentation, it must be deleted rather than re-reported.'
+    close: 'I expect a substantive response within the statutory period, in writing. Under \u00a7 611(a)(5)(A), an item that your reinvestigation finds inaccurate, incomplete, or that cannot be verified, comes off the file rather than being re-reported.'
   },
   frustrated: {
     lead: 'I want to be direct about what this has already cost me:',
@@ -6995,15 +6996,15 @@ function compile609Request(ctx) {
     '1. A complete and accurate copy of all information in my file at the time of this request that relates to these items.',
     '2. The identity (name, address, telephone number) of each source of information that contributed to these items.',
     '3. For each item, a description of the procedure used to determine the accuracy and completeness of the information.',
-    '4. Copies of any documents in your file — including original signed contracts, applications, or agreements bearing my signature — used to verify these items.',
-    '5. The identity of each person who has procured a consumer report on me within the past two years for employment purposes, and within the past year for any other purpose.',
+    '4. The identity of each person who has procured a consumer report on me within the past two years for employment purposes, and within the past year for any other purpose, as provided by § 1681g(a)(3).',
+    '5. A record of all inquiries received in the one-year period before this request that identified me in connection with a credit or insurance transaction not initiated by me, as provided by § 1681g(a)(5).',
     '',
     'Accounts/items for which I request this disclosure:',
     itemsList,
     '',
     timeline,
     '',
-    'Be advised: if you are unable to provide actual source documentation verifying the disputed items — not merely a computerized re-confirmation of prior reporting — the items must be deleted as unverifiable under FCRA § 611(a)(5)(A)(i).',
+    'I am aware of what this request is and is not. Section 609 is a disclosure right: it obliges you to show me what you hold and where you got it. It is not a dispute, it does not start a reinvestigation, and I am not asking you to produce a signed contract — that obligation does not exist in the statute and I am not going to pretend it does. I am asking for the file and the sources, which is what the section provides, because I cannot dispute accurately what I have not been shown.',
     '',
     damages
   ];
@@ -7013,7 +7014,7 @@ function compile609Request(ctx) {
     ssnLine: true
   });
   
-  const portal = `Pursuant to FCRA § 609 (15 U.S.C. § 1681g), I request full disclosure of my consumer file, including the source of each item, and copies of all source documents used to verify disputed items:\n\n${itemsList}\n\nIf source documents cannot be produced, items must be deleted as unverifiable under § 611. Statutory damages apply under 15 U.S.C. § 1681n. — ${u.name}`;
+  const portal = `Pursuant to FCRA § 609 (15 U.S.C. § 1681g), I request full disclosure of my consumer file, including the source of each item and every party who has pulled my report:\n\n${itemsList}\n\nThis is a disclosure request under § 1681g(a), not a dispute. Please provide the file contents, the sources, and the list of persons who procured a report on me.`;
   
   const short = `Under FCRA § 609, I request full disclosure of my file and the source documents used to verify: ${items.length > 0 ? items.map(i=>i.creditor).slice(0,3).join(', ') : 'the disputed items'}. 15-day response required. — ${u.name}`;
   
@@ -7047,15 +7048,16 @@ function compileMOV(ctx) {
     '',
     legal,
     '',
-    'For each item, I specifically require:',
-    '(a) The business name, address, and telephone number of the furnisher of information contacted during your reinvestigation;',
-    '(b) The name and title of the employee at your agency who performed the reinvestigation;',
-    '(c) Complete copies of every document, record, or transmission that was relied upon to "verify" the disputed item, including any ACDV response from the furnisher;',
-    '(d) A full description of the steps taken — beyond mere transmission of an e-OSCAR code — that constituted the "reasonable reinvestigation" required by 15 U.S.C. § 1681i(a)(1)(A).',
+    'For each item, § 611(a)(7) entitles me to the following, and it is what I am asking for:',
+    '(a) A description of the procedure you used to determine the accuracy and completeness of the information;',
+    '(b) The business name and address of any furnisher of information you contacted in connection with it;',
+    '(c) That furnisher\'s telephone number, if reasonably available.',
+    '',
+    'I am asking for those three things and not for anything else. I am aware that this section does not entitle me to the name of the individual who handled the file, to a copy of the ACDV, or to the furnisher\'s own records, and I am not going to demand them and give you a reason to treat this as a form letter. What the statute gives me is enough.',
     '',
     parroting,
     '',
-    'If, upon reviewing your response, the "verification" consisted of nothing more than parroting the furnisher\'s existing data, it does not satisfy the statutory standard, and the items must be deleted. A reinvestigation that merely rubber-stamps the furnisher\'s prior reporting is not "reasonable" as a matter of law (see Johnson v. MBNA America Bank, 357 F.3d 426 (4th Cir. 2004); Hinkle v. Midland Credit Management, 827 F.3d 1295 (11th Cir. 2016)).',
+    'To be plain about what I am and am not claiming. Section 611(a)(7) carries no remedy of its own — I am not asserting that failing to answer this letter obliges you to delete anything, and I know that deletion under § 611(a)(5)(A) follows from a reinvestigation that finds an item inaccurate, incomplete or unverifiable, not from this request. What your answer does decide is whether a reinvestigation happened at all. If it names no furnisher, or describes a procedure that amounts to passing a code back and forth, that is the record. Whether such a reinvestigation was reasonable is a question for a finder of fact and not for you to settle by asserting it was (Cushman v. Trans Union, 115 F.3d 220 (3d Cir. 1997); Johnson v. MBNA America Bank, 357 F.3d 426 (4th Cir. 2004)). I am creating that record now, and I will keep it.',
     '',
     timeline,
     '',
@@ -7067,7 +7069,7 @@ function compileMOV(ctx) {
     ssnLine: true
   });
   
-  const portal = `Under FCRA § 611(a)(7), I demand the method of verification used for the items you returned as "verified":\n\n${itemsList}\n\nProvide: (1) furnisher contact info, (2) employee who performed reinvestigation, (3) all documents relied on, (4) description of actual investigation steps. E-OSCAR code transmission alone is not a reasonable reinvestigation (Johnson v. MBNA, 4th Cir. 2004). 15-day response. Statutory damages apply. — ${u.name}`;
+  const portal = `Under FCRA § 611(a)(7), I demand the method of verification used for the items you returned as "verified":\n\n${itemsList}\n\nProvide the three things \u00a7 611(a)(7) requires: a description of the procedure used, the business name and address of any furnisher you contacted, and that furnisher's phone number if reasonably available. E-OSCAR code transmission alone is not a reasonable reinvestigation (Johnson v. MBNA, 4th Cir. 2004). 15-day response. Statutory damages apply. — ${u.name}`;
   
   const short = `FCRA § 611(a)(7) demand — method of verification for items returned as "verified" in my prior dispute. E-OSCAR transmission alone is not a reasonable reinvestigation. — ${u.name}`;
   
@@ -7662,12 +7664,12 @@ function compilePrivacyOptOut(ctx) {
 function compileCFPB(ctx) {
   const issue = ctx.issue || '[Describe the specific problem — inaccurate information, failure to investigate, etc.]';
   const bureauName = ctx.bureauName || '[Equifax / Experian / TransUnion]';
-  const priorDisputeDate = ctx.priorDisputeDate || '[Date you filed your dispute with the CRA, which must be at least 45 days before today]';
+  const priorDisputeDate = ctx.priorDisputeDate || '[Date you filed your dispute with the credit reporting agency]';
   const u = userHeader();
   
   // CFPB complaint is text the user pastes into the portal. There is no "mail" version — it's an online process.
   const narrative = [
-    `I filed a formal dispute with ${bureauName} on ${priorDisputeDate}. As of the date of this complaint, it has been more than 45 days since I filed that dispute with the consumer reporting agency, and the matter remains unresolved.`,
+    `I filed a formal dispute directly with ${bureauName} on ${priorDisputeDate}. That dispute is no longer pending: either it was answered and the answer did not resolve the inaccuracy, or the period the agency had to reinvestigate it under 15 U.S.C. \u00a7 1681i(a)(1) has passed without one. I have exhausted my dispute rights with the reporting agency, which is what is required before bringing this to the Bureau, and I am not filing over the top of an open reinvestigation.`,
     '',
     'Summary of the issue:',
     issue,
@@ -7690,7 +7692,7 @@ function compileCFPB(ctx) {
   // The "mail" format here is the full narrative
   const mail = narrative.join('\n');
   const portal = narrative.join('\n');
-  const short = `I disputed with ${bureauName} on ${priorDisputeDate} (>45 days ago), unresolved. Issue: ${issue.substring(0,100)}${issue.length>100?'…':''}. Requesting reasonable reinvestigation and correction. — ${u.name}`;
+  const short = `I disputed directly with ${bureauName} on ${priorDisputeDate}; that dispute is no longer pending and the inaccuracy stands. Issue: ${issue.substring(0,100)}${issue.length>100?'…':''}. Requesting reasonable reinvestigation and correction. — ${u.name}`;
   
   return {mail, portal, short};
 }
@@ -8012,15 +8014,21 @@ function compileStudentPrivate(ctx) {
     '',
     'Private student loans — unlike federal student loans — are ordinary consumer debt subject to all protections of the Fair Debt Collection Practices Act and the Fair Credit Reporting Act. You must validate this debt before any further collection or reporting.',
     '',
-    'Under FDCPA § 809(b) (15 U.S.C. § 1692g(b)), please provide:',
+    'This is a written dispute under FDCPA § 809(b) (15 U.S.C. § 1692g(b)). On receipt you must cease collection of this debt until you obtain verification and mail it to me. I am asking for the following, and I am separating what the statute obliges you to produce from what I am asking for beyond it, because I would rather be precise than sweeping.',
     '',
-    '(a) The ORIGINAL signed promissory note — not a summary, not an extract, not a copy of a template note, but the actual signed note bearing my signature;',
-    '(b) All disbursement records showing the exact dollar amounts disbursed and the dates of disbursement to me or to an educational institution on my behalf;',
-    '(c) The complete payment history for this loan, from origination to present;',
-    '(d) The date of first delinquency (DOFD);',
-    '(e) A complete chain of assignment documentation if this loan has been sold, transferred, or assigned since origination — including signed bills of sale for each transfer;',
-    '(f) Confirmation that your organization has current legal authority to collect on this loan;',
-    '(g) The name and last known address of the original lender.',
+    'Required before you may resume collection — verification of the debt under § 1692g(b), sufficient to show the amount claimed and that I am the person who owes it:',
+    '',
+    '(a) The identity of the current creditor and confirmation that you hold present authority to collect;',
+    '(b) A statement of the amount claimed and how it was calculated, including every fee and interest charge added since origination;',
+    '',
+    'Asked for in addition, and I am aware § 1692g(b) does not itself compel these. I am asking because if this debt is ever litigated they are what you will have to produce to establish standing, and because a private student loan that has changed hands is exactly where the chain tends to break:',
+    '',
+    '(c) The ORIGINAL signed promissory note — not a summary, not an extract, not a copy of a template note, but the actual signed note bearing my signature;',
+    '(d) All disbursement records showing the exact dollar amounts disbursed and the dates of disbursement to me or to an educational institution on my behalf;',
+    '(e) The complete payment history for this loan, from origination to present;',
+    '(f) The date of first delinquency, which decides when this may be reported and for how long;',
+    '(g) A complete chain of assignment documentation if this loan has been sold, transferred, or assigned since origination — including signed bills of sale for each transfer;',
+    '(h) The name and last known address of the original lender.',
     '',
     'Cease all collection activity until full validation is provided. Reporting this alleged debt to any consumer reporting agency while validation remains incomplete is a compound violation of both the FDCPA and FCRA.',
     '',
@@ -8218,9 +8226,10 @@ function computeFlags(intake, upload) {
     has_report: !!(upload && upload.parsed),
     has_collection_letter: upload && upload.doc_type === 'collection_letter',
     has_summons: upload && upload.doc_type === 'summons',
-    // The CFPB gate opens on EITHER trigger: 45 days elapsed, or the dispute is
-    // no longer pending. Someone who got a "verified" answer on day 20 does not
-    // have to sit out the remaining 25 days.
+    // The gate is EXHAUSTION, not a waiting period. The CFPB requires the
+    // bureau dispute to come first and to be finished with; it has never
+    // required a number of days. So either trigger opens it: the bureau
+    // answered (even badly), or the time it had to answer has run out.
     cfpb_gate_open: intake.prior_dispute === 'yes' &&
       (intake.prior_dispute_when === 'gt45' || intake.prior_dispute_resolved === 'answered'),
     cfpb_gate_closing: intake.prior_dispute === 'yes' &&
@@ -8563,10 +8572,11 @@ const DISPUTE_OUTCOMES = {
     label: 'No response at all',
     tone: 'bad',
     // Deliberately NOT the CFPB letter. A dispute with no answer at day 30 is
-    // arguably still pending and is inside the 45 days, which is exactly the
-    // premature filing the CFPB discontinues. The existing gate decides that.
+    // arguably still pending, and a complaint filed over an open reinvestigation
+    // is exactly what the CFPB said in June 2026 it is now returning. The gate
+    // decides that.
     next: 'initial_bureau_dispute',
-    advice: 'Thirty days with no answer is the strongest position you can be in, and the law is not discretionary here: under FCRA § 611(a)(1)(A) an item the bureau cannot verify within the period must be deleted. You are not asking a favour and you are not arguing about whether the debt is real — you are pointing at a deadline they missed. Send your proof of delivery and demand deletion on that basis. One timing note: do not jump to a CFPB complaint yet. Silence is not the same as a resolved dispute, and filing before 45 days have passed gets the complaint discontinued and costs you the leverage. Wait out the 45 days from the date they received it, then it opens.'
+    advice: 'Thirty days with no answer is the strongest position you can be in, and the law is not discretionary here: § 611(a)(1)(A) gives them thirty days to reinvestigate and § 611(a)(5)(A) says an item that cannot be verified comes off. You are not asking a favour and you are not arguing about whether the debt is real — you are pointing at a deadline they missed. Send your proof of delivery and demand deletion on that basis. One timing note: do not jump to a CFPB complaint yet. Silence is not the same as a resolved dispute, and filing before 45 days have passed gets the complaint discontinued and costs you the leverage. Wait out the 45 days from the date they received it, then it opens.'
   },
   frivolous: {
     label: 'Rejected as frivolous or irrelevant',
@@ -10321,14 +10331,14 @@ function applyIntakeBasedAnalysis(analysis) {
     analysis.wins.push({
       title: 'CFPB escalation is available to you',
       detail: (f.cfpb_gate_reason === 'answered'
-        ? 'The bureau has already answered your dispute, so it is no longer pending. That opens the CFPB to you now — you do not have to sit out the rest of the 45 days. '
-        : 'Your prior dispute is more than 45 days old and unresolved. ') +
+        ? 'The bureau has already answered your dispute, so it is no longer pending. That opens the CFPB to you now. There is no waiting period to sit out. '
+        : 'The bureau has run out of time to answer your dispute, so it is no longer pending. ') +
         'You can now file a CFPB complaint — companies typically respond within 15 days and take CFPB complaints more seriously than regular disputes.'
     });
   } else if (f.cfpb_gate_closing) {
     analysis.wins.push({
       title: 'CFPB escalation opens soon',
-      detail: 'Once 45 days from your prior dispute has passed (as of February 2026, CFPB requires this gate), you can file a CFPB complaint. Mark your calendar.'
+      detail: 'Once your dispute is no longer pending \u2014 they answer, or their time to answer runs out \u2014 the CFPB is open to you. There is no waiting period; what the CFPB requires is that you disputed with the bureau first and let it finish.'
     });
   }
   
@@ -10531,7 +10541,7 @@ function buildActionPlan(analysis) {
       name: 'You\'re in the waiting window',
       timeline: 'Right now',
       steps: [
-        'Your prior dispute is in the 30-45 day window. Wait for a response — don\'t send anything new during this time (new mail restarts clocks).',
+        'Their time to reinvestigate is nearly up. Wait for the answer \u2014 do not send anything new during this window, because new mail restarts clocks.',
         'Once you hit day 30 with no response, or you get a "verified" response, send the MOV (Method of Verification) letter.',
         'Start preparing the CFPB complaint text — you can submit it once you pass day 45.',
         'Continue Phase 0 while you wait (freezes, monitoring).'
@@ -10544,7 +10554,7 @@ function buildActionPlan(analysis) {
       timeline: 'Right now',
       steps: [
         'Send the MOV letter demanding the method of verification for any items returned as "verified."',
-        'File a CFPB complaint at consumerfinance.gov/complaint — the 45-day gate has passed.',
+        'File a CFPB complaint at consumerfinance.gov/complaint \u2014 your bureau dispute is no longer pending, which is what the CFPB requires first.',
         'File a parallel state Attorney General complaint (consumer protection division) — no waiting period.',
         'Send a §623 direct dispute to each furnisher if you haven\'t already.'
       ]
@@ -10571,7 +10581,7 @@ function buildActionPlan(analysis) {
     name: 'Escalate if unresolved',
     timeline: 'Days 46-90',
     steps: [
-      'Day 46+: File a CFPB complaint at consumerfinance.gov/complaint. Remember: as of February 2026, the CFPB requires you to have disputed with the CRA first and to have waited at least 45 days. Your complaint will be auto-discontinued if you file too early.',
+      'Once your dispute is no longer pending: file a CFPB complaint at consumerfinance.gov/complaint. There is no waiting period — what the CFPB requires is that you disputed with the bureau first and let it finish. Since June 2026 it has been explicit that consumers must exhaust their FCRA dispute rights before complaining, and it is working on letting the bureaus return complaints from people who have not. Do not file over the top of a dispute that is still open early.',
       'File a parallel state Attorney General complaint — consumer protection division of your state AG.',
       'For collectors specifically: file complaints with the CFPB, FTC, and your state AG.',
       'Send a second round of disputes with NEW evidence or NEW angles. Mere repetition without new information is flagged as "frivolous" — you must have something different to say.',
@@ -10905,7 +10915,7 @@ function renderRoundTwoSection(analysis) {
     if (noResp.length) {
       html += `<div class="alert alert-warning" style="margin-top:var(--space-6);">
         <h3 style="margin-bottom:var(--space-3);">${noResp.length} item${noResp.length === 1 ? '' : 's'} went unanswered — that is your strongest position</h3>
-        <p>FCRA § 611(a)(1)(A) is not discretionary: an item the bureau cannot verify within thirty days must be deleted. You are not asking for a favour, and you are not arguing about whether the debt is real. Send your proof of delivery and demand deletion on the record. This is what the certified mail receipt was for.</p>
+        <p>The pair of provisions here is not discretionary: § 611(a)(1)(A) gives them thirty days to reinvestigate, and § 611(a)(5)(A) requires an item that cannot be verified to be deleted. You are not asking for a favour, and you are not arguing about whether the debt is real. Send your proof of delivery and demand deletion on the record. This is what the certified mail receipt was for.</p>
       </div>`;
     }
   }
@@ -11242,7 +11252,7 @@ function renderAnalysis(analysis) {
   </div>`;
   html += '<div class="packet-preview">';
   analysis.letters.forEach(l => {
-    const gatedNote = l.gated ? ` <span class="gated-badge">Day ${l.gate_day}+ only</span>` : '';
+    const gatedNote = l.gated ? ` <span class="gated-badge">${l.gate_label || 'Later phase'}</span>` : '';
     html += `<div class="packet-item">
       <div class="packet-item-icon">📄</div>
       <div class="packet-item-body">
@@ -11451,7 +11461,7 @@ function renderLetterPacket() {
 }
 
 function renderLetterCard(letterTmpl, idx) {
-  const gatedNote = letterTmpl.gated ? ` <span class="gated-badge">Day ${letterTmpl.gate_day}+ only</span>` : '';
+  const gatedNote = letterTmpl.gated ? ` <span class="gated-badge">${letterTmpl.gate_label || 'Later phase'}</span>` : '';
   return `
     <div class="letter-card" id="letter-card-${letterTmpl.id}">
       <div class="letter-header" onclick="toggleLetter('${letterTmpl.id}')">
@@ -13115,7 +13125,7 @@ function buildActionPlanDoc() {
       <div class="plan-dark">
         <b>Before you escalate</b>
         <h3>Dispute sent. Clock run. Response in hand.</h3>
-        <p>Skipping ahead to a CFPB complaint before the bureau has answered, or before 45 days have passed, gets the complaint discontinued and costs you the leverage.</p>
+        <p>Skipping ahead to a CFPB complaint while the bureau still has your dispute open is the one thing the CFPB has said it is now policing. It requires you to exhaust the dispute first, and it is working on letting the bureaus return complaints from people who have not.</p>
       </div>
     </section>`;
   }
@@ -13162,7 +13172,7 @@ function buildActionPlanDoc() {
         <p class="plan-divider-num">Letter ${idx + 1} of ${letters.length}</p>
         <h2>${planEsc(tmpl.title)}</h2>
         <p class="plan-divider-sub">${planEsc(tmpl.subtitle || '')}</p>
-        ${tmpl.gated ? `<p class="plan-divider-gate">Do not send before day ${planEsc(tmpl.gate_day)}.</p>` : ''}
+        ${tmpl.gated ? `<p class="plan-divider-gate">Do not send this until your bureau dispute is no longer pending.</p>` : ''}
         <div class="plan-divider-grid">
           ${tmpl.when_to_use ? `<div><em>When to use</em><p>${planEsc(tmpl.when_to_use)}</p></div>` : ''}
           ${tmpl.what_to_expect ? `<div><em>What to expect</em><p>${planEsc(tmpl.what_to_expect)}</p></div>` : ''}
@@ -13245,7 +13255,7 @@ function buildActionPlanDoc() {
     <ul class="plan-list">
       <li><strong>AnnualCreditReport.com</strong> — all three reports, free every week, no credit card.</li>
       <li><strong>IdentityTheft.gov</strong> — FTC identity theft reports and recovery plans.</li>
-      <li><strong>consumerfinance.gov/complaint</strong> — CFPB complaints. File only after you have disputed with the bureau and either 45 days have passed or the dispute is no longer pending; earlier filings are discontinued.</li>
+      <li><strong>consumerfinance.gov/complaint</strong> — CFPB complaints. File once your bureau dispute is no longer pending: they answered, or their time to answer ran out. There is no waiting period, but the CFPB requires the dispute to come first and has said so more firmly since June 2026.</li>
       <li><strong>SoloSuit.com</strong> — free help drafting a response if you have been sued over a debt.</li>
     </ul>
 
