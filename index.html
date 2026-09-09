@@ -1040,6 +1040,31 @@ section.section-tinted { padding: var(--space-20) 0; }
     color: #7A3A44; display: block; margin-bottom: 5pt;
   }
   #action-plan-doc .plan-divider-grid p { margin: 0; font-size: 8.5pt; color: #3E4C61; }
+  #action-plan-doc .plan-call {
+    border: 0.75pt solid #DFE5ED; border-radius: 6pt;
+    padding: 12pt 14pt; margin-bottom: 10pt;
+    page-break-inside: avoid;
+  }
+  #action-plan-doc .plan-call-head {
+    display: block; border-bottom: 0.75pt solid #DFE5ED;
+    padding-bottom: 6pt; margin-bottom: 8pt;
+  }
+  #action-plan-doc .plan-call-head b { font-size: 11pt; color: #0B1220; }
+  #action-plan-doc .plan-call-head span { float: right; font-size: 11pt; font-weight: 700; color: #7A3A44; }
+  #action-plan-doc .plan-call-when { font-size: 8.5pt; color: #566579; margin: 0 0 8pt; font-style: italic; }
+  #action-plan-doc .plan-call-label {
+    font-size: 7pt; letter-spacing: 0.09em; text-transform: uppercase;
+    color: #7A3A44; margin: 8pt 0 4pt; font-weight: 700;
+  }
+  #action-plan-doc .plan-call-steps { margin: 0 0 0 14pt; padding: 0; font-size: 8.5pt; color: #3E4C61; }
+  #action-plan-doc .plan-call-steps li { margin-bottom: 3pt; }
+  #action-plan-doc .plan-call-notes { margin: 0 0 0 14pt; padding: 0; font-size: 8.5pt; color: #3E4C61; }
+  #action-plan-doc .plan-call-notes li { margin-bottom: 3pt; }
+  #action-plan-doc .plan-call-say {
+    margin: 0; padding: 9pt 12pt; background: #FCF4F5;
+    border-left: 3pt solid #DCA9B1; border-radius: 4pt;
+    font-size: 9.5pt; color: #0B1220;
+  }
   #action-plan-doc .plan-divider-foot { font-size: 8.5pt; color: #566579; font-style: italic; margin: 0.3in 0 0; }
 
   /* ---- letters ----
@@ -2913,6 +2938,8 @@ const state = {
   intake_step: 0,
   current_breach: null,
   generated_letters: {},
+  // One entry per recipient for the letters that fan out. See letterFanTargets.
+  letterVariants: {},
   // Which addresses / aliases / employers the consumer says are not theirs, and
   // whether any unfamiliar address turned out to be an authorized-user account.
   identityReview: {
@@ -6179,7 +6206,10 @@ function ctParseScores(lines) {
     if (!m) continue;
     const vals = [+m[1], +m[2], +m[3]];
     if (vals.every(v => v >= 300 && v <= 900)) {
-      return order.map((b, i) => ({bureau: b, score: vals[i]}));
+      // `reported` is not decoration: renderers filter on it, and its absence
+      // here read as "no score at any bureau", which the analysis then printed
+      // as a no-file warning on a file with 36 accounts on it.
+      return order.map((b, i) => ({bureau: b, score: vals[i], rating: '', reported: vals[i] > 0}));
     }
   }
   return [];
@@ -6635,13 +6665,34 @@ function parseTransUnionOSC(text) {
   return result;
 }
 
+// Bureau names reach the page in whatever case the source document used, and
+// "the letters below are addressed to transunion" is not a sentence to put in
+// front of a client. Normalised once, at the boundary.
+const BUREAU_CANON = {transunion: 'TransUnion', experian: 'Experian', equifax: 'Equifax', innovis: 'Innovis'};
+function canonBureau(v) {
+  const k = String(v == null ? '' : v).trim().toLowerCase().replace(/[^a-z]/g, '');
+  return BUREAU_CANON[k] || (v == null ? v : String(v).trim());
+}
+function canonBureauNames(result) {
+  if (!result || typeof result !== 'object') return result;
+  if (result.bureau) result.bureau = canonBureau(result.bureau);
+  if (Array.isArray(result.bureaus)) result.bureaus = result.bureaus.map(canonBureau);
+  (result.scores || []).forEach(sc => { if (sc && sc.bureau) sc.bureau = canonBureau(sc.bureau); });
+  (result.inquiries || []).forEach(q => { if (q && q.bureau) q.bureau = canonBureau(q.bureau); });
+  (result.collections || []).forEach(c => { if (c && c.bureau) c.bureau = canonBureau(c.bureau); });
+  (result.accounts || []).forEach(a => {
+    if (a && Array.isArray(a.reported_by)) a.reported_by = a.reported_by.map(canonBureau);
+  });
+  return result;
+}
+
 function parseCreditReport(text) {
   // Prefer the structured parser when the document is a recognised tri-merge layout.
   // The heuristics below stay as the fallback for formats we have not seen.
   if (tuIsOnlineServiceCenter(text)) {
     try {
       const tu = parseTransUnionOSC(text);
-      if (tu && tu.accounts.length > 0) return tu;
+      if (tu && tu.accounts.length > 0) return canonBureauNames(tu);
     } catch (e) {
       // fall through
     }
@@ -6649,7 +6700,7 @@ function parseCreditReport(text) {
   if (isExperianPrintable(text)) {
     try {
       const single = parseExperianPrintable(text);
-      if (single && single.accounts.length > 0) return single;
+      if (single && single.accounts.length > 0) return canonBureauNames(single);
     } catch (e) {
       // fall through
     }
@@ -6657,7 +6708,7 @@ function parseCreditReport(text) {
   if (tbIsThreeBureauReport(text)) {
     try {
       const structured = parseThreeBureauReport(text);
-      if (structured && structured.accounts.length > 0) return structured;
+      if (structured && structured.accounts.length > 0) return canonBureauNames(structured);
     } catch (e) {
       // Fall through to the generic heuristics rather than failing the upload.
     }
@@ -6665,7 +6716,7 @@ function parseCreditReport(text) {
   if (ctIsColumnarTriMerge(text)) {
     try {
       const columnar = parseColumnarTriMerge(text);
-      if (columnar && columnar.accounts.length > 0) return columnar;
+      if (columnar && columnar.accounts.length > 0) return canonBureauNames(columnar);
     } catch (e) {
       // Fall through, same as above.
     }
@@ -7850,7 +7901,9 @@ function compile609Request(ctx) {
 function compileMOV(ctx) {
   const bureau = ctx.bureau || 'experian';
   const items = ctx.items || [];
-  const priorDisputeRef = ctx.priorDisputeRef || '[Previous dispute confirmation number, if available]';
+  // A confirmation number the consumer may not have. Referenced when it exists,
+  // left out of the sentence when it does not.
+  const priorDisputeRef = ctx.priorDisputeRef || null;
   const u = userHeader();
   
   const opening = `On a prior occasion I disputed certain items in my consumer file with your agency. Your response indicated that the disputed information had been "verified" as accurate. I am writing to demand a full description of the method of verification used — a right expressly guaranteed by the Fair Credit Reporting Act.`;
@@ -7866,7 +7919,7 @@ function compileMOV(ctx) {
   const body = [
     opening,
     '',
-    `Prior dispute reference: ${priorDisputeRef}`,
+    ...(priorDisputeRef ? [`Prior dispute reference: ${priorDisputeRef}`] : []),
     '',
     'Items on which I am demanding the method of verification:',
     itemsList,
@@ -7903,7 +7956,11 @@ function compileMOV(ctx) {
 
 // ========== COMPILER: FURNISHER DIRECT DISPUTE ==========
 function compileFurnisherDispute(ctx) {
-  const furnisher = ctx.furnisher || {name:'[Furnisher Name]', addr:'[Furnisher Address]'};
+  // ctx.furnisher is set per recipient by applyFanTarget. The fallback names the
+  // first disputed item's creditor rather than a placeholder — this letter is
+  // never built without items.
+  const furnisher = ctx.furnisher ||
+    {name: ((ctx.items || [])[0] || {}).creditor || 'The furnisher named below', addr: ''};
   const items = ctx.items || [];
   const u = userHeader();
   const stateLaw = stateLawClause(state.intake.state);
@@ -7943,7 +8000,9 @@ function compileFurnisherDispute(ctx) {
     damages
   ];
   
-  const recipientBlock = typeof furnisher === 'string' ? furnisher : `${furnisher.name}\n${furnisher.addr || '[Address on your credit report / monthly statement]'}`;
+  // No address on the report means the envelope gets hand-addressed, which the
+  // separator sheet says. It does not mean the letter prints a bracket.
+  const recipientBlock = typeof furnisher === 'string' ? furnisher : mgcRecipient(furnisher.name, furnisher.addr);
   
   const mail = mailEnvelope(body, recipientBlock, {
     re: 'Direct Dispute Under FCRA § 623(b) — ' + u.name,
@@ -7959,7 +8018,7 @@ function compileFurnisherDispute(ctx) {
 
 // ========== COMPILER: C&D + DEBT VALIDATION COMBO ==========
 function compileCDDVCombo(ctx) {
-  const collector = ctx.collector || {name:'[Collection Agency Name]', addr:'[Collector Address]', refNumber:'[Reference #]'};
+  const collector = ctx.collector || {name: 'The collection agency named below', addr: '', refNumber: ''};
   const u = userHeader();
   const stateLaw = stateLawClause(state.intake.state);
   
@@ -8027,60 +8086,92 @@ function compileCDDVCombo(ctx) {
 
 // ========== COMPILER: GOODWILL LETTER ==========
 function compileGoodwill(ctx) {
-  const creditor = ctx.creditor || {name:'[Creditor Name]', addr:'[Creditor Address]', account:'[XXXX]'};
+  const creditor = ctx.creditor || {name: 'The creditor named below', addr: '', account: ''};
   const u = userHeader();
-  const yearsCustomer = ctx.yearsCustomer || '[Number of years]';
-  const hardshipReason = ctx.hardshipReason || '[Briefly describe: medical emergency, job loss, family death, auto-pay change, etc.]';
-  const currentStatus = ctx.currentStatus || 'I have since returned to consistent on-time payments';
-  const whyNeeded = ctx.whyNeeded || 'I am currently working to qualify for a mortgage, and this single mark is the last obstacle';
-  
+
+  // Everything below is either read off the report or left out. A goodwill
+  // letter is a favour being asked of a human being at a bank; one that says
+  // "I was dealing with [describe: medical emergency, job loss]" tells that
+  // person a machine wrote it, and 12 CFR § 1022.43 gives them a reason to
+  // treat machine-written mail as frivolous.
+  const yearsCustomer  = ctx.yearsCustomer || null;
+  const hardshipReason = ctx.hardshipReason ||
+    (((state.intake && state.intake.personal_statement) || '').trim() || null);
+  const currentStatus  = ctx.currentStatus || 'I have since returned to consistent on-time payments';
+  const whyNeeded      = ctx.whyNeeded || 'I am currently working to qualify for a mortgage, and this single mark is the last obstacle';
+
   const opening = pickFrom(fragments.opening_goodwill, 40);
-  
+
   const creditorName = typeof creditor === 'string' ? creditor : creditor.name;
   const creditorAddr = typeof creditor === 'object' ? (creditor.addr || '') : '';
-  const acctRef = typeof creditor === 'object' ? (creditor.account || '[XXXX]') : '[XXXX]';
-  
+  const acctRef      = typeof creditor === 'object' ? (creditor.account || '') : '';
+
+  // The factual sentence, assembled clause by clause from what is known.
+  const facts = [];
+  if (yearsCustomer) facts.push('I have been a customer with ' + creditorName + ' for approximately ' + yearsCustomer + '.');
+  facts.push((ctx.lateDate ? 'On ' + ctx.lateDate + ', a' : 'A') +
+             ' payment on my account' + (acctRef ? ' (ending in ' + acctRef + ')' : '') +
+             ' was reported' + (ctx.daysLate ? ' ' + ctx.daysLate + ' days' : '') + ' past due.');
+
   const body = [
     opening,
     '',
-    `I have been a customer with ${creditorName} for approximately ${yearsCustomer}. On ${ctx.lateDate || '[DATE OF LATE PAYMENT]'}, a payment on my account (ending in ${acctRef}) was reported ${ctx.daysLate || '[30/60/90]'} days past due. I take full responsibility — I understand the delay was mine.`,
+    facts.join(' '),
     '',
-    `At the time, I was dealing with ${hardshipReason}. ${currentStatus}, and my account has been in good standing since. This single mark on my credit report does not reflect my broader history as a customer or the reliability I have demonstrated with your institution.`,
+    (hardshipReason ? 'At the time, I was dealing with ' + hardshipReason + '. ' : '') +
+      currentStatus + ', and my account has been in good standing since. This single mark on my credit report does not reflect my broader history as a customer or the reliability I have demonstrated over the life of this account.',
     '',
-    `I am writing today because ${whyNeeded}. I would be deeply grateful if you would consider — as an act of goodwill and at your sole discretion — requesting that this single late notation be removed from my credit reports with Equifax, Experian, and TransUnion.`,
+    `I am writing today because ${whyNeeded}. I would be deeply grateful if you would consider — as an act of goodwill and at your sole discretion — requesting that this single late notation be removed from my credit reports with Equifax, Experian and TransUnion.`,
     '',
-    'I understand that you are not required to honor this request, and that it is entirely within your discretion. I am not disputing the accuracy of the original reporting. I am simply asking for a one-time exception based on my overall relationship with your company and the circumstances surrounding this isolated event.',
+    'I understand that you are not required to honor this request, and that it is entirely within your discretion. I am not disputing the accuracy of the original reporting. I am simply asking for a one-time exception based on my overall relationship with you.',
     '',
-    'The Fair Credit Reporting Act does not require complete reporting — it only requires that what is reported be accurate. Creditors retain full discretion over whether to report any specific item. I am respectfully asking you to exercise that discretion in my favor on this single occasion.',
+    'The Fair Credit Reporting Act does not require complete reporting — it only requires that what is reported be accurate. Creditors retain full discretion over whether to report any specific item. I am respectfully asking you to exercise that discretion here.',
     '',
-    'Whatever your decision, I wanted to take the time to ask thoughtfully and directly. Thank you sincerely for your consideration, and for the years of service your team has provided me.'
+    'Whatever your decision, I wanted to take the time to ask thoughtfully and directly. Thank you sincerely for your consideration.'
   ];
-  
-  const recipientBlock = `${creditorName}\nAttn: Executive Customer Relations\n${creditorAddr || '[Use the address from your statements or the creditor\'s website]'}`;
-  
+
+  const recipientBlock = creditorName + '\nAttn: Executive Customer Relations' +
+    (creditorAddr ? '\n' + String(creditorAddr).trim() : '');
+
   const mail = mailEnvelope(body, recipientBlock, {
-    re: `Goodwill Adjustment Request — Account ending ${acctRef}`,
+    re: 'Goodwill Adjustment Request' + (acctRef ? ' — Account ending ' + acctRef : ''),
     ssnLine: false
   });
-  
-  const portal = `Goodwill request: I\'ve been a customer for ${yearsCustomer}. One ${ctx.daysLate || '30'}-day late in ${ctx.lateDate || '[date]'} due to ${hardshipReason}. Account has been current since. Asking for a one-time courtesy removal from my credit reports — not a dispute, just a request. Account ending ${acctRef}. Thank you for considering. — ${u.name}`;
-  
-  const short = `Goodwill request — longtime customer, single late payment due to hardship, account current since. Asking for one-time courtesy removal. Thank you for considering. — ${u.name}`;
-  
+
+  const portal = 'Goodwill request' + (yearsCustomer ? ': I have been a customer for ' + yearsCustomer + '.' : '.') +
+    ' One' + (ctx.daysLate ? ' ' + ctx.daysLate + '-day' : '') + ' late payment' +
+    (ctx.lateDate ? ' in ' + ctx.lateDate : '') +
+    ', current ever since. Asking you to consider removing it as a courtesy. Not a dispute — I am not questioning its accuracy. — ' + u.name;
+
+  const short = 'Goodwill request — longtime customer, single late payment, account current since. Asking for a one-time courtesy removal. Not a dispute.';
+
   return {mail, portal, short};
 }
 
 // ========== COMPILER: PAY-FOR-DELETE ==========
 function compilePayForDelete(ctx) {
-  const collector = ctx.collector || {name:'[Collector Name]', addr:'[Address]', refNumber:'[Ref #]'};
-  const offerAmount = ctx.offerAmount || '[Offer — typically 30-50% of balance]';
-  const currentBalance = ctx.currentBalance || '[Balance they claim you owe]';
+  const collector = ctx.collector || {name: 'The collection agency named below', addr: '', refNumber: ''};
+  // A settlement letter with no figure in it is not an offer. The balance comes
+  // off the report; the opening figure is 40% of it, which the letter says is a
+  // starting number the consumer can change before signing.
+  const pfdBal = (function () {
+    const raw = ctx.currentBalance != null ? ctx.currentBalance : '';
+    const n = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+    return isFinite(n) && n > 0 ? n : null;
+  })();
+  const currentBalance = pfdBal !== null ? pfdBal.toLocaleString('en-US') : null;
+  const offerAmount = ctx.offerAmount ||
+    (pfdBal !== null ? Math.max(1, Math.round(pfdBal * 0.4)).toLocaleString('en-US') : null);
   const u = userHeader();
   
   const body = [
     'This letter is a settlement offer. It is not an acknowledgment of this debt or its validity. I am making this offer solely to resolve the matter without further cost or delay on either side.',
     '',
-    `I am willing to pay $${offerAmount} as full and final settlement of the above-referenced account, which you currently claim has a balance of $${currentBalance}. This offer is strictly conditional on the following terms, which must be agreed to IN WRITING before any payment will be made:`,
+    (offerAmount
+      ? 'I am willing to pay $' + offerAmount +
+        (currentBalance ? ', against the $' + currentBalance + ' balance you report,' : '') +
+        ' as full and final settlement of the above-referenced account. That figure is my opening offer and I am open to discussing it. This offer is strictly conditional on the following terms, which must be agreed to IN WRITING before any payment will be made:'
+      : 'I am willing to settle the above-referenced account for less than the balance you report. This offer is strictly conditional on the following terms, which must be agreed to IN WRITING before any payment will be made:'),
     '',
     '1. DELETION — Upon your receipt of the agreed settlement payment, you will request complete deletion of this tradeline from all three nationwide credit bureaus (Equifax, Experian, and TransUnion), and from any other consumer reporting agency to which you have furnished information about this account. You will not report it as "paid collection" — you will request deletion.',
     '',
@@ -8110,9 +8201,9 @@ function compilePayForDelete(ctx) {
     ssnLine: false
   });
   
-  const portal = `Conditional settlement offer — $${offerAmount} in exchange for complete tradeline deletion from all bureaus. Requires signed written agreement before payment. No resale, no 1099-C surprise, no partial application. 30-day expiration. Do not cash any payment without the signed agreement. — ${u.name}`;
+  const portal = `Conditional settlement offer${offerAmount ? ' — $' + offerAmount : ''} in exchange for complete tradeline deletion from all bureaus. Requires signed written agreement before payment. No resale, no 1099-C surprise, no partial application. 30-day expiration. Do not cash any payment without the signed agreement. — ${u.name}`;
   
-  const short = `Pay-for-delete offer: $${offerAmount} in exchange for complete deletion from all 3 bureaus. Requires signed written agreement first. Send me the signed agreement and I will pay within 10 days. — ${u.name}`;
+  const short = `Pay-for-delete offer${offerAmount ? ': $' + offerAmount : ''} in exchange for complete deletion from all 3 bureaus. Requires signed written agreement first. Send me the signed agreement and I will pay within 10 days. — ${u.name}`;
   
   return {mail, portal, short};
 }
@@ -8355,7 +8446,7 @@ function compileBreachNotification(ctx) {
   ];
   
   const creditorName = typeof creditor === 'string' ? creditor : creditor.name;
-  const creditorAddr = typeof creditor === 'object' ? (creditor.addr || '[Address from your statement]') : '';
+  const creditorAddr = typeof creditor === 'object' ? (creditor.addr || '') : '';
   
   const mail = mailEnvelope(body, `${creditorName}\nAttn: Fraud / Identity Theft Department\n${creditorAddr}`, {
     re: `Breach Notification and Demand for Enhanced Verification — ${breach.name} Breach`,
@@ -8421,7 +8512,7 @@ function compileBreachNotification(ctx) {
 function compilePrivacyOptOut(ctx) {
   const creditor = ctx.creditor || {name: '[Creditor Name]', addr: '[Creditor Address]'};
   const creditorName = typeof creditor === 'string' ? creditor : creditor.name;
-  const creditorAddr = typeof creditor === 'object' ? (creditor.addr || '[Address from your statement]') : '';
+  const creditorAddr = typeof creditor === 'object' ? (creditor.addr || '') : '';
   const u = userHeader();
 
   const body = [
@@ -8451,27 +8542,15 @@ function compilePrivacyOptOut(ctx) {
     'These are standing instructions. Please note my file accordingly and pass this letter to whoever maintains your opt-out records. A written confirmation would be welcome but is not necessary — I am keeping the certified mail receipt, and the date you received this is the date these elections took effect.'
   ];
 
-  // Every other open account needs its own copy. Named here rather than added
-  // to the body, because one letter addressed to two companies would tell each
-  // of them about the other's account — which is the exact movement of
-  // information this letter exists to stop.
-  const also = ctx.alsoSendTo || [];
-  if (also.length) {
-    body.push('');
-    body.push('---');
-    body.push('SEND A SEPARATE COPY OF THIS LETTER TO EACH OF THESE — do not list them together, and change the account line each time:');
-    also.forEach(t => body.push('  · ' + t.name + (t.account ? '   Account #: ' + t.account : '') +
-      (t.addr ? '' : '   (address is on your statement)')));
-  }
+  // Nothing else goes in this envelope. Each recipient gets a complete letter
+  // of their own (see letterFanTargets), so there is no list of other companies
+  // to print — and printing one would have told each creditor about the
+  // consumer's accounts at the others, which is the exact disclosure this
+  // letter exists to stop. The prescreen opt-out and the "send one to each"
+  // instruction are guidance for the consumer and live on the separator sheet.
 
-  // Free, statutory, and nothing to do with this envelope. Kept out of the
-  // letter body because it is not addressed to the creditor: FCRA § 604(e)
-  // (15 U.S.C. § 1681b(e)) is exercised directly with the bureaus.
-  body.push('');
-  body.push('---');
-  body.push('WHILE YOU ARE AT IT — the prescreened-offer opt-out is separate, free, and not something any creditor can do for you. Under FCRA § 604(e) you tell the bureaus directly, at optoutprescreen.com or 1-888-5-OPT-OUT (1-888-567-8688). Doing it online or by phone lasts five years and starts five business days after you call. Doing it permanently takes one more step: start it the same way, then sign and return the Permanent Opt-Out Election form they give you, and it runs until you revoke it. Take the permanent one — the five-year version quietly expires and the offers come back.');
-
-  const mail = mailEnvelope(body, `${creditorName}\nAttn: Privacy / "Opt Out" Department\n${creditorAddr}`, {
+  const mail = mailEnvelope(body, creditorName + '\nAttn: Privacy / "Opt Out" Department' +
+    (creditorAddr ? '\n' + String(creditorAddr).trim() : ''), {
     re: 'Privacy Opt-Out Election — GLBA § 502, FCRA § 603(d)(2)(A)(iii) and § 624',
     ssnLine: false,
     closing: false,      // the letter already says no response is required
@@ -10596,11 +10675,6 @@ function analyzeReport(parsed, analysis) {
   const collections = parsed.collections || [];
   const scores = parsed.scores || [];
   
-  analysis.findings.push({
-    type: 'summary',
-    title: 'Report parsed',
-    detail: `Found ${accounts.length} account(s), ${inquiries.length} inquir(ies), ${collections.length} collection(s)${parsed.bureau ? ' from ' + parsed.bureau : ''}.`
-  });
   
   // Scores, when the report carries them.
   if (scores.length) {
@@ -12767,14 +12841,210 @@ function updateUserInfo() {
   regenerateAllLetters();
 }
 
+// ========== ADDRESSING: ONE LETTER, ONE RECIPIENT ==========
+// Every letter that names a company has to reach that company. The reports
+// carry the addresses — the columnar tri-merge in a "Creditor Contacts"
+// section, the TransUnion portal export on each account — and until now the
+// letters never asked for them, so a § 623(b) direct dispute went out headed
+// "[Furnisher Name] / [Furnisher Address]" every single time it was built.
+//
+// Nothing here invents an address. If the report does not carry one, the
+// letter prints the company name alone and the separator sheet — the page that
+// is NOT mailed — tells the consumer where to find it. A bracket in a letter is
+// a defect; a blank line the consumer fills in on a page we told them not to
+// mail is not.
+function mgcNorm(s) { return String(s == null ? '' : s).toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+function furnisherAddressFor(name) {
+  if (!name) return null;
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const want = mgcNorm(name);
+  if (want.length < 4) return null;
+
+  // 1. The account's own address field. The TransUnion portal export carries a
+  //    full address per tradeline, which is the most reliable source there is:
+  //    it is the address that bureau associates with that furnisher.
+  const accs = parsed.accounts || [];
+  for (let i = 0; i < accs.length; i++) {
+    const a = accs[i];
+    if (!a || !a.address) continue;
+    if (mgcNorm(a.creditor) === want) return String(a.address).trim();
+  }
+  // 2. The report's own contacts section.
+  const contacts = parsed.creditorContacts || parsed.contacts || [];
+  if (contacts.length && typeof ctFindAddress === 'function') {
+    const found = ctFindAddress(name, contacts);
+    if (found) return String(found).trim();
+  }
+  return null;
+}
+
+// A recipient block for the top of a letter. Name always; address only when we
+// have one. Never a bracket.
+function mgcRecipient(name, addr) {
+  return addr ? (String(name) + '\n' + String(addr).trim()) : String(name || '');
+}
+
+// The letters that name one company but were being built once for many. Each
+// returns an array of targets; regenerateAllLetters compiles the template once
+// per target and keeps every copy.
+function letterFanTargets(tmpl, ctx) {
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const analysis = state.analysis || {};
+
+  // § 623(b) goes to the furnisher. One furnisher, one letter, naming only
+  // that furnisher's accounts — a letter listing three companies' accounts is
+  // addressed to none of them and tells each about the others.
+  if (tmpl.id === 'furnisher_dispute') {
+    const groups = {};
+    (ctx.items || []).forEach(it => {
+      const name = it.creditor || '';
+      if (!name) return;
+      const k = mgcNorm(name);
+      if (!groups[k]) groups[k] = {name: name, items: []};
+      groups[k].items.push(it);
+    });
+    return Object.keys(groups).map(k => ({
+      name: groups[k].name,
+      addr: furnisherAddressFor(groups[k].name),
+      items: groups[k].items,
+      label: groups[k].name
+    }));
+  }
+
+  // A goodwill request goes to the creditor whose late payment it is about.
+  if (tmpl.id === 'goodwill') {
+    const seen = {};
+    const out = [];
+    (parsed.accounts || []).forEach(a => {
+      if (!a || !a.creditor) return;
+      if (!a.has_late_payments && !a.is_charge_off) return;
+      if (a.is_collection) return;                  // a collector has no goodwill to give
+      if (typeof apProtects === 'function' && false) return;
+      const k = mgcNorm(a.creditor);
+      if (seen[k]) return;
+      seen[k] = 1;
+      out.push({
+        name: a.creditor,
+        addr: furnisherAddressFor(a.creditor),
+        account: a.account_number || '',
+        acct: a,
+        label: a.creditor
+      });
+    });
+    return out;
+  }
+
+  // A settlement offer goes to whoever is collecting. One per agency.
+  if (tmpl.id === 'pay_for_delete') {
+    const seen = {};
+    const out = [];
+    (parsed.collections || []).forEach(c => {
+      const name = c.agency || c.creditor;
+      if (!name) return;
+      const k = mgcNorm(name);
+      if (seen[k]) return;
+      seen[k] = 1;
+      out.push({
+        name: name,
+        addr: furnisherAddressFor(name),
+        balance: c.balance || '',
+        refNumber: c.account_number || '',
+        label: name
+      });
+    });
+    if (!out.length) {
+      (parsed.accounts || []).filter(a => a.is_collection).forEach(a => {
+        const k = mgcNorm(a.creditor);
+        if (!a.creditor || seen[k]) return;
+        seen[k] = 1;
+        out.push({name: a.creditor, addr: furnisherAddressFor(a.creditor),
+                  balance: a.balance || '', refNumber: a.account_number || '', label: a.creditor});
+      });
+    }
+    return out;
+  }
+
+  // The opt-out is the one where combining recipients actively leaks: a single
+  // letter naming two creditors tells each of them about the other's account,
+  // which is the exact movement of information the letter exists to stop.
+  if (tmpl.id === 'privacy_opt_out') {
+    return (ctx.optOutTargets || []).map(t => ({
+      name: t.name,
+      addr: t.addr || furnisherAddressFor(t.name),
+      account: t.account || '',
+      label: t.name
+    }));
+  }
+
+  return null;
+}
+
+// Fold one target into the context the compiler reads.
+function applyFanTarget(tmpl, ctx, t) {
+  const c = Object.assign({}, ctx);
+  if (tmpl.id === 'furnisher_dispute') {
+    c.furnisher = {name: t.name, addr: t.addr || ''};
+    c.items = t.items;
+  } else if (tmpl.id === 'goodwill') {
+    c.creditor = {name: t.name, addr: t.addr || '', account: t.account || ''};
+    // Written from the tradeline rather than from blanks: how long the account
+    // has been open, when the late mark is dated, and how far behind it went.
+    // Anything the report does not carry stays out of the letter entirely.
+    const a = t.acct || {};
+    const opened = a.date_opened ? new Date(a.date_opened) : null;
+    if (opened && !isNaN(opened.getTime())) {
+      const yrs = Math.floor((Date.now() - opened.getTime()) / (365.25 * 24 * 3600 * 1000));
+      if (yrs >= 1) c.yearsCustomer = yrs + (yrs === 1 ? ' year' : ' years');
+    }
+    if (a.first_late_label) c.lateDate = a.first_late_label;
+    const lc = a.late_counts || {};
+    const worst = [180, 150, 120, 90, 60, 30].find(d => lc['d' + d] || lc[d] || lc[String(d)]);
+    if (worst) c.daysLate = String(worst);
+  } else if (tmpl.id === 'pay_for_delete') {
+    c.collector = {name: t.name, addr: t.addr || '', refNumber: t.refNumber || ''};
+    if (t.balance) c.currentBalance = String(t.balance).replace(/^\$/, '');
+  } else if (tmpl.id === 'privacy_opt_out') {
+    c.creditor = {name: t.name, addr: t.addr || ''};
+    c.accountLines = t.name + (t.account ? '   Account #: ' + t.account : '');
+    c.alsoSendTo = [];        // each copy is complete on its own now
+  }
+  c.fanTarget = t;
+  return c;
+}
+
 function regenerateAllLetters() {
   state.letterOutputs = {};
+  state.letterVariants = {};
   const analysis = state.analysis;
   if (!analysis || !analysis.letters) return;
   
   analysis.letters.forEach(tmpl => {
     const ctx = buildLetterContext(tmpl);
     state._letterBeingCompiled = tmpl.id;
+
+    // Letters that name one company are built once per company. letterOutputs
+    // keeps the first copy so every existing reader still works; letterVariants
+    // carries all of them, which is what the packet and the print sheet use.
+    // "Send a separate copy of this to each of these" is not a deliverable —
+    // the consumer asked for letters, not instructions for making letters.
+    const targets = (typeof letterFanTargets === 'function') ? letterFanTargets(tmpl, ctx) : null;
+    if (targets && targets.length) {
+      const copies = targets.map(t => {
+        const out = tmpl.compile(applyFanTarget(tmpl, ctx, t));
+        out.to = t.name;
+        out.toAddress = t.addr || '';
+        out.needsAddress = !t.addr;
+        return out;
+      });
+      state.letterVariants[tmpl.id] = copies;
+      state.letterOutputs[tmpl.id] = copies[0];
+      state._letterBeingCompiled = null;
+      const te = document.getElementById('letter-text-' + tmpl.id);
+      if (te) te.textContent = copies[0].mail;
+      return;
+    }
+
     state.letterOutputs[tmpl.id] = tmpl.compile(ctx);
     state._letterBeingCompiled = null;
     // Update display for the mail tab (default)
@@ -13781,16 +14051,21 @@ function buildLetterContext(tmpl) {
       const k = String(a.creditor).toUpperCase();
       if (seen[k]) return;
       seen[k] = true;
+      // ctFindAddress already returns "street\ncity". Destructuring it as an
+      // object yielded [undefined, undefined] and threw away every address the
+      // matcher actually found — which is why this letter always printed the
+      // "address is on your statement" placeholder even on a report carrying
+      // 51 creditor contacts.
       const addr = (typeof ctFindAddress === 'function') ? ctFindAddress(a.creditor, contacts) : null;
       targets.push({
         name: a.creditor,
         account: a.account_number || '',
-        addr: addr ? [addr.street, addr.city].filter(Boolean).join('\n') : ''
+        addr: addr ? String(addr).trim() : ''
       });
     });
     ctx.optOutTargets = targets;
     if (targets.length) {
-      ctx.creditor = {name: targets[0].name, addr: targets[0].addr || '[Address printed on your statement]'};
+      ctx.creditor = {name: targets[0].name, addr: targets[0].addr || ''};
       ctx.accountLines = targets[0].name +
         (targets[0].account ? '   Account #: ' + targets[0].account : '');
       if (targets.length > 1) {
@@ -13808,7 +14083,7 @@ function buildLetterContext(tmpl) {
   if (tmpl.recipient === 'collector' && parsed.collectionLetter) {
     ctx.collector = {
       name: parsed.collectionLetter.agency || '[Collector Name]',
-      addr: '[Collector Address — from their letter]',
+      addr: '',
       refNumber: parsed.collectionLetter.accountRef || '[Reference Number]'
     };
   }
@@ -14353,24 +14628,37 @@ function buildActionPlanDoc() {
     </ol>
   </section>`;
 
-  letters.forEach((tmpl, idx) => {
-    const out = (state.letterOutputs || {})[tmpl.id] || {};
+  // Every copy gets its own separator sheet and its own letter page. A packet
+  // that says "send a separate copy of this to each of these" is not a packet;
+  // it is homework. If four furnishers are being disputed, four letters print.
+  const sheets = [];
+  letters.forEach(tmpl => {
+    const copies = (state.letterVariants && state.letterVariants[tmpl.id]) ||
+                   [(state.letterOutputs || {})[tmpl.id]].filter(Boolean);
+    copies.forEach(out => sheets.push({tmpl: tmpl, out: out || {}}));
+  });
+
+  sheets.forEach((sheet, idx) => {
+    const tmpl = sheet.tmpl, out = sheet.out;
+    const to = out.to || '';
     // Separator sheet: everything the sender needs to know about this letter,
     // on a page that never goes in the envelope. It exists so the letter itself
     // can stay completely bare.
     h += `<section class="plan-divider">
       <div class="plan-divider-warn">Do not mail this page — remove it before sending</div>
       <div class="plan-divider-body">
-        <p class="plan-divider-num">Letter ${idx + 1} of ${letters.length}</p>
-        <h2>${planEsc(tmpl.title)}</h2>
+        <p class="plan-divider-num">Letter ${idx + 1} of ${sheets.length}</p>
+        <h2>${planEsc(tmpl.title)}${to ? ' — ' + planEsc(to) : ''}</h2>
         <p class="plan-divider-sub">${planEsc(tmpl.subtitle || '')}</p>
         ${tmpl.gated ? `<p class="plan-divider-gate">Do not send this until your bureau dispute is no longer pending.</p>` : ''}
+        ${out.needsAddress ? `<p class="plan-divider-gate">Your report does not carry a mailing address for ${planEsc(to || 'this company')}. The letter names them but the envelope is yours to address — take it off your statement or their website, and write it on the letter above the date before you send it.</p>` : ''}
         <div class="plan-divider-grid">
           ${tmpl.when_to_use ? `<div><em>When to use</em><p>${planEsc(tmpl.when_to_use)}</p></div>` : ''}
           ${tmpl.what_to_expect ? `<div><em>What to expect</em><p>${planEsc(tmpl.what_to_expect)}</p></div>` : ''}
-          <div><em>Goes to</em><p>${planEsc(tmpl.recipient === 'bureau' ? 'The credit bureau — send a copy to each one reporting the item' : tmpl.recipient === 'furnisher' ? 'The company that reported it, not the bureau' : tmpl.recipient === 'collector' ? 'The collection agency' : tmpl.recipient === 'CFPB' ? 'Paste into the CFPB complaint portal — this one is not mailed' : 'See the address printed on the letter')}</p></div>
-          <div><em>Before you send</em><p>Rewrite it in your own words, keeping the citations, account numbers and dates exactly as printed. Sign in ink, enclose your ID and proof of address, and send certified mail with return receipt requested.</p></div>
+          <div><em>Goes to</em><p>${to ? planEsc(to) : planEsc(tmpl.recipient === 'bureau' ? 'The credit bureau — send a copy to each one reporting the item' : tmpl.recipient === 'furnisher' ? 'The company that reported the item' : tmpl.recipient === 'collector' ? 'The collection agency' : 'See the address on the letter')}</p></div>
+          <div><em>Before you send</em><p>Rewrite it in your own words, keeping the citations, account numbers and dates exactly as printed. Sign in ink, enclose your ID and proof of address, and send it certified with return receipt.</p></div>
         </div>
+        ${tmpl.id === 'privacy_opt_out' ? `<div class="plan-divider-grid"><div><em>While you are at it</em><p>The prescreened-offer opt-out is separate, free, and nothing a creditor can do for you — it is exercised directly with the bureaus under FCRA § 604(e), 15 U.S.C. § 1681b(e). Call 1-888-5-OPT-OUT (1-888-567-8688) or use optoutprescreen.com. Online or by phone it lasts five years; to make it permanent you print the form from that site and mail it. This is not part of the letter on the next page and does not go in that envelope.</p></div></div>` : ''}
         <p class="plan-divider-foot">The next page is the finished letter. Nothing on it is addressed to you.</p>
       </div>
     </section>`;
@@ -14380,6 +14668,140 @@ function buildActionPlanDoc() {
     // of it would be read as the consumer sending a form somebody prepared.
     h += `<section class="plan-letter"><pre class="plan-letter-body">${planEsc(out.mail || '')}</pre></section>`;
   });
+
+  // ================= WHAT YOU TOLD US =================
+  // Several letters in this packet only exist because the consumer said
+  // something about an item — that an inquiry was not theirs, that an account
+  // was never opened by them. The § 605B block is sworn under penalty of
+  // perjury. So the packet records the answers as given, on the consumer's own
+  // date, and says plainly that the software asked and did not choose.
+  (function () {
+    const rows = [];
+    const parsedA = (state.upload && state.upload.parsed) || {};
+    const inqA = parsedA.inquiries || [];
+    const accA = parsedA.accounts || [];
+    const ANS_INQ = {
+      no: 'I did not apply to this company',
+      yes: 'I applied to this company',
+      unsure: 'I am not sure'
+    };
+    const ANS_ACC = {
+      mine: 'This account is mine',
+      charges: 'The account is mine, but there are charges on it I did not make',
+      never: 'I never opened this account',
+      resolved: 'This account is settled, paid or discharged'
+    };
+    Object.keys(state.itemReview.inquiries || {}).forEach(k => {
+      const q = inqA[k];
+      const v = state.itemReview.inquiries[k];
+      if (!q || !v) return;
+      rows.push(['Inquiry', (q.creditor || '') + (q.date ? ' · ' + q.date : ''), ANS_INQ[v] || v]);
+    });
+    accA.forEach((a, i) => {
+      const key = (typeof accountKey === 'function') ? accountKey(a, i) : null;
+      const v = key ? (state.itemReview.accounts || {})[key] : null;
+      if (!v) return;
+      rows.push(['Account', (a.creditor || '') + (a.account_number ? ' · ' + a.account_number : ''), ANS_ACC[v] || v]);
+    });
+    if (!rows.length) return;
+    h += `<section class="plan-sheet">
+      ${planHead('What you told us')}
+      ${planTitle('What you told us', 'The answers you gave, on ' + planEsc(u.date) + '. These are why certain letters are in this packet.')}
+      <table class="plan-table">
+        <thead><tr><th>Item</th><th>On your report</th><th>Your answer</th></tr></thead>
+        <tbody>${rows.map(r => '<tr><td>' + planEsc(r[0]) + '</td><td>' + planEsc(r[1]) + '</td><td>' + planEsc(r[2]) + '</td></tr>').join('')}</tbody>
+      </table>
+      <div class="plan-rule plan-rule-check mt">
+        <b>You chose these answers. We did not choose them for you.</b>
+        <p>Making Good Choices asked one plain question per item and recorded the button you pressed. Nothing on this page was assumed, inferred or filled in on your behalf, and no letter accusing a company of anything was written from any item you did not mark yourself.</p>
+        <p>If any answer above is wrong, it is wrong in the letters too. Change it in the tool and print again before you send anything. An identity theft report is sworn under penalty of perjury &mdash; 18 U.S.C. &sect; 1028 makes a false one a federal crime, and under FCRA &sect; 605B a bureau may rescind a block obtained by a material misrepresentation and put every item back. Only say an item is not yours if it is not yours.</p>
+      </div>
+    </section>`;
+  })();
+
+  // ================= FOLLOW-UP CALLS =================
+  // Mail starts a clock; a phone call is what closes several of these out, and
+  // a person holding a printed packet in one hand and a phone in the other
+  // needs the menu path and the sentence, not "call the bureau". The numbers
+  // and menu paths are the ones in the house method. Nothing here asks anyone
+  // to say something that is not true: the script for a disputed inquiry is
+  // printed only for inquiries the consumer marked as not theirs, and it says
+  // what they told us, in their words.
+  (function () {
+    const packetIds = letters.map(l => l.id);
+    const hasBureauLetter = packetIds.some(id =>
+      ['initial_bureau_dispute', '609_request', 'mov', 'inquiry_dispute', 'idtheft_block', 'reinsertion'].indexOf(id) >= 0);
+    const flaggedInq = (typeof unauthorizedInquiries === 'function') ? unauthorizedInquiries() : [];
+    if (!hasBureauLetter && !flaggedInq.length) return;
+
+    const inqList = flaggedInq.map(q => (q.creditor || '') + (q.date ? ' (' + q.date + ')' : '')).filter(Boolean);
+
+    const call = (who, number, wait, steps, say, notes) => `
+      <div class="plan-call">
+        <div class="plan-call-head"><b>${planEsc(who)}</b><span>${planEsc(number)}</span></div>
+        ${wait ? `<p class="plan-call-when">${planEsc(wait)}</p>` : ''}
+        <p class="plan-call-label">Getting to a person</p>
+        <ol class="plan-call-steps">${steps.map(x => '<li>' + planEsc(x) + '</li>').join('')}</ol>
+        <p class="plan-call-label">What to say</p>
+        <blockquote class="plan-call-say">${planEsc(say)}</blockquote>
+        ${notes && notes.length ? `<p class="plan-call-label">If they push back</p><ul class="plan-call-notes">${notes.map(x => '<li>' + planEsc(x) + '</li>').join('')}</ul>` : ''}
+      </div>`;
+
+    let calls = '';
+
+    if (hasBureauLetter) {
+      calls += call('TransUnion', '800-916-8800',
+        'Call on the 8th full business day after your certified mail is delivered — five days to process, three to be safe.',
+        ['Choose the "Dispute" option.',
+         'Do not press 1.',
+         'If it offers to text you a code, press # repeatedly until you reach a person.',
+         'Give your name, address, date of birth and Social Security number when asked.'],
+        'I mailed a dispute that you received on ' + '________' + '. I am calling to confirm you have it and to ask what the current status is.',
+        ['They may offer to verify you by text or email. If you cannot receive it, say so and ask to answer questions from your credit report instead — they will ask about a lender name or a monthly payment, and your report is in this packet.',
+         'If the person cannot help, ask for a supervisor. It sometimes takes more than one call.']);
+
+      calls += call('Equifax', '800-525-6285',
+        'Same timing. Equifax calls are usually the shortest of the three.',
+        ['Ask for an agent as soon as the menu starts.',
+         'Give your name, address, date of birth and Social Security number.'],
+        'I mailed a dispute that you received on ' + '________' + '. I am calling to confirm you have it and to ask what the current status is.',
+        ['Ask to verify by answering questions from your credit report rather than by text. If they will not, end the call politely and try again — a different agent will.']);
+
+      calls += call('Experian', '1-855-414-6048 or 877-870-5640',
+        'Same timing.',
+        ['Enter your Social Security number, then your ZIP code.',
+         'Say the call is about a dispute, then choose to start a dispute.',
+         'Ask for a person.'],
+        'I mailed a dispute that you received on ' + '________' + '. I am calling to confirm you have it and to ask what the current status is.',
+        ['Do not agree to a fraud alert or a security freeze while you are on this call unless you actually want one. Both can complicate a mortgage or funding application later, and taking one off again is its own phone call.']);
+    }
+
+    if (inqList.length) {
+      calls += call('Experian — the inquiries you told us were not yours', '1-855-414-6048 or 877-870-5640',
+        'Experian handles these on the phone, and it is the fastest route in the packet. Usually confirmed on the call, applied in 24 to 72 hours.',
+        ['Enter your Social Security number, then your ZIP code.',
+         'Say the call is about fraud, then choose to start a dispute.',
+         'Ask to be transferred to the Fraud Department — they answer as "Special Services". You may have to ask more than once.',
+         'Give your name, address, date of birth and Social Security number to verify.'],
+        'There are hard inquiries on my report from companies I did not apply to. I did not authorise them and I would like them removed. They are: ' +
+          inqList.join('; ') + '.',
+        ['Name each company and its date clearly, and say it again if they ask.',
+         'If they ask whether you have filed a police report, answer honestly — you are not required to have one.',
+         'Do not let them add a fraud alert or a security freeze unless you want one.',
+         'Before you hang up, get confirmation that the inquiries are being removed and a timeframe. If they will not confirm, end the call and try again later — a different agent often will.',
+         'Only say an inquiry is not yours if that is true. You told us these were not yours; that answer is printed in this packet on the "What you told us" page.']);
+    }
+
+    h += `<section class="plan-sheet">
+      ${planHead('Follow-up calls')}
+      ${planTitle('Follow-up calls', 'Mail starts the clock. These calls are what close it. Keep this page and your report next to the phone.')}
+      ${calls}
+      <div class="plan-rule mt">
+        <b>Write down who you spoke to</b>
+        <p>Name, date, time and any reference number, every time. If this ever becomes a complaint or a claim, the call log is the part nobody else can reconstruct for you. There is room on the tracking log at the back of this packet.</p>
+      </div>
+    </section>`;
+  })();
 
   // ================= CHECKLIST =================
   h += `<section class="plan-sheet">
@@ -14468,6 +14890,10 @@ function buildActionPlanDoc() {
     </div>
   </section>`;
 
+  // Kept on state as well as in the DOM: the packet is the deliverable, and a
+  // test that can only see it through a browser cannot assert on what a client
+  // actually receives.
+  state.planHtml = h;
   doc.innerHTML = h;
 
   return true;
