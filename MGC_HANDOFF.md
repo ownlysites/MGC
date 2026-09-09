@@ -649,7 +649,60 @@ already how the § 605B letter reads.
 
 ---
 
-## 7d. Test harnesses in `/tmp/mgc-diag`
+## 7d. The privacy opt-out letter (added in the same session as 7b/7c)
+
+Rebuilt from the "CREDITOR OPT OUT FORM" in the Dispute Plan folder. Three
+rights, each read verbatim from the U.S. Code before it went in the letter:
+
+- **15 U.S.C. § 6802(b)(1)** (GLBA § 502) — a financial institution may not
+  disclose nonpublic personal information to a nonaffiliated third party unless
+  it disclosed that it may, gave the consumer the opportunity to direct that it
+  not be, and explained how. The letter is that direction.
+- **§ 1681a(d)(2)(A)(iii)** — communicating "other information" among affiliated
+  companies is excluded from the definition of "consumer report" ONLY IF the
+  consumer was told and given the chance to say no first. Saying no removes the
+  exclusion, so a communication afterwards is the furnishing of a consumer
+  report. The letter states that consequence, because it is the leverage.
+- **§ 1681s-3(a)(1)** (FCRA § 624) — no affiliate-sourced marketing once
+  prohibited; at least five years under (a)(3)(A).
+
+Plus, below the signature and not addressed to the creditor, the **§ 604(e)**
+prescreen opt-out: optoutprescreen.com / 1-888-5-OPT-OUT, five years by phone or
+web (starting five business days after), permanent only if the signed Permanent
+Opt-Out Election form is returned.
+
+**Two claims from the source form are deliberately absent. Do not put them back.**
+Demanding that a creditor not share *transaction and experience* information with
+its affiliates has no basis — § 1681a(d)(2)(A)(i) and (ii) exclude that outright,
+no opt-out attached. And "if I hear nothing in thirty days I will assume you
+complied" invents a deadline; the elections take effect on receipt regardless,
+which is both true and stronger.
+
+**Prefill.** Open accounts come from the report; addresses from its Creditor
+Contacts section through `ctFindAddress`, which returns only a confident match.
+The other open accounts are listed as separate sends — never merged into one
+letter, because a letter naming two companies tells each about the other's
+account, which is the exact information movement it exists to stop. Government
+and self-reported tradelines are filtered out: all three rights run against a
+private company, and the first draft addressed one to the U.S. Department of
+Education.
+
+**Two envelope fixes this exposed.** `mailEnvelope` closed every letter with
+"Please confirm in writing what action you have taken" and an enclosure line
+listing a photo ID. Both are right for a dispute and wrong for an instruction
+that says no response is required and exists to move less personal information.
+Pass `closing: false` / `enclosures: false` to suppress either; only this letter
+does, and the harness checks every other letter still carries both.
+
+**Timing.** Recipient is `creditor`, which would have scheduled it fourteen days
+out with the furnisher disputes. A template can now declare its own
+`send_class`; this one is `privacy`, day zero, its own group. Nothing has to
+happen before an instruction, and every day it waits is another day the
+information is still moving.
+
+---
+
+## 7e. Test harnesses in `/tmp/mgc-diag`
 
 Not in the repo — they read `index.html` directly and are driven against real
 client reports, which must never be committed. Recreate them if the machine is
@@ -663,7 +716,9 @@ spread across six.
 | `angles.js` | The grammar vocabulary is closed; no account repeats a field; angles ordered by impact; round two never equals round one; no wrap past the last angle; lead sentences reach the bureau letter; every disputed account is trackable. |
 | `resolved.js` | The paid/settled/discharged path end to end, including that the button alone writes nothing and that changing the answer clears the letter text. |
 | `ap-e2e.js` | Action plan reconciliation, and that no protected account leaks into a letter. |
+| `optout.js` | The privacy opt-out letter: gating, all three citations, neither dropped claim, no SSN, the prescreen details, creditor prefill on both formats, the envelope suppressions scoped to that one letter, and its day-zero mailing slot. |
 | `layout.js` | Drives the Mac's own Chrome headless (`puppeteer-core`, `/Applications/Google Chrome.app/…`) at 375 / 320 / 414px against a local server: zero horizontal overflow, both new panels inside the viewport, no page errors. **Use this when the browser pane is unavailable** — it is faster and it measures the same thing. |
+| `layout2.js` | Same, over the LETTERS screen with the identity-theft packet — where the opt-out letter appears. |
 | `extract.js` | Replicates the app's pdf.js text extraction exactly, for reading source PDFs. |
 
 Serving a real report to test means copying it into a temp directory. **Delete

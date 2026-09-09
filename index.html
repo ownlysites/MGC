@@ -6142,6 +6142,26 @@ const letterTemplates = {
     compile: (ctx) => compileBreachNotification(ctx)
   },
   
+
+  // ========== CORE LETTER 13: PRIVACY OPT-OUT TO A CREDITOR ==========
+  //
+  // Adapted from the "CREDITOR OPT OUT FORM" in the Dispute Plan folder. Two of
+  // that form's four instructions are sound and are kept; two are not and are
+  // dropped. See compilePrivacyOptOut for which, and why.
+  privacy_opt_out: {
+    id: 'privacy_opt_out',
+    title: 'Privacy Opt-Out to a Creditor',
+    subtitle: 'GLBA § 502 · FCRA § 603(d)(2)(A)(iii) · FCRA § 624',
+    description: 'Tells a company you already do business with to stop passing your information around — to outside companies, to its own affiliates, and to its affiliates for marketing. Cuts off the supply line that feeds prescreened offers and gives a thief fewer places to find you.',
+    recipient: 'creditor',
+    // Goes to a creditor, but on the bureaus' timing rather than the furnishers'
+    // — it is an instruction, not a dispute, so nothing has to happen first.
+    send_class: 'privacy',
+    when_to_use: 'After identity theft or a breach, and useful to anyone who wants less of their financial data in circulation. Send one to each company holding an open account.',
+    what_to_expect: 'No investigation and no deadline — this is an instruction, not a dispute, and it takes effect when they receive it. Keep the certified mail receipt: that is the proof of the date it started.',
+    compile: (ctx) => compilePrivacyOptOut(ctx)
+  },
+
   // ========== CORE LETTER 12: CFPB COMPLAINT (gated) ==========
   cfpb_complaint: {
     id: 'cfpb_complaint',
@@ -6298,7 +6318,7 @@ const letterTemplates = {
 const DAY_ONE_LETTERS = new Set([
   'initial_bureau_dispute', 'furnisher_dispute', '609_request',
   'inquiry_dispute', 'inquiry_permissible_purpose', 'cd_dv_combo',
-  'idtheft_block', 'fraud_alert', 'breach_notification',
+  'idtheft_block', 'fraud_alert', 'breach_notification', 'privacy_opt_out',
   'mixed_file', 'personal_info_correction',
   'scra_interest_cap', 'scra_default_protection', 'scra_credit_reporting',
   'bankruptcy_discharged', 'bankruptcy_automatic_stay', 'bankruptcy_pre_filing',
@@ -6459,13 +6479,19 @@ function mailEnvelope(bodyLines, recipientBlock, ctx = {}) {
     ...bodyLines,
     ...personalStatementBlock(),
     '',
-    voiceClosing() || pickFrom(fragments.closing_formal, 1),
+    // Both of these are right for a dispute and wrong for an instruction. The
+    // standard closing asks the recipient to confirm what action they took;
+    // the standard enclosure line tells the consumer to post a copy of their
+    // photo ID. A letter that says "no response is required" must not then
+    // demand one, and an opt-out whose whole point is to move less personal
+    // information must not ship a photo ID with it. Pass false to drop either.
+    ctx.closing === false ? null : (ctx.closing || voiceClosing() || pickFrom(fragments.closing_formal, 1)),
     '',
     '',
     '_______________________________',
     u.name,
-    '',
-    enclosureLine()
+    ctx.enclosures === false ? null : '',
+    ctx.enclosures === false ? null : (ctx.enclosures || enclosureLine())
   ].filter(l => l !== null).join('\n');
 }
 
@@ -7261,6 +7287,122 @@ function compileBreachNotification(ctx) {
   const short = `My data was in the ${breach.name} breach (${breach.year}). Demand enhanced ID verification before any account action. Notify me of any new applications in my name. — ${u.name}`;
   
   return {mail, portal, short};
+}
+
+
+// ========== COMPILER: PRIVACY OPT-OUT ==========
+//
+// The source form in the Dispute Plan folder makes four instructions. Two are
+// backed by statute and are kept. Two are not and were dropped, because a
+// letter that overreaches on point three invites the reader to dismiss points
+// one and two with it.
+//
+// KEPT:
+//
+//  1. Nonaffiliated third parties. 15 U.S.C. § 6802(b)(1) (GLBA § 502, the
+//     Financial Services Modernization Act the source form names): a financial
+//     institution may not disclose nonpublic personal information to a
+//     nonaffiliated third party unless it has disclosed that it may, given the
+//     consumer the opportunity to direct that it not be, and explained how to
+//     exercise that option. This letter is that direction.
+//
+//  2. Affiliates, for information beyond transactions and experiences.
+//     15 U.S.C. § 1681a(d)(2)(A)(iii): communicating "other information" among
+//     affiliated companies is excluded from the definition of "consumer report"
+//     ONLY IF the consumer was told it may happen and given the chance to say
+//     no first. Saying no is what this letter does, and the consequence is the
+//     part worth stating plainly: the exclusion stops applying, so any such
+//     communication afterwards is the furnishing of a consumer report, with
+//     everything the FCRA attaches to that.
+//
+//  3. Affiliate marketing. 15 U.S.C. § 1681s-3(a)(1) (FCRA § 624): a company
+//     may not use eligibility information received from an affiliate to market
+//     to the consumer unless it disclosed that it would and gave a simple
+//     method to prohibit it. Under § 1681s-3(a)(3)(A) that prohibition runs at
+//     least five years. Both exclusions in point 2 are expressly "subject to
+//     section 1681s-3", so this is the same instruction from the other end.
+//
+// DROPPED, and do not put them back:
+//
+//  - "Do not disclose any of my transaction and experience information to any
+//    affiliate of yours." There is no such right. § 1681a(d)(2)(A)(i) excludes
+//    a report of transactions or experiences between the consumer and the
+//    reporting person, and (ii) excludes communicating THAT information among
+//    affiliates — both outright, with no opt-out attached. Demanding it makes
+//    the whole letter look like a form.
+//
+//  - "If I have not received a letter within thirty days specifically denying
+//    my instructions, I will assume your records have been noted to comply."
+//    No statute creates a thirty-day duty to answer an opt-out or makes silence
+//    consent. The opt-out is effective on receipt whether they write back or
+//    not, which is the stronger thing to say and is what this letter says.
+//
+// The source form's own instinct to leave the SSN out is right and is kept.
+function compilePrivacyOptOut(ctx) {
+  const creditor = ctx.creditor || {name: '[Creditor Name]', addr: '[Creditor Address]'};
+  const creditorName = typeof creditor === 'string' ? creditor : creditor.name;
+  const creditorAddr = typeof creditor === 'object' ? (creditor.addr || '[Address from your statement]') : '';
+  const u = userHeader();
+
+  const body = [
+    'I am a customer of your institution. This letter is my direction to you about how my personal information may be shared. It is not a dispute and it does not concern the accuracy of anything you report. No response is required for it to take effect.',
+    '',
+    'Please identify my account(s) by the name and account number(s) written below. I am deliberately not including my Social Security number — my name and account number identify me sufficiently, and this letter travels through the mail.',
+    '',
+    'ACCOUNT(S) THIS APPLIES TO:',
+    ctx.accountLines || '_______________________________________________________________',
+    '',
+    'I am exercising three separate rights.',
+    '',
+    '1. NONAFFILIATED THIRD PARTIES — 15 U.S.C. § 6802(b)(1), Gramm-Leach-Bliley (the Financial Services Modernization Act).',
+    '',
+    'Do not disclose my nonpublic personal information to any nonaffiliated third party. I am directing that it not be disclosed, which is the election that provision reserves to me.',
+    '',
+    '2. YOUR AFFILIATES — 15 U.S.C. § 1681a(d)(2)(A)(iii), FCRA § 603.',
+    '',
+    'Do not communicate information about me other than my transactions and experiences with you to any person related to you by common ownership or affiliated by corporate control. That includes any assessment of my creditworthiness, credit standing, credit capacity, character, or general reputation.',
+    '',
+    'I am aware of what this election does. Communicating that category of information among affiliates is excluded from the definition of "consumer report" only where the consumer was told it may occur and given the opportunity, before it occurs, to direct that it not. I am directing that it not. Any such communication after you receive this letter falls outside that exclusion and is the furnishing of a consumer report, with every duty the Fair Credit Reporting Act attaches to that.',
+    '',
+    '3. AFFILIATE MARKETING — 15 U.S.C. § 1681s-3(a)(1), FCRA § 624.',
+    '',
+    'Do not use information you receive from any of your affiliates to make a solicitation to me about your products or services. Under § 1681s-3(a)(3)(A) this election is effective for a period of at least five years from the date you receive it.',
+    '',
+    'These are standing instructions. Please note my file accordingly and pass this letter to whoever maintains your opt-out records. A written confirmation would be welcome but is not necessary — I am keeping the certified mail receipt, and the date you received this is the date these elections took effect.'
+  ];
+
+  // Every other open account needs its own copy. Named here rather than added
+  // to the body, because one letter addressed to two companies would tell each
+  // of them about the other's account — which is the exact movement of
+  // information this letter exists to stop.
+  const also = ctx.alsoSendTo || [];
+  if (also.length) {
+    body.push('');
+    body.push('---');
+    body.push('SEND A SEPARATE COPY OF THIS LETTER TO EACH OF THESE — do not list them together, and change the account line each time:');
+    also.forEach(t => body.push('  · ' + t.name + (t.account ? '   Account #: ' + t.account : '') +
+      (t.addr ? '' : '   (address is on your statement)')));
+  }
+
+  // Free, statutory, and nothing to do with this envelope. Kept out of the
+  // letter body because it is not addressed to the creditor: FCRA § 604(e)
+  // (15 U.S.C. § 1681b(e)) is exercised directly with the bureaus.
+  body.push('');
+  body.push('---');
+  body.push('WHILE YOU ARE AT IT — the prescreened-offer opt-out is separate, free, and not something any creditor can do for you. Under FCRA § 604(e) you tell the bureaus directly, at optoutprescreen.com or 1-888-5-OPT-OUT (1-888-567-8688). Doing it online or by phone lasts five years and starts five business days after you call. Doing it permanently takes one more step: start it the same way, then sign and return the Permanent Opt-Out Election form they give you, and it runs until you revoke it. Take the permanent one — the five-year version quietly expires and the offers come back.');
+
+  const mail = mailEnvelope(body, `${creditorName}\nAttn: Privacy / "Opt Out" Department\n${creditorAddr}`, {
+    re: 'Privacy Opt-Out Election — GLBA § 502, FCRA § 603(d)(2)(A)(iii) and § 624',
+    ssnLine: false,
+    closing: false,      // the letter already says no response is required
+    enclosures: false    // nothing goes in the envelope but the letter
+  });
+
+  const portal = `Opt-out election for my account(s). (1) Do not disclose my nonpublic personal information to nonaffiliated third parties — 15 U.S.C. § 6802(b)(1). (2) Do not communicate information about me other than transactions and experiences to your affiliates — § 1681a(d)(2)(A)(iii); after this notice that exclusion no longer applies to you. (3) Do not use affiliate information to market to me — § 1681s-3(a)(1), effective at least five years. Standing instructions; no response required. — ${u.name}`;
+
+  const short = `Opt-out election: no sharing of my nonpublic personal information with nonaffiliated third parties (15 U.S.C. § 6802(b)(1)), no affiliate sharing beyond transactions and experiences (§ 1681a(d)(2)(A)(iii)), and no affiliate-sourced marketing (§ 1681s-3(a)(1)). Standing instructions. — ${u.name}`;
+
+  return {mail, portal: portal.length > 2000 ? portal.substring(0, 1990) + '…' : portal, short};
 }
 
 // ========== COMPILER: CFPB COMPLAINT (paste text) ==========
@@ -9971,6 +10113,10 @@ function determineLetterPacket(analysis) {
     // that are not theirs. Producing it from the derogatory list would put a
     // sworn statement in their hands about accounts they may well have opened.
     if (!lowConf && neverMine.length) packet.push(letterTemplates.idtheft_block);
+    // Fewer places for the next thief to find them. This is the only letter in
+    // the packet that is not about anything already on the report \u2014 it is
+    // about what leaves the creditor from here on.
+    packet.push(letterTemplates.privacy_opt_out);
   }
 
   // Medical collections get their own pair: the bureaus' own removal policies,
@@ -10042,6 +10188,7 @@ function determineLetterPacket(analysis) {
   if (f.data_breach || analysis.situation === 'breach') {
     packet.push(letterTemplates.fraud_alert);
     packet.push(letterTemplates.breach_notification);
+    if (packet.indexOf(letterTemplates.privacy_opt_out) < 0) packet.push(letterTemplates.privacy_opt_out);
   }
   
   // Active lawsuit — still include letters but surface the live-help CTA
@@ -11474,7 +11621,13 @@ const SEND_ORDER = {
   creditor:  {offset: 14,  group: 'Creditors and furnishers',
               why: 'Goes out about two weeks after the bureau letters. By then the bureau has passed the dispute to the furnisher, and a direct letter lands with someone who already has your file open.'},
   ftc:       {offset: 0,   group: 'Agencies',
-              why: 'Send alongside the first round.'}
+              why: 'Send alongside the first round.'},
+  // Goes to a creditor but is not a dispute, so it does not follow the dispute
+  // timing. There is nothing for a bureau round to set up first, and the whole
+  // value of it is that it starts early: every day it waits is another day the
+  // information is still moving.
+  privacy:   {offset: 0,   group: 'Privacy instructions',
+              why: 'Send with the first round, not after it. This one is an instruction rather than a dispute — nothing has to happen before it, and it takes effect the day they receive it.'}
 };
 
 // The templates use six recipient values, not three. A furnisher letter and a
@@ -11506,10 +11659,11 @@ function buildMailingSchedule(letters) {
   let bureauSeen = 0;
   (letters || []).forEach(tmpl => {
     if (!DAY_ONE_LETTERS.has(tmpl.id)) return;   // later-phase letters are not on this calendar
-    const rec = RECIPIENT_CLASS.hasOwnProperty(tmpl.recipient)
-      ? RECIPIENT_CLASS[tmpl.recipient]
-      : 'bureau';
-    if (!rec) return;
+    // A template may name its own timing when the recipient does not decide it.
+    const rec = tmpl.send_class
+      ? tmpl.send_class
+      : (RECIPIENT_CLASS.hasOwnProperty(tmpl.recipient) ? RECIPIENT_CLASS[tmpl.recipient] : 'bureau');
+    if (!rec || !SEND_ORDER[rec]) return;
     const base = SEND_ORDER[rec];
     let offset = base.offset;
     if (rec === 'bureau') { offset += bureauSeen; bureauSeen++; }
@@ -12017,6 +12171,55 @@ function buildLetterContext(tmpl) {
       reason: 'This account was not opened by me.'
     }));
   }
+
+  // The opt-out goes to a company the consumer still does business with, and
+  // there is usually more than one. The report already knows who they are and,
+  // in the columnar format, where they are — parsed.creditorContacts is the
+  // report's own "Creditor Contacts" section, and ctFindAddress only returns a
+  // match it is confident about, so an uncertain one leaves the placeholder and
+  // the instruction to copy the address off the statement.
+  //
+  // The letter is built for the first of them and names the rest, because one
+  // letter cannot be addressed to two companies and telling Capital One about
+  // an Amex account would be handing over exactly the information the letter is
+  // trying to stop moving.
+  if (tmpl.id === 'privacy_opt_out') {
+    const contacts = parsed.creditorContacts || [];
+    // All three rights in this letter run against a private company. GLBA
+    // § 6802 binds a "financial institution"; the two FCRA affiliate
+    // provisions turn on common ownership and corporate control. A federal
+    // agency has none of those, and a self-reported tradeline has nobody to
+    // post a letter to at all — the first draft of this addressed one to the
+    // U.S. Department of Education, which would have been a wasted stamp and a
+    // letter that reads as a form.
+    const OPT_OUT_SKIP = /\b(U\s*S|US|U\.S\.|UNITED STATES|DEPT|DEPARTMENT) (OF )?(ED|EDUCATION|TREASURY|AGRICULTURE)\b|\bIRS\b|\bSELF[\s-]?REPORTED\b|\bSTATE OF \b/i;
+    const open = (parsed.accounts || []).filter(a =>
+      a && a.creditor && !a.closed && !a.is_collection && !a.is_charge_off &&
+      !OPT_OUT_SKIP.test(String(a.creditor)));
+    const seen = {};
+    const targets = [];
+    open.forEach(a => {
+      const k = String(a.creditor).toUpperCase();
+      if (seen[k]) return;
+      seen[k] = true;
+      const addr = (typeof ctFindAddress === 'function') ? ctFindAddress(a.creditor, contacts) : null;
+      targets.push({
+        name: a.creditor,
+        account: a.account_number || '',
+        addr: addr ? [addr.street, addr.city].filter(Boolean).join('\n') : ''
+      });
+    });
+    ctx.optOutTargets = targets;
+    if (targets.length) {
+      ctx.creditor = {name: targets[0].name, addr: targets[0].addr || '[Address printed on your statement]'};
+      ctx.accountLines = targets[0].name +
+        (targets[0].account ? '   Account #: ' + targets[0].account : '');
+      if (targets.length > 1) {
+        ctx.alsoSendTo = targets.slice(1);
+      }
+    }
+  }
+
   ctx.billingErrorItems = reviewedAccounts('charges');
   ctx.medical = analysis.medical || null;
   ctx.bureau = parsed.bureau ? parsed.bureau.toLowerCase() : 'experian';
