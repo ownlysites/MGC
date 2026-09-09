@@ -2956,7 +2956,17 @@ const state = {
     lawsuit_status: null,     // yes/no/notsure
     special_flags: [],        // identity_theft, data_breach, bankruptcy, scra, student_loans, tax_debt, medical_debt
     state: null,              // US state code
-    primary_goal: null        // stop_collectors/remove_items/raise_score/rebuild/peace/fight_lawsuit
+    primary_goal: null,       // stop_collectors/remove_items/raise_score/rebuild/peace/fight_lawsuit
+    // Asked because the letters were answering them on their own. Every one of
+    // these was a sentence the consumer signed without ever being shown the
+    // question: that they were applying for a mortgage, that they were current
+    // on everything. Unanswered now means the sentence is left out, not guessed.
+    why_now: null,            // mortgage/auto/rent/job/insurance/business/none
+    payment_status: null,     // all_current/mostly/behind/unsure
+    hardship: [],             // job_loss/hours_cut/medical/death/divorce/deployment/disaster/caregiving/theft/none
+    deadline: null,           // urgent/soon/planned/open
+    channel: [],              // print/mail/online/phone/none
+    military_status: null     // active/guard/recent/veteran/family
   },
   upload: {
     filename: null,           // name of the uploaded file
@@ -3169,6 +3179,92 @@ const intakeQuestions = [
       {v:'yes', t:'Yes — I\'ve moved in the last year', d:'We\'ll tell you exactly what to enclose so your dispute gets read the first time.'},
       {v:'no', t:'No — same address for over a year'},
       {v:'unsure', t:'I\'m not sure'}
+    ]
+  },
+  {
+    id: 'why_now',
+    q: 'What is riding on this?',
+    help: 'This one earns its place. Your goodwill letter asks a human being at a bank for a favour, and the sentence that decides it is the one explaining why it matters. Until now that sentence said you were applying for a mortgage — for everybody. If that was not true of you, you were signing a letter that said something you had not said. Pick the real one, or the last option, and the sentence is left out instead.',
+    type: 'single',
+    options: [
+      {v:'mortgage',  t:'A mortgage or refinance', d:'Underwriting is looking at this now or will be soon.'},
+      {v:'auto',      t:'A car loan',              d:'The rate you are quoted moves with what the report says.'},
+      {v:'rent',      t:'A place to live',         d:'A landlord or property manager is pulling credit.'},
+      {v:'job',       t:'A job or a clearance',    d:'An employer background check, or a security clearance review.'},
+      {v:'insurance', t:'An insurance rate',       d:'Most states let insurers price partly from credit information.'},
+      {v:'business',  t:'Business funding',        d:'Personally underwritten, so your own file is what is read.'},
+      {v:'none',      t:'Nothing specific — I want it right', d:'No deadline. We will leave the "why now" sentence out of your letters rather than invent one.'}
+    ]
+  },
+  {
+    id: 'payment_status',
+    q: 'Where do your accounts stand right now?',
+    help: 'Same reason. The goodwill letter has been saying "I have since returned to consistent on-time payments" whether or not that was true of you. It is a good sentence when it is true and a bad one to sign when it is not.',
+    type: 'single',
+    options: [
+      {v:'all_current', t:'Everything is current now', d:'Nothing is past due today.'},
+      {v:'mostly',      t:'Most are current, I am working on the rest'},
+      {v:'behind',      t:'I am still behind',        d:'We will not claim otherwise in your letters.'},
+      {v:'unsure',      t:'I am not sure',            d:'We will leave the claim out.'}
+    ]
+  },
+  {
+    id: 'hardship',
+    q: 'What was going on when things slipped? (Select all that apply)',
+    help: 'Optional, and only used where it helps you — a goodwill request reads completely differently when the reason is on the page. Nothing here goes into a dispute letter, and nothing you pick leaves your browser.',
+    type: 'multi',
+    optional: true,
+    options: [
+      {v:'job_loss',   t:'I lost my job'},
+      {v:'hours_cut',  t:'My hours or income were cut'},
+      {v:'medical',    t:'A medical situation'},
+      {v:'death',      t:'A death in my family'},
+      {v:'divorce',    t:'A divorce or separation'},
+      {v:'deployment', t:'A military deployment'},
+      {v:'disaster',   t:'A natural disaster'},
+      {v:'caregiving', t:'I was caring for a family member'},
+      {v:'theft',      t:'Identity theft'},
+      {v:'none',       t:'None of these / I would rather not say'}
+    ]
+  },
+  {
+    id: 'deadline',
+    q: 'How soon do you need this resolved?',
+    help: 'This changes the order things happen in, not what you are entitled to. Some routes are genuinely faster than others — a security freeze lifts in one hour online and takes three business days by mail under FCRA § 605A(i)(3)(C) — and when the clock is tight we lead with those.',
+    type: 'single',
+    options: [
+      {v:'urgent',  t:'Inside 30 days',      d:'Something is already underway. We lead with the fastest route at every step.'},
+      {v:'soon',    t:'One to three months'},
+      {v:'planned', t:'Three to six months',  d:'Enough runway to do it in the strongest order rather than the quickest.'},
+      {v:'open',    t:'No particular deadline'}
+    ]
+  },
+  {
+    id: 'channel',
+    q: 'What can you actually do from where you are? (Select all that apply)',
+    help: 'A plan that opens with "mail this certified" is no plan at all for someone with no printer. Tell us what is realistic and we will route around what is not — several of these steps are free and online, and a few of them are faster online than on paper.',
+    type: 'multi',
+    optional: true,
+    options: [
+      {v:'print',   t:'I can print at home or nearby'},
+      {v:'mail',    t:'I can get to a post office',    d:'Certified mail with return receipt is the strongest record there is.'},
+      {v:'online',  t:'I would rather do things online where that is an option'},
+      {v:'phone',   t:'I can make phone calls'},
+      {v:'none',    t:'None of these are easy for me right now'}
+    ]
+  },
+  {
+    id: 'military_status',
+    q: 'Which of these describes your service?',
+    help: 'It decides which protections you get. An active-duty alert under FCRA § 605A(c) and free electronic monitoring under § 605A(k) are not open to everyone who has served — the monitoring provision reaches active duty and National Guard members, and the alert is for those on active duty away from their usual station.',
+    type: 'single',
+    depends_on: {field:'special_flags', includes:'scra'},
+    options: [
+      {v:'active',   t:'Active duty right now'},
+      {v:'guard',    t:'National Guard or Reserve on active orders'},
+      {v:'recent',   t:'Recently separated',       d:'Some protections run for a period after separation.'},
+      {v:'veteran',  t:'A veteran, separated some time ago'},
+      {v:'family',   t:'The spouse or dependent of a servicemember'}
     ]
   },
   {
@@ -3903,6 +3999,13 @@ function getVisibleQuestions() {
     // steer letters this mode does not build.
     if (isInquiryMode() && INQUIRY_MODE_QUESTIONS.indexOf(q.id) < 0) return false;
     if (!q.depends_on) return true;
+    // A follow-up can hang off a multi-select answer as well as a single one.
+    // The military question is only worth asking of someone who ticked the
+    // service box, and special_flags is an array.
+    if (q.depends_on.includes !== undefined) {
+      const held = state.intake[q.depends_on.field];
+      return Array.isArray(held) && held.indexOf(q.depends_on.includes) >= 0;
+    }
     return state.intake[q.depends_on.field] === q.depends_on.value;
   });
 }
@@ -3967,9 +4070,28 @@ function renderIntakeQuestion() {
     if (q.note) html += `<p style="margin-top:var(--space-3);font-size:0.8125rem;color:var(--text-tertiary);">${q.note}</p>`;
   }
   
+  // An optional question with nothing ticked used to look identical to one
+  // waiting for an answer — the Next button was simply enabled. Saying so is
+  // the difference between a form somebody finishes and one they abandon.
+  if (q.optional) {
+    html += `<p style="margin-top:var(--space-5);"><button type="button" class="btn btn-ghost btn-sm" onclick="skipIntakeQuestion()">Skip this one</button>
+      <span style="margin-left:var(--space-3);font-size:0.875rem;color:var(--text-tertiary);">Nothing here is required.</span></p>`;
+  }
+
   document.getElementById('intake-questions').innerHTML = html;
   document.getElementById('intake-back-btn').style.visibility = currentIntakeIndex === 0 ? 'hidden' : 'visible';
   updateIntakeNextBtn();
+}
+
+function skipIntakeQuestion() {
+  const q = visibleIntakeQuestions[currentIntakeIndex];
+  if (q && q.optional) {
+    // Skipped is a real answer: it means leave the claim out of the letters.
+    if (q.type === 'multi' && !(state.intake[q.id] || []).length) state.intake[q.id] = [];
+    if (q.type === 'textarea' && !state.intake[q.id]) state.intake[q.id] = '';
+  }
+  currentIntakeIndex++;
+  renderIntakeQuestion();
 }
 
 function selectIntake(field, value) {
@@ -4505,6 +4627,22 @@ function apOutcomeOfRule(rule) {
 }
 
 // Everything the plan had an opinion about, for the page that says so out loud.
+// Which of the service protections actually reach this person. Section 605A(k)
+// free electronic monitoring reaches active duty and National Guard; the
+// active-duty alert under § 605A(c) is for a member on active duty away from
+// their usual duty station. A veteran separated years ago gets neither, and
+// saying otherwise sends somebody to ask for something they will be refused.
+function militaryScope() {
+  const v = (state.intake || {}).military_status;
+  if (!v) return null;
+  return {
+    status: v,
+    monitoring: v === 'active' || v === 'guard',
+    activeAlert: v === 'active' || v === 'guard',
+    scra: v === 'active' || v === 'guard' || v === 'recent'
+  };
+}
+
 function apStanceSummary() {
   if (!state.actionPlan) return null;
   const parsed = (state.upload && state.upload.parsed) || {};
@@ -8551,6 +8689,73 @@ function compileCDDVCombo(ctx) {
 }
 
 // ========== COMPILER: GOODWILL LETTER ==========
+
+// ========== WHAT THEY TOLD US, IN THEIR LETTERS ==========
+// Three sentences in the goodwill letter used to be written by this file
+// rather than by the person signing it: that they were applying for a
+// mortgage, that they had returned to consistent on-time payments, and what
+// they had been dealing with at the time. None of the three was ever asked.
+// A goodwill letter is discretionary and is read by a human being, so a claim
+// in it that turns out to be untrue costs the request and the relationship —
+// and it is the consumer's signature under it, not ours.
+//
+// Every map below returns null for an answer that was not given. Null means
+// the sentence is not printed. Nothing here has a default.
+const WHY_NOW_CLAUSE = {
+  mortgage:  'I am working toward a mortgage approval, and this is one of the few things standing in the way',
+  auto:      'I am financing a vehicle, and the rate I am offered moves with what this report says',
+  rent:      'I am applying for somewhere to live, and this is pulled as part of the application',
+  job:       'I am going through a background check for work',
+  insurance: 'my insurance is priced partly from my credit information',
+  business:  'I am applying for business funding that is underwritten against my personal file',
+  none:      null
+};
+
+const PAYMENT_STATUS_CLAUSE = {
+  all_current: 'I have since returned to consistent on-time payments',
+  mostly:      'I have brought most of my accounts current and I am working through the rest',
+  behind:      null,     // saying otherwise would be a claim they did not make
+  unsure:      null
+};
+
+const HARDSHIP_CLAUSE = {
+  job_loss:   'a job loss',
+  hours_cut:  'a cut to my hours',
+  medical:    'a medical situation',
+  death:      'a death in my family',
+  divorce:    'a separation',
+  deployment: 'a deployment',
+  disaster:   'a natural disaster',
+  caregiving: 'caring for a family member',
+  theft:      'identity theft'
+};
+
+function intakeHardshipPhrase() {
+  const picked = (state.intake && state.intake.hardship) || [];
+  const parts = picked.map(k => HARDSHIP_CLAUSE[k]).filter(Boolean);
+  if (!parts.length) return null;
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return parts[0] + ' and ' + parts[1];
+  return parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+}
+
+function intakeWhyNow()  { return WHY_NOW_CLAUSE[(state.intake || {}).why_now] || null; }
+function intakeStatus()  { return PAYMENT_STATUS_CLAUSE[(state.intake || {}).payment_status] || null; }
+
+// Whether the plan should lead with the online route wherever one exists.
+// Two independent reasons: a deadline inside thirty days, or the person having
+// said outright that online is what works for them.
+function prefersFastest() {
+  const i = state.intake || {};
+  if (i.deadline === 'urgent') return true;
+  return Array.isArray(i.channel) && i.channel.indexOf('online') >= 0;
+}
+
+function canPrint() {
+  const c = (state.intake || {}).channel;
+  return !Array.isArray(c) || !c.length || c.indexOf('print') >= 0;
+}
+
 function compileGoodwill(ctx) {
   const creditor = ctx.creditor || {name: 'The creditor named below', addr: '', account: ''};
   const u = userHeader();
@@ -8561,11 +8766,11 @@ function compileGoodwill(ctx) {
   // person a machine wrote it, and 12 CFR § 1022.43 gives them a reason to
   // treat machine-written mail as frivolous.
   const yearsCustomer  = ctx.yearsCustomer || null;
-  const hardshipReason = ctx.hardshipReason ||
-    (((state.intake && state.intake.personal_statement) || '').trim() || null);
-  const currentStatus  = ctx.currentStatus || 'I have since returned to consistent on-time payments';
+  // Their answer, then their own words, then nothing. Never a default.
+  const hardshipReason = ctx.hardshipReason || intakeHardshipPhrase() || null;
+  const currentStatus  = ctx.currentStatus || intakeStatus() || null;
   const recovery       = pickFrom(fragments.goodwill_recovery, 100);
-  const whyNeeded      = ctx.whyNeeded || 'I am currently working to qualify for a mortgage, and this single mark is the last obstacle';
+  const whyNeeded      = ctx.whyNeeded || intakeWhyNow() || null;
 
   const opening = pickFrom(fragments.opening_goodwill, 40);
 
@@ -8585,10 +8790,13 @@ function compileGoodwill(ctx) {
     '',
     facts.join(' '),
     '',
-    (hardshipReason ? 'At the time, I was dealing with ' + hardshipReason + '. ' : '') +
-      currentStatus + ', ' + recovery,
-    '',
-    `I am writing today because ${whyNeeded}. ` + pickFrom(fragments.goodwill_ask, 101),
+    // The recovery sentence only exists if they said they had recovered. With
+    // nothing said, the paragraph is the hardship alone, or is dropped.
+    ((hardshipReason ? 'At the time, I was dealing with ' + hardshipReason + '. ' : '') +
+      (currentStatus ? currentStatus + ', ' + recovery : '')).trim() || null,
+    (hardshipReason || currentStatus) ? '' : null,
+    (whyNeeded ? 'I am writing today because ' + whyNeeded + '. ' : '') +
+      pickFrom(fragments.goodwill_ask, 101),
     '',
     pickFrom(fragments.goodwill_discretion, 102),
     '',
@@ -8596,6 +8804,19 @@ function compileGoodwill(ctx) {
     '',
     pickFrom(fragments.goodwill_close, 104)
   ];
+
+  // A dropped claim leaves a null and, sometimes, the blank line that was
+  // separating it from the next paragraph. Both come out here rather than
+  // printing a letter with a gap in the middle of it.
+  const cleaned = [];
+  body.forEach(line => {
+    if (line === null || line === undefined) return;
+    if (line === '' && cleaned[cleaned.length - 1] === '') return;
+    cleaned.push(line);
+  });
+  while (cleaned.length && cleaned[cleaned.length - 1] === '') cleaned.pop();
+  body.length = 0;
+  cleaned.forEach(l => body.push(l));
 
   const recipientBlock = creditorName + '\nAttn: Executive Customer Relations' +
     (creditorAddr ? '\n' + String(creditorAddr).trim() : '');
@@ -8610,7 +8831,9 @@ function compileGoodwill(ctx) {
     (ctx.lateDate ? ' in ' + ctx.lateDate : '') +
     ', current ever since. Asking you to consider removing it as a courtesy. Not a dispute — I am not questioning its accuracy. — ' + u.name;
 
-  const short = 'Goodwill request — longtime customer, single late payment, account current since. Asking for a one-time courtesy removal. Not a dispute.';
+  const short = 'Goodwill request — single late payment' +
+    (currentStatus ? ', ' + currentStatus.replace(/^I have /, '') : '') +
+    '. Asking for a one-time courtesy removal. Not a dispute.';
 
   return {mail, portal, short};
 }
@@ -12213,13 +12436,19 @@ function buildActionPlan(analysis) {
     name: 'Foundation — do this first',
     timeline: 'Today or this week',
     steps: [
+      (typeof prefersFastest === 'function' && prefersFastest())
+        ? 'Do the online steps first, today. Pulling your reports at AnnualCreditReport.com, placing a freeze at each bureau, and filing at IdentityTheft.gov are all immediate and all free. A freeze placed online goes on within one business day and lifts within one hour; by mail those are three business days and three business days. That is FCRA § 605A(i)(2)(A) and § 605A(i)(3)(C), and on your timeline the difference matters more than anything else on this page.'
+        : null,
+      (typeof canPrint === 'function' && !canPrint())
+        ? 'You told us printing is not easy. Do everything that can be done online or by phone first — reports, freezes, fraud alerts and the prescreen opt-out all can be. For the letters that must be mailed, a public library, a shipping store or a post office will print from a phone or a USB stick, and some will mail certified for you at the counter. Do not let the printing step stop the rest.'
+        : null,
       'Get your credit reports: AnnualCreditReport.com (free, all three bureaus, weekly). Pull all three.',
       'Pull your Innovis report (free) — it\'s a fourth bureau many mortgage lenders use.',
       'Freeze your credit at: Equifax, Experian, TransUnion, Innovis, LexisNexis/SageStream, ChexSystems, NCTUE. All free.',
       f.identity_theft ? 'File your Identity Theft Report at IdentityTheft.gov BEFORE sending any §605B letter. You do NOT need a police report first — the FTC report is the identity theft report the block runs on, and §605B does not condition the block on a police report. Do not let anyone stall you into getting one before you mail.' : 'Consider placing a 1-year fraud alert as a precaution (free, no ID theft required).',
       'Set up a dedicated folder — physical or digital — for every letter you send and every response you receive. Keep this forever.',
       'Buy certified mail envelopes at the post office ($7 each) or use USPS Click-N-Ship online.'
-    ]
+    ].filter(Boolean)
   });
   
   // PHASE 1 — Primary strike (depends on where they are)
@@ -15359,15 +15588,26 @@ function buildActionPlanDoc() {
   (function () {
     const flags = (state.intake && state.intake.special_flags) || [];
     if (flags.indexOf('scra') < 0) return;
+    // Which of these actually reach this person, from the follow-up question.
+    // Null when they never answered it, and then the page reads as it always
+    // did rather than guessing at their status.
+    const mil = (typeof militaryScope === 'function') ? militaryScope() : null;
     h += `<section class="plan-sheet">
-      ${planHead('Because you are serving')}
-      ${planTitle('Because you are serving', 'Three things the law gives you that it gives nobody else. All free, all worth doing before anything in this packet is mailed.')}
-      <div class="plan-rule plan-rule-check">
-        <b>Active-duty alert &mdash; FCRA &sect; 605A(c)</b>
+      ${planHead(mil && !mil.activeAlert ? 'Because you have served' : 'Because you are serving')}
+      ${planTitle(mil && !mil.activeAlert ? 'Because you have served' : 'Because you are serving',
+        mil && !mil.activeAlert
+          ? 'Not all of these reach everyone who has served, and this page says which reach you. Anything below marked as not yours is here so you know it exists, not so you go and ask for it.'
+          : 'Things the law gives you that it gives nobody else. All free, all worth doing before anything in this packet is mailed.')}
+      ${mil && !mil.activeAlert ? `<div class="plan-rule mt">
+        <b>What your answer changed</b>
+        <p>You told us you are ${planEsc(mil.status === 'recent' ? 'recently separated' : mil.status === 'veteran' ? 'a veteran, separated some time ago' : 'the spouse or dependent of a servicemember')}. The active-duty alert and the free monitoring below are written for members on active duty and for National Guard members, so they are marked accordingly. The VA medical-debt provisions at the foot of this page do reach you.</p>
+      </div>` : ''}
+      <div class="plan-rule ${mil && mil.activeAlert ? 'plan-rule-check' : ''}">
+        <b>Active-duty alert &mdash; FCRA &sect; 605A(c)${mil && !mil.activeAlert ? ' &mdash; not yours today' : ''}</b>
         <p>On request, with proof of identity, a nationwide bureau must place an active-duty alert on your file for <strong>at least twelve months</strong>, and must keep you off prescreened credit and insurance offer lists for <strong>two years</strong>. You only ask once: the bureau you ask has to refer it to the other two. While it is on, a lender may not open a new account, issue an extra card or raise a limit without forming a reasonable belief that it knows who is asking &mdash; and if you leave a verification phone number, it must call that number first (&sect; 605A(h)(1)).</p>
       </div>
       <div class="plan-rule mt">
-        <b>Free credit monitoring &mdash; FCRA &sect; 605A(k)</b>
+        <b>Free credit monitoring &mdash; FCRA &sect; 605A(k)${mil && !mil.monitoring ? ' &mdash; not yours today' : ''}</b>
         <p>Each nationwide bureau must give you a free electronic monitoring service that tells you when anything material is added to or changed on your file. Proof of active-duty status and contact details is all it takes. <strong>National Guard members are covered by name</strong> in &sect; 605A(k)(1)(A). One thing to know: &sect; 605A(k)(4)(A) says &sect;&sect; 616 and 617 do not apply to this subsection, so if a bureau fails to provide it there is no private lawsuit &mdash; it is enforced by the regulators, and a CFPB complaint is the route.</p>
       </div>
       <div class="plan-rule mt">
