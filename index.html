@@ -244,6 +244,126 @@ em { font-style: italic; }
 .workspace-main td p,
 .workspace-main th p { max-width: none; }
 
+
+/* Short amounts, so they flow inline rather than borrowing the answer-button
+   grid, which is built for four sentence-length labels. */
+.budget-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-6); }
+.budget-chips .btn { margin: 0; min-width: 5.5rem; justify-content: center; }
+
+/* ========== THE SNAPSHOT ==========
+   The file at a glance, above the document. Values are set in the sans, not in
+   Cormorant: a display serif on a figure reads as decoration, and these are the
+   numbers everything below rests on. */
+.snapshot {
+  display: grid;
+  gap: var(--space-6);
+  margin-bottom: var(--space-12);
+  padding-bottom: var(--space-8);
+  border-bottom: 1px solid var(--border);
+}
+.snap-label {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.snap-note {
+  display: block;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
+}
+
+/* Exactly one hero figure per view. Proportional numerals, because tabular
+   gives every digit the width of a zero and a number like 121 goes gappy at
+   this size. */
+.snap-hero-figure {
+  font-family: var(--font-body);
+  font-size: 3.25rem;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin: var(--space-2) 0 var(--space-3);
+  font-variant-numeric: proportional-nums;
+}
+.snap-hero-note {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 46ch;
+}
+
+.snap-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  gap: var(--space-6) var(--space-8);
+}
+.snap-tile { min-width: 0; }
+.snap-value {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 1.5rem;
+  line-height: 1.15;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: var(--space-1);
+  font-variant-numeric: proportional-nums;
+}
+
+/* The meter. Severity is in the fill; the track is a lighter step of the same
+   ramp so the state reads across the whole bar. The level is also written in
+   words, because colour on its own is not a channel every reader has. */
+.snap-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.snap-meter-value {
+  font-family: var(--font-body);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.snap-meter-word {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-left: var(--space-2);
+}
+.snap-good     { color: #2f5d34; }
+.snap-warning  { color: #8a5200; }
+.snap-serious  { color: #9a3412; }
+.snap-critical { color: #8d2323; }
+
+.snap-meter-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--warm-gray-100);
+  overflow: hidden;
+}
+.snap-meter-fill { height: 100%; border-radius: 999px; }
+.snap-fill-good     { background: #5f8a66; }
+.snap-fill-warning  { background: #c9934c; }
+.snap-fill-serious  { background: #c2703f; }
+.snap-fill-critical { background: #a85454; }
+
+@media (min-width: 720px) {
+  .snapshot { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; gap: var(--space-10); }
+  .snap-hero { grid-column: 1; }
+  .snap-tiles { grid-column: 2; }
+  .snap-meter { grid-column: 1 / -1; }
+}
+
 .rail-label {
   margin-top: var(--space-6);
   font-size: 0.6875rem;
@@ -10924,6 +11044,95 @@ function renderUtilizationSection(analysis) {
 }
 
 
+
+// ========== THE SNAPSHOT ==========
+// The analysis opened with a heading and then twenty thousand pixels of
+// document. Nobody could see the shape of their own file before reading all of
+// it, and a professional instrument shows you the state of the thing first.
+//
+// Type note, because it goes against the rest of this file: every number here
+// is set in the SANS, not in Cormorant. A display serif on a figure reads as
+// decoration, and these are the numbers the whole analysis rests on. Cormorant
+// carries the headings; the data wears the working face. Standalone figures
+// also use the font's proportional numerals — tabular-nums gives every digit
+// the width of a zero, which makes a number like 121 look gappy at display
+// size. Tabular is for columns that have to line up, which is the table below.
+function renderSnapshot(analysis) {
+  const parsed = (state.upload && state.upload.parsed) || {};
+  const accounts = parsed.accounts || [];
+  if (!accounts.length) return '';
+
+  const derog = accounts.filter(a => a.is_charge_off || a.is_collection ||
+    a.is_repossession || a.has_late_payments || (a.past_due && a.past_due > 0));
+  const collections = accounts.filter(a => a.is_collection).length +
+    ((parsed.collections || []).length);
+  const inquiries = (parsed.inquiries || []).length;
+  const util = analysis.utilization;
+  const factual = (analysis.factual || []).length;
+  const contra = (analysis.contradictions || []).length;
+
+  // The one number this view leads with: everything the analysis found that a
+  // letter could actually act on. Not "problems" — things with a move attached.
+  const actionable = factual + contra + derog.length;
+
+  const bureaus = (parsed.bureaus || []).length;
+
+  // Oldest account, because length of history is the one factor nothing can
+  // hurry and people routinely close the account that carries it.
+  let oldest = null;
+  accounts.forEach(a => {
+    const d = a.date_opened && fiParseDate(a.date_opened);
+    if (d && (!oldest || d < oldest)) oldest = d;
+  });
+  const yearsOld = oldest ? Math.floor((Date.now() - oldest.getTime()) / 31557600000) : null;
+
+  const tile = (label, value, note) =>
+    `<div class="snap-tile"><span class="snap-label">${label}</span>` +
+    `<span class="snap-value">${value}</span>` +
+    (note ? `<span class="snap-note">${note}</span>` : '') + '</div>';
+
+  let h = '<section class="snapshot" aria-label="Your file at a glance">';
+
+  h += `<div class="snap-hero">
+    <p class="snap-label">Things on this report with a move attached</p>
+    <p class="snap-hero-figure">${actionable}</p>
+    <p class="snap-hero-note">${factual + contra} place${(factual + contra) === 1 ? '' : 's'} where the report contradicts itself or the bureaus disagree with each other, and ${derog.length} derogatory account${derog.length === 1 ? '' : 's'}. Every one is named further down, with what to do about it and which letter it goes in.</p>
+  </div>`;
+
+  h += '<div class="snap-tiles">';
+  h += tile('Accounts read', accounts.length, bureaus ? bureaus + ' bureau' + (bureaus === 1 ? '' : 's') + ' reporting' : null);
+  h += tile('Derogatory', derog.length, derog.length ? 'of ' + accounts.length : 'none found');
+  h += tile('Collections', collections, collections ? 'may be fewer real debts' : 'none found');
+  h += tile('Hard inquiries', inquiries, inquiries ? 'last 2 years' : 'none found');
+  if (yearsOld !== null) {
+    h += tile('Oldest account', yearsOld + (yearsOld === 1 ? ' yr' : ' yrs'), 'never close this one');
+  }
+  h += '</div>';
+
+  // The meter. Severity is carried by the fill, the track is a lighter step of
+  // the same ramp, and the state is named in words as well as coloured —
+  // colour alone is not a channel a colourblind reader has.
+  if (util && util.overall !== null) {
+    const pct = Math.min(100, util.overall);
+    const level = util.overall > 90 ? 'critical' : util.overall > UTIL_GOOD ? 'serious'
+                : util.overall > UTIL_BEST ? 'warning' : 'good';
+    const word = {critical: 'Very high', serious: 'High', warning: 'Moderate', good: 'Low'}[level];
+    h += `<div class="snap-meter">
+      <div class="snap-meter-head">
+        <span class="snap-label">Revolving utilization</span>
+        <span class="snap-meter-value">${util.overall}% <span class="snap-meter-word snap-${level}">${word}</span></span>
+      </div>
+      <div class="snap-meter-track" role="img" aria-label="Revolving utilization ${util.overall} percent, ${word}">
+        <div class="snap-meter-fill snap-fill-${level}" style="width:${pct}%;"></div>
+      </div>
+      <p class="snap-note">${usd(util.total_balance)} against ${usd(util.total_limit)} across ${util.cards.length} revolving account${util.cards.length === 1 ? '' : 's'}. This is the one number on the page you can change without anyone's permission.</p>
+    </div>`;
+  }
+
+  h += '</section>';
+  return h;
+}
+
 // ========== THE ALLOCATOR, ON SCREEN ==========
 // The table above is a menu of totals. This is the part that answers the
 // question people actually arrive with, which is not "what would everything
@@ -10948,7 +11157,7 @@ function renderUtilizationAllocator(u) {
   h += '<h2 style="margin-bottom:var(--space-3);">If you can put money against this, here is where it goes</h2>';
   h += '<p style="color:var(--text-secondary);margin-bottom:var(--space-6);">Pick roughly what you could put toward cards before the next statements close. The order below is not arbitrary — it is what the arithmetic says, and the reason for each line is next to it.</p>';
 
-  h += '<div class="review-actions" style="margin-bottom:var(--space-6);">';
+  h += '<div class="budget-chips">';
   opts.forEach(v => {
     const on = v === chosen;
     h += `<button type="button" class="btn btn-sm ${on ? 'btn-primary' : 'btn-ghost'}" onclick="setUtilBudget(${v})">${usd(v)}</button>`;
@@ -11448,6 +11657,8 @@ function renderAnalysis(analysis) {
   html += '<h1 style="margin-top:var(--space-2);">Your analysis.</h1>';
   html += '<p style="font-size:1.125rem;color:var(--text-secondary);margin-top:var(--space-3);">Here\'s everything we found — the issues on your report, the wins available to you, and exactly what the law says on each point.</p>';
   html += '</div>';
+
+  html += renderSnapshot(analysis);
   
   // Critical warnings first — lawsuit, identity theft, etc.
   const criticalWarnings = analysis.warnings.filter(w => w.severity === 'critical');
