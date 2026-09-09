@@ -1,6 +1,6 @@
 # MGC — Backlog
 
-**Updated:** 2026-09-08. Items 1–6, 8–12, 14–24, 26–27, 29, 31 and 32 shipped, plus 20 fully mined. Everything not blocked is shipped. Blocked on missing sample data only: 7, 13, 25, 28, 30. One file, kept current. Anything agreed and not yet built lives here so it cannot be lost between sessions.
+**Updated:** 2026-09-09. Items 1–6, 8–12, 14–24, 26–27, 29, 31 and 32 shipped, plus 20 fully mined. Everything not blocked is shipped. Blocked on missing sample data only: 7, 13, 25, 28, 30 — nine further client reports were run through the parsers on 09-09 and none of them unblocks any of the five. One file, kept current. Anything agreed and not yet built lives here so it cannot be lost between sessions.
 
 Status key: **TODO** · **IN PROGRESS** · **DONE** (kept for one refresh, then cut) · **WON'T DO** (with the reason, so it is not re-proposed)
 
@@ -85,3 +85,21 @@ Current as of this date, from the work in `MGC_HANDOFF.md` § 11:
 - 12 CFR § 1022.43 frivolous-dispute exception for anything prepared by or on a form supplied by a CRO. Tool answers this with fragment randomisation, voice selection, the consumer's own statement, and an instruction to rewrite before sending.
 - CFPB medical debt rule vacated 2025-07-11 (E.D. Tex.). Bureaus' voluntary NCAP policies still stand. The preemption remark was dicta; the 15 state statutes remain on the books.
 - FCRA § 605(a) seven-year clock, plus 180 days for charge-offs and collections, now computed rather than described.
+
+---
+
+## 2026-09-09 — what changed
+
+**Shipped.** Design system replaced end to end (`19573f9`): Figtree/Inter, ink-and-paper surfaces, garnet accent tuned to the MGC mark, severity ramp, asymmetric hero carrying the product's own output, 64px bar, tightened flow rhythm. Every old token name kept and repointed, so all ~900 references moved at once. Cormorant Garamond is gone from the file, including the Action Plan print sheet. Inquiry-only path (`startInquiryOnly`): three intake questions, two letters, still gated on inquiries the consumer flags. Plans-built counter seeded at 5,025 on a first-party `/api/count` backed by an Upstash Redis key — no body in either direction. Booking link in the upload step. TransUnion Online Service Center parser (`bc2132d`), the fifth format.
+
+**Live at `mgc.itsownlymoney.com`** as well as `mgc-orpin.vercel.app`, CNAME `mgc` → `5c1e567b2d45ddaf.vercel-dns-017.com.` at GoDaddy.
+
+**Nine client reports parsed** (09-09). Eight already read correctly: `three_bureau`, `columnar_tri_merge` and `experian_printable` all hold, and the two that looked under-parsed were verified against source as correct (james_gibson genuinely has 2 accounts, 0 inquiries, 0 collections, 0 public records). The ninth was the TransUnion export, now parsed. **None of them carries a medical collection, a public record, a 1099-C, a short sale, a foreclosure, or a collection with a complete 30/60/90 grid** — so 7, 13, 25, 28 and 30 stay blocked, and the sample set that would unblock them is now known to be larger than first thought.
+
+### New — open
+
+| # | Item | Why it matters | Status | Size |
+|---|---|---|---|---|
+| 33 | **TransUnion OSC parser is built on one sample** | The format is read correctly — 6 accounts, 3 hard inquiries, limits and balances all verified against source — but the sample has only a "Satisfactory Accounts" section. The adverse-account and collections shapes in this format are inferred from the label vocabulary, not observed. | **TODO** — needs one TransUnion Online Service Center export with an adverse account or a collection on it. | S |
+| 34 | **Soft inquiries are counted, not named** | `soft_inquiry_count` is parsed (46 on the sample) and nothing reads it. The analysis could say "and 46 soft pulls, which are not disputable and do not affect your score" — useful, because a screen of inquiries is what an inquiry-only visitor is reacting to and most of them are usually soft. | **TODO** | S |
+| 35 | **Node.js 20 on another Vercel project** | Not MGC (that is on 24.x), but Vercel is warning that builds on one of Dave's other projects fail after 2026-09-30. | **TODO** — Dave's call which project. | S |
