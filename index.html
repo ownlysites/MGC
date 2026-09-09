@@ -2509,6 +2509,9 @@ const state = {
     showAll: false,     // reveal the rows whose answer would change nothing
     reviewed: false
   },
+  // What the consumer says they can put toward cards this month. Drives the
+  // allocator; null means it has not been chosen and a sensible default shows.
+  utilBudget: null,
   ftcReportNumber: null,
   // Whether a police report exists. The § 605B block does not depend on one —
   // the FTC report is the identity theft report — but the enclosure list in the
@@ -5421,6 +5424,40 @@ function ctNearestNameAbove(lines, headerIdx, span) {
   return null;
 }
 
+// Which of the report's own account sections a line sits under. Returns null
+// for anything that is not one of the account groupings — "Inquiries" and
+// "Creditor Contacts" are sections too, and an account is never in them.
+const CT_SECTION_TYPE = {
+  'Revolving Accounts': 'Revolving',
+  'Installment Accounts': 'Installment',
+  'Mortgage Accounts': 'Mortgage',
+  'Collection Accounts': 'Collection',
+  'Collections': 'Collection',
+  'Other Accounts': 'Other',
+  'Accounts': null
+};
+
+// A word that could not plausibly be an account type is worse than no type at
+// all, because it makes isRevolvingAccount() answer confidently and wrongly.
+// These are the actual fragments the positional read produced on real reports.
+function ctPlausibleType(v) {
+  const t = String(v || '').trim();
+  if (!t || t.length < 4) return null;
+  if (!/^[A-Za-z][A-Za-z /'-]*$/.test(t)) return null;
+  if (/^(the|real|placed|reported|single|open|closed|other|none)$/i.test(t)) return null;
+  return t;
+}
+
+function ctSectionTypeAt(lines, idx) {
+  for (let k = idx; k >= 0; k--) {
+    const t = (lines[k] || '').trim();
+    if (!CT_SECTIONS.test(t)) continue;
+    if (Object.prototype.hasOwnProperty.call(CT_SECTION_TYPE, t)) return CT_SECTION_TYPE[t];
+    return null;   // Inquiries, Creditor Contacts, Personal Information, ...
+  }
+  return null;
+}
+
 function ctParseAccountsV2(lines) {
   const rosterMulti = ctBuildRosterMulti(lines);
   const hasRoster = Object.keys(rosterMulti).length >= 5;
@@ -5428,6 +5465,7 @@ function ctParseAccountsV2(lines) {
   for (let i = 0; i < lines.length; i++) {
     const order = ctHeaderOrder(lines[i]);
     if (!order || order.length < 2) continue;
+    const sectionType = ctSectionTypeAt(lines, i);
 
     const per = {};
     order.forEach(b => per[b] = {});
@@ -5478,6 +5516,7 @@ function ctParseAccountsV2(lines) {
       creditor: res.creditor,
       creditor_uncertain: !!res.uncertain,
       creditor_alternatives: res.alternatives || null,
+      section_type: sectionType,
       account_number: acctNum,
       per_bureau: per,
       bureaus_reported: reported,
@@ -5768,7 +5807,11 @@ function parseColumnarTriMerge(text) {
       status: status,
       closed: /closed|paid/i.test(status),
       responsibility: ctPickFirst(per, order, 'account_description') || null,
-      account_type: ctPickFirst(per, order, 'account_type') || null,
+      // The section the report itself filed this under, then the positional
+      // value as a fallback. A word scraped out of a drifted column is worse
+      // than nothing, so anything that is not plausibly a type is dropped.
+      account_type: a.section_type || ctPlausibleType(ctPickFirst(per, order, 'account_type')),
+      account_section: a.section_type || null,
       per_bureau_status: ctTriple(per, order, 'account_status'),
       per_bureau_balance: ctTriple(per, order, 'balance_owed', true),
       per_bureau_limit: ctTriple(per, order, 'credit_limit', true),
@@ -9325,16 +9368,61 @@ function yearsPhrase(y) {
 //
 // So it gets stated in dollars. "Lower your utilization" is advice nobody can
 // act on; "pay this card down $237 before the statement closes" is an
-// instruction. The thresholds below are the ones scoring models actually break
-// at. They are thresholds, not a promise: no honest tool predicts a point gain,
-// because the models are proprietary and every file reacts differently.
-const UTIL_GOOD = 30;   // the widely-used break point
-const UTIL_BEST = 9;    // where the strongest files sit
+// instruction.
+//
+// THE THRESHOLDS, AND WHAT THEY ARE NOT.
+//
+// This file used to call 30% "the break point scoring models actually break
+// at." FICO says the opposite, in as many words: "the data doesn't support the
+// implication that your credit score will dip once your utilization ratio
+// crosses the 30% threshold." The 30% figure is not FICO's at all — it is
+// VantageScore's published consumer ADVICE ("use 30% or less of the total
+// credit available to you"). Useful as a target. Not a cliff, and this file no
+// longer claims it is one.
+//
+// The lower number is FICO's own guidance, and it is 10, not 9: "generally,
+// keeping it below 10% (and consistently paying bills on time) can help you
+// build and maintain a good FICO Score." The 9% figure that was here, and the
+// 1% figure that circulates with it, come from forum reverse-engineering with
+// no primary source. FICO has separately said that consumers holding a perfect
+// 850 carry an average revolving utilization of 4.1% — that is a description of
+// who those people are, not a target to hit, and it is quoted that way below.
+const UTIL_GOOD = 30;   // VantageScore's stated advice. Not a FICO breakpoint.
+const UTIL_BEST = 10;   // FICO's own stated guidance: "below 10%".
+const UTIL_850_AVG = 4.1;  // FICO: average revolving utilization of 850-holders.
 
 function isRevolvingAccount(a) {
   const t = String(a.account_type || '');
   if (!t) return false;
+  // FICO "generally excludes HELOCs from credit utilization calculations."
+  // A home equity line matches /line of credit/ and was being counted, which
+  // inflates the limit side of the ratio and makes the file look better than a
+  // lender's own number will.
+  if (/home equity|heloc/i.test(t)) return false;
   return /credit card|charge card|secured card|revolving|line of credit/i.test(t);
+}
+
+// A CLOSED CARD STILL CARRYING A BALANCE IS STILL IN THE RATIO.
+//
+// This was a real bug and it ran in the wrong direction. FICO: "FICO Scores
+// will consider these closed revolving accounts with a balance in utilization
+// calculations." We were dropping them, so the utilization this tool reported
+// was lower than the one a lender sees — and the advice built on it sent people
+// to pay down the wrong card.
+//
+// A closed card with a balance is also the worst possible shape: the balance
+// counts, and the limit usually does not, because a closed account's limit
+// generally stops being reported. So it is included, and flagged, because it is
+// the account most worth clearing and almost nobody knows it is still counting.
+function countsTowardUtilization(a) {
+  const closed = /closed|paid/i.test(String(a.open_closed || '')) || /closed/i.test(String(a.status || ''));
+  if (!closed) return true;
+  return moneyNum(a.balance) > 0;
+}
+
+function isClosedWithBalance(a) {
+  const closed = /closed|paid/i.test(String(a.open_closed || '')) || /closed/i.test(String(a.status || ''));
+  return closed && moneyNum(a.balance) > 0;
 }
 
 function isOpenAccount(a) {
@@ -9355,7 +9443,7 @@ function analyzeUtilization(parsed) {
   let excludedChargedOff = 0;
 
   (parsed.accounts || []).forEach(a => {
-    if (!isRevolvingAccount(a) || !isOpenAccount(a)) return;
+    if (!isRevolvingAccount(a) || !countsTowardUtilization(a)) return;
 
     const bal = moneyNum(a.balance);
     // A charged-off card is not a utilization problem to solve by paying it to
@@ -9407,6 +9495,7 @@ function analyzeUtilization(parsed) {
     cards.push({
       creditor: a.creditor,
       account: a.account_number || '',
+      closed_with_balance: isClosedWithBalance(a),
       per_bureau: perBureau,
       balance: balUsed,
       limit: limit,
@@ -9443,6 +9532,7 @@ function analyzeUtilization(parsed) {
     cost_all_cards_good: costAllGood,
     cost_all_cards_best: costAllBest,
     over_limit: cards.filter(c => c.over_limit),
+    closed_with_balance: cards.filter(c => c.closed_with_balance),
     estimated_limits: cards.filter(c => c.limit_estimated).length,
     excluded_charged_off: excludedChargedOff,
     skipped_no_data: skippedNoData,
@@ -9452,6 +9542,135 @@ function analyzeUtilization(parsed) {
 
 function usd(n) {
   return '$' + Math.round(n).toLocaleString();
+}
+
+// ========== WHERE DOES THE NEXT DOLLAR GO ==========
+//
+// The table above answers "what would it cost to fix everything." Almost nobody
+// has that. The question people actually have is the other one: I have $400
+// this month, where does it go — and it has a correct answer, because the two
+// things utilization is measured on behave differently.
+//
+// FICO looks at both the aggregate ratio across all revolving accounts AND the
+// highest ratios on individual accounts. That is the whole basis of this
+// allocator, and it is FICO's own wording: scores consider "your overall
+// utilization rate and the highest utilization rates on specific revolving
+// credit accounts."
+//
+// For the AGGREGATE, a dollar is a dollar. Paying $100 to any card moves the
+// overall ratio by exactly the same amount, so the aggregate gives no reason to
+// prefer one card. For the PER-CARD number it matters enormously, and that is
+// what decides the order:
+//
+//   1. Over the limit. A balance above the limit is the worst state a revolving
+//      account can be in, it is visible to a human underwriter, and some
+//      issuers report it as a derogatory in its own right. Get under first.
+//   2. Closed cards still carrying a balance. The balance counts and the limit
+//      usually is not reported any more, so these sit at or near 100% and drag
+//      both numbers. Clearing one removes it from the ratio entirely.
+//   3. Highest ratio first, down to the FICO guidance line, one card at a time.
+//      Finishing a card is worth more than part-paying two, because the
+//      per-card figure only improves when a card actually crosses.
+//
+// What this does NOT do is tell anyone how many points they will gain. FICO:
+// "it's not possible to measure the exact impact of a single factor in how your
+// FICO Score is calculated without looking at your entire report." Any tool
+// printing "+42 points" is inventing it. This prints dollars and ratios, which
+// are arithmetic, and stops there.
+function allocateUtilizationBudget(util, budget) {
+  if (!util || !util.cards || !util.cards.length) return null;
+  let left = Math.max(0, Math.floor(budget || 0));
+  if (!left) return null;
+
+  const state = util.cards.map(c => ({
+    creditor: c.creditor, account: c.account, limit: c.limit,
+    start: c.balance, balance: c.balance,
+    closed_with_balance: !!c.closed_with_balance,
+    startUtil: c.utilization
+  }));
+  const steps = [];
+  const spendOn = (card, amount, why) => {
+    const pay = Math.min(amount, card.balance, left);
+    if (pay <= 0) return 0;
+    card.balance -= pay;
+    left -= pay;
+    steps.push({
+      creditor: card.creditor, account: card.account, pay: pay, why: why,
+      from: Math.round((card.start / card.limit) * 100),
+      to: Math.round((card.balance / card.limit) * 100),
+      clears: card.balance === 0
+    });
+    return pay;
+  };
+
+  // 1. Over the limit.
+  state.filter(c => c.balance > c.limit)
+       .sort((a, b) => (b.balance - b.limit) - (a.balance - a.limit))
+       .forEach(c => { if (left > 0) spendOn(c, Math.ceil(c.balance - c.limit), 'over_limit'); });
+
+  // 2. Closed cards with a balance — clear them outright if the budget reaches.
+  state.filter(c => c.closed_with_balance && c.balance > 0)
+       .sort((a, b) => a.balance - b.balance)
+       .forEach(c => { if (left >= c.balance) spendOn(c, c.balance, 'closed_with_balance'); });
+
+  // 3. Highest ratio first, to the guidance line, finishing each before moving on.
+  let guard = 0;
+  while (left > 0 && guard++ < 200) {
+    const target = state
+      .filter(c => c.limit > 0 && (c.balance / c.limit) * 100 > UTIL_BEST)
+      .sort((a, b) => (b.balance / b.limit) - (a.balance / a.limit))[0];
+    if (!target) break;
+    const need = payDownTo(target.balance, target.limit, UTIL_BEST);
+    if (need <= 0) break;
+    if (spendOn(target, need, 'to_guidance') <= 0) break;
+  }
+
+  // Anything left over goes to the largest remaining balance: it cannot improve
+  // a per-card crossing any further, but it still moves the aggregate.
+  if (left > 0) {
+    const t = state.filter(c => c.balance > 0).sort((a, b) => b.balance - a.balance)[0];
+    if (t) spendOn(t, left, 'aggregate');
+  }
+
+  // Merge repeat visits to the same card into one instruction.
+  const merged = [];
+  steps.forEach(st => {
+    const prev = merged.find(m => m.creditor === st.creditor && m.account === st.account);
+    if (prev) { prev.pay += st.pay; prev.to = st.to; prev.clears = st.clears; }
+    else merged.push(Object.assign({}, st));
+  });
+
+  const spent = merged.reduce((n, m) => n + m.pay, 0);
+  const newBal = state.reduce((n, c) => n + c.balance, 0);
+  const newOverall = util.total_limit ? Math.round((newBal / util.total_limit) * 100) : null;
+  const worstBefore = Math.max.apply(null, util.cards.map(c => c.utilization));
+  const worstAfter = Math.max.apply(null, state.map(c => c.limit ? Math.round((c.balance / c.limit) * 100) : 0));
+
+  return {
+    budget: Math.floor(budget), spent: spent, unspent: Math.max(0, Math.floor(budget) - spent),
+    steps: merged,
+    overall_before: util.overall, overall_after: newOverall,
+    worst_before: worstBefore, worst_after: worstAfter,
+    cards_cleared: merged.filter(m => m.clears).length,
+    over_limit_fixed: merged.filter(m => m.why === 'over_limit').length
+  };
+}
+
+// Preset amounts to offer, drawn from this file rather than pulled out of the
+// air: what clears the over-limit, what gets every card to guidance, and a
+// couple of round numbers under them so the smallest option is always one a
+// person might actually have.
+function utilizationBudgetOptions(util) {
+  if (!util || !util.cards.length) return [];
+  const opts = new Set();
+  const overLimitCost = util.over_limit.reduce((n, c) => n + c.to_under_limit, 0);
+  if (overLimitCost > 0) opts.add(overLimitCost);
+  const worst = util.cards[0];
+  if (worst && worst.to_best > 0) opts.add(worst.to_best);
+  if (util.overall_to_good > 0) opts.add(util.overall_to_good);
+  if (util.cost_all_cards_best > 0) opts.add(util.cost_all_cards_best);
+  [100, 250, 500].forEach(n => { if (n < util.total_balance) opts.add(n); });
+  return Array.from(opts).filter(n => n > 0).sort((a, b) => a - b).slice(0, 6);
 }
 
 // ========== AUTHORIZED-USER ACCOUNTS ==========
@@ -10667,6 +10886,15 @@ function renderUtilizationSection(analysis) {
   html += `</tbody><tfoot><tr><th>All cards under the line</th><th class="num">${usd(u.total_balance)}</th><th class="num">${usd(u.total_limit)}</th><th class="num">${u.overall}%</th><th class="num">${usd(u.cost_all_cards_good)}</th><th class="num">${usd(u.cost_all_cards_best)}</th></tr></tfoot>`;
   html += '</table></div>';
 
+  if (u.closed_with_balance.length) {
+    const n = u.closed_with_balance.length;
+    html += `<div class="alert alert-warning" style="margin-top:var(--space-6);">
+      <h3 style="margin-bottom:var(--space-3);">${n} closed card${n === 1 ? ' is' : 's are'} still counting against you</h3>
+      <p>${u.closed_with_balance.map(c => idEsc(c.creditor)).join(', ')} ${n === 1 ? 'is closed and still carries a balance' : 'are closed and still carry balances'}. Closing a card does not take it out of your utilization while there is money on it — FICO's own words are that it "will consider these closed revolving accounts with a balance in utilization calculations."</p>
+      <p style="margin-top:var(--space-3);">This is the worst shape a revolving account can be in, and it is the one nobody knows about. The balance still counts. The limit usually does not, because a closed account's limit generally stops being reported. So it sits near 100% and drags both your overall ratio and your worst-card number. Clearing one removes it from the calculation completely, which is a bigger move per dollar than paying down any open card.</p>
+    </div>`;
+  }
+
   if (u.over_limit.length && u.overall <= UTIL_GOOD) {
     html += `<div class="alert alert-warning" style="margin-top:var(--space-6);">
       <h3 style="margin-bottom:var(--space-3);">Your overall number is hiding this</h3>
@@ -10679,13 +10907,89 @@ function renderUtilizationSection(analysis) {
     <p style="margin:var(--space-3) 0 0;font-size:0.875rem;color:var(--text-secondary);">We cannot print your closing dates here — no credit report contains them. They are on each statement and in your online account.</p>
   </div>`;
 
+  html += renderUtilizationAllocator(u);
+
   if (u.skipped_no_data.length) {
     html += `<p style="font-size:0.875rem;color:var(--text-secondary);margin-top:var(--space-4);"><strong>${u.skipped_no_data.length === 1 ? 'One card is' : u.skipped_no_data.length + ' cards are'} not in this table.</strong> ${u.skipped_no_data.map(c => idEsc(c.creditor)).join(', ')} — the report gives no balance, and we will not assume one.${u.skipped_limit_total ? ' ' + (u.skipped_no_data.length === 1 ? 'It holds' : 'They hold') + ' roughly ' + usd(u.skipped_limit_total) + ' of limit, so a low balance there would put your real ratio well below the ' + u.overall + '% shown.' : ''}</p>`;
   }
-  html += `<p style="font-size:0.8125rem;color:var(--text-tertiary);margin-top:var(--space-4);">${UTIL_GOOD}% and ${UTIL_BEST}% are the thresholds scoring models are built around, not a promise of a result. We do not print a projected point gain, because the models are proprietary and no one outside them can honestly predict what your file will do.</p>`;
+  html += `<div class="card" style="margin-top:var(--space-6);">
+    <h3 style="margin-bottom:var(--space-3);font-size:1.0625rem;">Where these two numbers come from, since almost nobody says</h3>
+    <p style="margin:0 0 var(--space-3);font-size:0.9375rem;">The <strong>${UTIL_GOOD}% rule is not FICO's</strong>. FICO has said the opposite in as many words: "the data doesn't support the implication that your credit score will dip once your utilization ratio crosses the 30% threshold." The figure is VantageScore's published advice — "use 30% or less of the total credit available to you" — and it is a reasonable target, but there is no cliff there and anyone who tells you there is has not read either company's own material.</p>
+    <p style="margin:0 0 var(--space-3);font-size:0.9375rem;"><strong>${UTIL_BEST}% is FICO's</strong>: "generally, keeping it below 10% (and consistently paying bills on time) can help you build and maintain a good FICO Score." For context rather than as a target, FICO has also said that people holding a perfect 850 carry an average revolving utilization of ${UTIL_850_AVG}% — that describes who those people are, not a number to chase.</p>
+    <p style="margin:0;font-size:0.875rem;color:var(--text-secondary);">You will see 9% and 1% quoted as magic numbers. Neither has a source at either company. We are not going to print a projected point gain either, for the same reason FICO gives: "it's not possible to measure the exact impact of a single factor in how your FICO Score is calculated without looking at your entire report." What is on this page is arithmetic, which is the part we can actually stand behind.</p>
+  </div>`;
 
   html += '</section>';
   return html;
+}
+
+
+// ========== THE ALLOCATOR, ON SCREEN ==========
+// The table above is a menu of totals. This is the part that answers the
+// question people actually arrive with, which is not "what would everything
+// cost" but "I have some money, where should it go."
+function renderUtilizationAllocator(u) {
+  if (!u || !u.cards.length) return '';
+  const opts = utilizationBudgetOptions(u);
+  if (!opts.length) return '';
+
+  const chosen = (state.utilBudget !== null && state.utilBudget !== undefined)
+    ? state.utilBudget : opts[Math.min(1, opts.length - 1)];
+  const plan = allocateUtilizationBudget(u, chosen);
+
+  const why = {
+    over_limit: 'over the limit — fix first',
+    closed_with_balance: 'closed but still counting',
+    to_guidance: 'highest ratio on the file',
+    aggregate: 'lowers the overall ratio'
+  };
+
+  let h = '<section style="margin-top:var(--space-10);">';
+  h += '<h2 style="margin-bottom:var(--space-3);">If you can put money against this, here is where it goes</h2>';
+  h += '<p style="color:var(--text-secondary);margin-bottom:var(--space-6);">Pick roughly what you could put toward cards before the next statements close. The order below is not arbitrary — it is what the arithmetic says, and the reason for each line is next to it.</p>';
+
+  h += '<div class="review-actions" style="margin-bottom:var(--space-6);">';
+  opts.forEach(v => {
+    const on = v === chosen;
+    h += `<button type="button" class="btn btn-sm ${on ? 'btn-primary' : 'btn-ghost'}" onclick="setUtilBudget(${v})">${usd(v)}</button>`;
+  });
+  h += '</div>';
+
+  if (!plan || !plan.steps.length) {
+    h += '<p style="color:var(--text-secondary);">Nothing to allocate — every card is already where it needs to be.</p></section>';
+    return h;
+  }
+
+  h += '<div class="util-table-wrap"><table class="util-table">';
+  h += '<thead><tr><th>Pay this</th><th class="num">Amount</th><th class="num">Goes from</th><th class="num">To</th><th>Why this one</th></tr></thead><tbody>';
+  plan.steps.forEach(st => {
+    h += `<tr>
+      <td><strong>${idEsc(st.creditor)}</strong>${st.account ? ' <span style="color:var(--text-tertiary);font-size:0.8125rem;">••••' + idEsc(String(st.account).slice(-4)) + '</span>' : ''}</td>
+      <td class="num"><strong>${usd(st.pay)}</strong></td>
+      <td class="num">${st.from}%</td>
+      <td class="num">${st.clears ? '<span style="color:var(--success);">paid off</span>' : st.to + '%'}</td>
+      <td style="font-size:0.875rem;color:var(--text-secondary);">${why[st.why] || ''}</td>
+    </tr>`;
+  });
+  h += '</tbody></table></div>';
+
+  const moved = [];
+  if (plan.overall_after !== plan.overall_before) moved.push(`your overall ratio goes from ${plan.overall_before}% to ${plan.overall_after}%`);
+  if (plan.worst_after !== plan.worst_before) moved.push(`your worst single card goes from ${plan.worst_before}% to ${plan.worst_after}%`);
+  if (plan.over_limit_fixed) moved.push(`${plan.over_limit_fixed} card${plan.over_limit_fixed === 1 ? '' : 's'} stops being over the limit`);
+  if (plan.cards_cleared) moved.push(`${plan.cards_cleared} card${plan.cards_cleared === 1 ? '' : 's'} clears completely`);
+
+  h += `<p style="margin-top:var(--space-5);font-size:0.9375rem;">Spending ${usd(plan.spent)}${plan.unspent ? ' of the ' + usd(plan.budget) : ''}: ${moved.length ? moved.join('; ') + '.' : 'the totals move but no card crosses a line.'}</p>`;
+  h += '<p style="margin-top:var(--space-3);font-size:0.875rem;color:var(--text-secondary);">You will notice there is no projected score gain anywhere on this page. That is deliberate, and it is FICO\'s own reason: "it\'s not possible to measure the exact impact of a single factor in how your FICO Score is calculated without looking at your entire report." Anything that prints you a number is inventing it. Dollars and ratios are arithmetic, so that is what this shows.</p>';
+  h += '<p style="margin-top:var(--space-3);font-size:0.875rem;color:var(--text-secondary);">Both numbers are here because both are scored. FICO looks at "your overall utilization rate and the highest utilization rates on specific revolving credit accounts" — so a single maxed card is visible even when the overall figure looks fine, which is why finishing one card beats part-paying two.</p>';
+  h += '<p style="margin-top:var(--space-3);font-size:0.875rem;color:var(--text-secondary);">Timing matters as much as the amount. Pay before the statement closes, not before the bill is due, because the balance your issuer reports is the one on the closing date. And this part moves fast: FICO says that "as soon as you lower your ratio, your FICO Scores will respond accordingly — you won\'t see lingering negative effects as you would with late payments." The delay you will actually experience is one billing cycle, and it is your issuer\'s reporting, not the scoring.</p>';
+  h += '</section>';
+  return h;
+}
+
+function setUtilBudget(v) {
+  state.utilBudget = v;
+  if (state.analysis) renderAnalysis(state.analysis);
 }
 
 // ========== IDENTITY REVIEW ==========
