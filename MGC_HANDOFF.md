@@ -702,7 +702,65 @@ information is still moving.
 
 ---
 
-## 7e. Test harnesses in `/tmp/mgc-diag`
+## 7e. The layout, and the rules it now has (added `565a2e4`)
+
+Ten commits of law and parsing went in before anyone took a screenshot. When one
+was finally taken the biggest problem in the product was structural and had been
+there since launch.
+
+**Both working screens rendered in `container-narrow` — 560px, centred, at every
+viewport.** On a 1280px monitor that is 44% of the screen working and 56% idle,
+and it is why everything read as a phone app on a desktop: review buttons
+wrapping with 700px free beside them, headings breaking mid-phrase, body copy at
+48 characters. They now render into `.workspace`: a sticky section rail from
+1080px up and a 768px content column. Below 1080px it collapses to what it was.
+
+`buildSectionRail()` reads the rendered DOM rather than each section builder,
+because the sections come from a dozen functions and threading an id through all
+of them is a dozen chances to miss one. **If you add a section, give it an `h2`
+and it appears in the rail for free.**
+
+### Rules this pass established, which a harness now enforces
+
+`design.js` runs six widths across two screens and fails on any of these:
+
+1. **No side-stripes.** A `border-left` of 3px or more in a different colour
+   from the other borders. Six components had one; all six are gone. It is the
+   most recognisable machine-generated tic in a UI and it does nothing a full
+   border and a tinted ground do not do better.
+2. **No gradient text.** `background-clip:text` was on the site's own headline,
+   where the middle stop ran about 2:1 on cream.
+3. **No emoji as UI.** Severity was 🟢 Low. Emoji cannot be styled, render
+   differently per platform, and read aloud as "large green circle".
+4. **Prose within 80 characters.** `.workspace-main p` is capped at 72ch; rows,
+   tables and buttons keep the full column.
+5. **Zero horizontal overflow**, at 375 through 1680.
+
+### Two near-misses worth keeping in mind
+
+The first attempt at the findings CSS anchored on `/* ===== ALERTS ===== */`,
+which occurs **twice** — the second is the screen stylesheet, the first is
+inside the print stylesheet. The span it selected was 1,200 lines. It was caught
+only because a later assertion in the same script failed before anything was
+written. **Splice scripts against this file must count occurrences and bound the
+span**, not just `index()` the first hit.
+
+And `design.js` first reported a compliant 72ch paragraph as 91ch, because it
+assumed a character is half an em. Inter's zero is about 0.63em. It measures the
+real glyph now. A harness that is wrong in the safe direction wastes a fix; one
+that is wrong the other way ships a bug.
+
+### Screenshots without client data
+
+`anon.py` rewrites a real columnar report into `demo.txt` — creditor names from
+a fixed pool, account digits reshuffled, addresses and the personal-information
+block replaced — and it parses identically (32 accounts, 29 findings). **Use it
+for anything that produces an image.** No client report should ever appear in a
+screenshot, a commit, or a served directory.
+
+---
+
+## 7f. Test harnesses in `/tmp/mgc-diag`
 
 Not in the repo — they read `index.html` directly and are driven against real
 client reports, which must never be committed. Recreate them if the machine is
@@ -719,6 +777,8 @@ spread across six.
 | `optout.js` | The privacy opt-out letter: gating, all three citations, neither dropped claim, no SSN, the prescreen details, creditor prefill on both formats, the envelope suppressions scoped to that one letter, and its day-zero mailing slot. |
 | `layout.js` | Drives the Mac's own Chrome headless (`puppeteer-core`, `/Applications/Google Chrome.app/…`) at 375 / 320 / 414px against a local server: zero horizontal overflow, both new panels inside the viewport, no page errors. **Use this when the browser pane is unavailable** — it is faster and it measures the same thing. |
 | `layout2.js` | Same, over the LETTERS screen with the identity-theft packet — where the opt-out letter appears. |
+| `design.js` | Six widths across the landing and analysis screens: overflow, the four banned patterns, prose measure, and whether the rail appears at the right breakpoint. **Run this before any commit that touches CSS.** |
+| `anon.py` / `demo.txt` | Turns a real report into a screenshot-safe one that parses identically. Use it for anything that produces an image. |
 | `extract.js` | Replicates the app's pdf.js text extraction exactly, for reading source PDFs. |
 
 Serving a real report to test means copying it into a temp directory. **Delete
