@@ -2966,7 +2966,12 @@ const state = {
     hardship: [],             // job_loss/hours_cut/medical/death/divorce/deployment/disaster/caregiving/theft/none
     deadline: null,           // urgent/soon/planned/open
     channel: [],              // print/mail/online/phone/none
-    military_status: null     // active/guard/recent/veteran/family
+    military_status: null,    // active/guard/recent/veteran/family
+    // Which breaches, what the notice said, and — the one that decides the
+    // whole path — whether anything has actually been used against them.
+    breach_which: [],
+    breach_notice: null,      // yes_ssn/yes_nossn/yes_unsure/no/unsure
+    breach_misuse: []         // nothing/new_accounts/collections/tax/denied/benefits/medical/inquiries
   },
   upload: {
     filename: null,           // name of the uploaded file
@@ -3179,6 +3184,68 @@ const intakeQuestions = [
       {v:'yes', t:'Yes — I\'ve moved in the last year', d:'We\'ll tell you exactly what to enclose so your dispute gets read the first time.'},
       {v:'no', t:'No — same address for over a year'},
       {v:'unsure', t:'I\'m not sure'}
+    ]
+  },
+  {
+    id: 'breach_which',
+    q: 'Which breaches were you in? (Select all that apply)',
+    help: 'Pick every one you were notified about. This is not trivia — it decides what you actually need to do. Some of these exposed Social Security numbers and some exposed nothing more than a phone number, and the difference is a freeze at seven agencies versus a new password.',
+    type: 'multi',
+    depends_on: {field:'special_flags', includes:'data_breach'},
+    options: [
+      {v:'equifax_2017',          t:'Equifax (2017)',                       d:'147 million Americans. SSN exposed. If you had credit in 2017, probably you.'},
+      {v:'npd_2024',              t:'National Public Data (2024)',          d:'A data broker most people had never heard of. SSNs were in it — the headline count is disputed.'},
+      {v:'change_healthcare_2024',t:'Change Healthcare (2024)',             d:'192.7 million. Medical and SSN. Processes claims behind your insurer, so you may never have dealt with it directly.'},
+      {v:'att_2024_customer',     t:'AT&T — customer data (March 2024)',    d:'73 million. SSN exposed.'},
+      {v:'att_2024_records',      t:'AT&T — call and text records (July 2024)', d:'Nearly all wireless customers. No SSN, no dates of birth — the 8-K says so in terms.'},
+      {v:'tmobile_2021',          t:'T-Mobile (August 2021)',               d:'About 54.6 million. SSN and driver’s licence for most.'},
+      {v:'tmobile_2023',          t:'T-Mobile (January 2023)',              d:'37 million accounts. No SSN — T-Mobile’s own filing says so.'},
+      {v:'capital_one_2019',      t:'Capital One (2019)',                   d:'100 million affected, but only about 140,000 SSNs. Being in it usually did not mean SSN exposure.'},
+      {v:'anthem_2015',           t:'Anthem / Blue Cross Blue Shield (2015)', d:'Almost 79 million. SSN and medical.'},
+      {v:'opm_2015',              t:'Office of Personnel Management (2015)', d:'Federal background investigations. SSN and fingerprints. The most sensitive one here.'},
+      {v:'first_american_2019',   t:'First American Financial (2019)',      d:'Title and escrow documents from 2003 onward. SSN and bank accounts.'},
+      {v:'evolve_bank_2024',      t:'Evolve Bank & Trust (2024)',           d:'The bank behind a number of fintech apps. SSN exposed.'},
+      {v:'conduent_2025',         t:'Conduent (2025)',                      d:'State benefits processing. SSN and medical. Notices only went out a year after the intrusion.'},
+      {v:'powerschool_2024',      t:'PowerSchool — school records (2024)',  d:'Students and teachers. SSN for a minority. A child’s file can be frozen too.'},
+      {v:'moveit_2023',           t:'MOVEit cascade (2023)',                d:'Hundreds of organisations at once. What was taken depends entirely on which one notified you.'},
+      {v:'marriott_2018',         t:'Marriott / Starwood (2018)',           d:'339 million records. Passports, but no SSN.'},
+      {v:'23andme_2023',          t:'23andMe (2023)',                       d:'Genetic and ancestry data. No SSN, but this kind of data does not expire.'},
+      {v:'yahoo_2017',            t:'Yahoo (all accounts)',                 d:'Every account. No SSN — but security-question answers, which are still used to verify people.'},
+      {v:'kaiser_2024',           t:'Kaiser Permanente (2024)',             d:'13.4 million. Website tracking data. No SSN, no passwords.'},
+      {v:'ticketmaster_2024',     t:'Ticketmaster (2024)',                  d:'No SSN in the disclosed categories.'},
+      {v:'other',                 t:'A different one — I have the letter',  d:'Most breaches never make the news. Your notification letter is what counts.'},
+      {v:'unknown',               t:'I know I was in one, I do not know which', d:'Common, and it does not stop you. The first steps are the same either way.'}
+    ]
+  },
+  {
+    id: 'breach_notice',
+    q: 'Did you get a notification letter about it?',
+    help: 'This matters more than any headline number. A company’s public figure says how many people were in a file; your own letter says what was in YOURS. Two people in the same breach can have completely different exposure — Capital One notified about 140,000 people that their Social Security number was taken, out of 100 million affected.',
+    type: 'single',
+    depends_on: {field:'special_flags', includes:'data_breach'},
+    options: [
+      {v:'yes_ssn',   t:'Yes — and it said my Social Security number was involved', d:'This is the serious version. Freeze everything and get an IRS identity protection PIN.'},
+      {v:'yes_nossn', t:'Yes — and it did not mention my Social Security number'},
+      {v:'yes_unsure',t:'Yes, but I do not remember what it said',                  d:'Worth digging out. Companies keep these notices posted, and we will point you at it.'},
+      {v:'no',        t:'No letter — I found out another way'},
+      {v:'unsure',    t:'I am not sure'}
+    ]
+  },
+  {
+    id: 'breach_misuse',
+    q: 'Has anything actually happened, or is it exposure so far?',
+    help: 'This is the most important question in this whole form, and the one that decides which path you are on. Being in a breach is not identity theft. Identity theft is somebody USING your information. The FTC Identity Theft Report is a sworn allegation that a fraud was committed or attempted against you — filing one when nothing has happened is a false report, and it can be withdrawn later in a way that undoes everything built on it. So: pick honestly. Exposure alone still gets you a strong plan.',
+    type: 'multi',
+    depends_on: {field:'special_flags', includes:'data_breach'},
+    options: [
+      {v:'nothing',       t:'Nothing yet — my information was exposed, that is all', d:'The right answer for most people, and it is not a weak position. Freezes, alerts and monitoring are all free and all available to you.'},
+      {v:'new_accounts',  t:'Accounts I never opened are showing up'},
+      {v:'collections',   t:'A collector is chasing a debt that is not mine'},
+      {v:'tax',           t:'A tax return was filed in my name, or mine was rejected'},
+      {v:'denied',        t:'I was denied credit I never applied for'},
+      {v:'benefits',      t:'Unemployment or benefits were claimed in my name'},
+      {v:'medical',       t:'Medical treatment I never received is on my record'},
+      {v:'inquiries',     t:'There are hard inquiries I did not authorise'}
     ]
   },
   {
@@ -3740,65 +3807,230 @@ const stateLaws = {
 // Default SOL for states not in detailed database (most common is 3-6 years)
 const defaultSOL = {sol_written: 4, sol_oral: 4, sol_credit_card: 4};
 
-// ========== DATA BREACH DATABASE (40+ verified major breaches) ==========
+// ========== DATA BREACH DATABASE ==========
+// Fact-checked against primary sources. What that exercise changed is worth
+// stating, because most of it was wrong in the same direction — too big.
+//
+// Every headline breach number in circulation is either a company figure, a
+// regulator's figure, a private tracker's estimate, or a criminal's marketing.
+// They are not interchangeable and they differ by orders of magnitude. National
+// Public Data was reported everywhere as 2.9 billion people; 2.9 billion is a
+// ROW count, and the company's own regulatory filing said 1.3 million people.
+// Ticketmaster's "560 million" came from the extortionist — Live Nation's 8-K
+// gives no number at all.
+//
+// The field that actually matters here is `ssn`, and it is the one nobody
+// prints. A headline count says how many people were in a file; it says nothing
+// about whether a Social Security number was in it, and that single fact is
+// what decides whether somebody needs a freeze at seven bureaus and an IRS IP
+// PIN or a new password. Capital One: 100 million affected, about 140,000
+// SSNs — 99.86% of that headline had no SSN exposure at all. AT&T's ~110M
+// call-record breach: the 8-K says in terms that it contained no SSNs, no dates
+// of birth and no other identifying information. Kaiser's 13.4 million: none.
+// T-Mobile's 2023 37 million: none.
+//
+//   v: 'confirmed'  a company filing, a regulator, or a court document
+//      'contested'  sources disagree, or the common figure is not the sourced one
+//      'unverified' carried for recognition; no figure of ours is asserted
+//
+// Nothing marked 'unverified' has its numbers repeated in a letter.
 const breachDatabase = [
-  // 2024-2025
-  {id:'npd_2024', name:'National Public Data (NPD)', year:2024, affected:'2.9 billion records / 272M SSNs (~60% of all historical US SSNs)', data:['SSN','Name','DOB','Address','Phone'], type:'Background check data broker'},
-  {id:'ticketmaster_2024', name:'Ticketmaster', year:2024, affected:'560 million customers', data:['Name','Email','Address','Phone','Partial payment info'], type:'Ticketing / entertainment'},
-  {id:'att_2024', name:'AT&T (multiple 2024 incidents)', year:2024, affected:'73M+ current and former customers, plus separate 110M call/text metadata breach', data:['SSN','DOB','Name','Phone','Account info'], type:'Telecom'},
-  {id:'change_healthcare_2024', name:'Change Healthcare', year:2024, affected:'100M+ individuals', data:['Medical records','SSN','Insurance info','Name','Address'], type:'Healthcare'},
-  {id:'snowflake_2024', name:'Snowflake customer breaches (Ticketmaster, Santander, AT&T, Advance Auto, others)', year:2024, affected:'Hundreds of millions across customers', data:['Varies by company'], type:'Cloud platform'},
-  {id:'evolve_bank_2024', name:'Evolve Bank & Trust', year:2024, affected:'7.6M customers', data:['SSN','DOB','Name','Address','Account numbers'], type:'Banking'},
-  {id:'kaiser_2024', name:'Kaiser Permanente', year:2024, affected:'13.4M members', data:['Name','IP','Health info'], type:'Healthcare'},
-  {id:'dell_2024', name:'Dell', year:2024, affected:'49M customers', data:['Name','Address','Order info'], type:'Tech retailer'},
-  {id:'powerschool_2024', name:'PowerSchool', year:2024, affected:'Millions of students/teachers across 16,000+ schools', data:['SSN','Name','DOB','Address','Grades'], type:'Education software'},
-  {id:'conduent_2025', name:'Conduent (govtech)', year:2025, affected:'25M+ Americans', data:['SSN','Medical records','Benefits info'], type:'Government services processor'},
-  {id:'globe_life_2024', name:'Globe Life', year:2024, affected:'850K+', data:['Name','DOB','SSN'], type:'Insurance'},
-  // 2023
-  {id:'tmobile_2023', name:'T-Mobile', year:2023, affected:'37M customers', data:['Name','Email','Phone','DOB','Account info'], type:'Telecom'},
-  {id:'23andme_2023', name:'23andMe', year:2023, affected:'6.9M users', data:['Name','Ancestry','Genetic data','Location'], type:'Genetics'},
-  {id:'mgm_2023', name:'MGM Resorts', year:2023, affected:'142M+', data:['Name','Address','DOB','Driver\'s license','Passport'], type:'Hospitality'},
-  {id:'moveit_2023', name:'MOVEit cascade (hundreds of organizations)', year:2023, affected:'94M+ users across many orgs (Shell, BBC, BA, US govt agencies, etc.)', data:['Varies'], type:'File transfer software'},
-  {id:'xfinity_2023', name:'Xfinity / Comcast', year:2023, affected:'36M customers', data:['Name','Email','Username','Scrambled password','Partial SSN','DOB'], type:'Telecom'},
-  {id:'okta_2023', name:'Okta', year:2023, affected:'All customer support customers', data:['Support session tokens','Credentials'], type:'Identity management'},
-  // 2022
-  {id:'twitter_2022', name:'Twitter / X', year:2022, affected:'200M+ users', data:['Email','Phone','Username'], type:'Social media'},
-  {id:'lastpass_2022', name:'LastPass', year:2022, affected:'All vault data for users', data:['Encrypted vaults','Company data'], type:'Password manager'},
-  {id:'uber_2022', name:'Uber', year:2022, affected:'Internal systems + driver data', data:['Employee data','Source code'], type:'Rideshare'},
-  {id:'rockstar_2022', name:'Rockstar Games', year:2022, affected:'Internal + GTA VI leak', data:['Source code','Unreleased content'], type:'Gaming'},
-  {id:'plex_2022', name:'Plex', year:2022, affected:'30M users', data:['Email','Username','Hashed password'], type:'Media streaming'},
-  {id:'samsung_2022', name:'Samsung', year:2022, affected:'Millions of US customers', data:['Name','Address','DOB','Product registration'], type:'Electronics'},
-  // 2021
-  {id:'tmobile_2021', name:'T-Mobile', year:2021, affected:'77M customers', data:['SSN','Name','DOB','Driver\'s license','Phone'], type:'Telecom'},
-  {id:'facebook_2021', name:'Facebook / Meta', year:2021, affected:'533M users', data:['Phone','Email','Name','Location','DOB'], type:'Social media'},
-  {id:'robinhood_2021', name:'Robinhood', year:2021, affected:'7M customers', data:['Email','Name','Partial info'], type:'Trading platform'},
-  {id:'godaddy_2021', name:'GoDaddy', year:2021, affected:'1.2M WordPress customers', data:['Email','Customer numbers','SSL keys'], type:'Web hosting'},
-  // 2020
-  {id:'marriott_2020', name:'Marriott', year:2020, affected:'5.2M guests', data:['Name','Birth date','Address','Employer'], type:'Hospitality'},
-  {id:'zoom_2020', name:'Zoom', year:2020, affected:'500K accounts', data:['Email','Password','Meeting URLs'], type:'Video conferencing'},
-  {id:'nintendo_2020', name:'Nintendo', year:2020, affected:'300K accounts', data:['Name','Email','DOB','Country'], type:'Gaming'},
-  {id:'solarwinds_2020', name:'SolarWinds supply chain', year:2020, affected:'18,000+ organizations (including US govt)', data:['Varies'], type:'IT software'},
-  // 2019
-  {id:'capital_one_2019', name:'Capital One', year:2019, affected:'100M customers', data:['SSN','Name','Address','DOB','Income','Credit scores'], type:'Banking'},
-  {id:'first_american_2019', name:'First American Financial', year:2019, affected:'885M records', data:['SSN','Bank account','Mortgage docs','Tax records'], type:'Real estate title'},
-  {id:'facebook_2019', name:'Facebook (Cambridge Analytica era)', year:2019, affected:'540M records', data:['Profile data','Comments','Reactions'], type:'Social media'},
-  {id:'doordash_2019', name:'DoorDash', year:2019, affected:'4.9M customers', data:['Name','Email','Phone','Address','Partial card'], type:'Food delivery'},
-  // 2018
-  {id:'marriott_2018', name:'Marriott / Starwood', year:2018, affected:'500M guests', data:['Name','Address','Phone','Passport','DOB','Payment card (encrypted)'], type:'Hospitality'},
-  {id:'facebook_2018', name:'Facebook View As', year:2018, affected:'50M accounts', data:['Profile data','Access tokens'], type:'Social media'},
-  {id:'quora_2018', name:'Quora', year:2018, affected:'100M users', data:['Name','Email','Hashed password'], type:'Q&A platform'},
-  {id:'tmobile_2018', name:'T-Mobile', year:2018, affected:'2M customers', data:['Name','Phone','Email','Account number'], type:'Telecom'},
-  // 2017 — the big one
-  {id:'equifax_2017', name:'Equifax', year:2017, affected:'147 million Americans — virtually every US adult with credit', data:['SSN','Name','DOB','Address','Driver\'s license','Some credit card numbers'], type:'Credit bureau', note:'If you had credit in 2017, you were almost certainly affected.'},
-  {id:'uber_2017', name:'Uber', year:2017, affected:'57M users + drivers', data:['Name','Email','Phone','Driver\'s license (for drivers)'], type:'Rideshare'},
-  {id:'yahoo_2017', name:'Yahoo (disclosed 2017, occurred 2013-14)', year:2017, affected:'3 billion accounts — all of them', data:['Name','Email','Phone','DOB','Hashed password','Security questions'], type:'Internet services', note:'Largest breach in history.'},
-  // Classics
-  {id:'anthem_2015', name:'Anthem (BCBS)', year:2015, affected:'78.8M members', data:['SSN','Name','DOB','Address','Income','Employment'], type:'Health insurance'},
-  {id:'opm_2015', name:'Office of Personnel Management', year:2015, affected:'21.5M federal employees/applicants', data:['SSN','Fingerprints','SF-86 background check data'], type:'US government'},
-  {id:'ebay_2014', name:'eBay', year:2014, affected:'145M users', data:['Name','Email','DOB','Password','Address','Phone'], type:'E-commerce'},
-  {id:'home_depot_2014', name:'Home Depot', year:2014, affected:'56M payment cards', data:['Credit/debit card numbers'], type:'Retail'},
-  {id:'target_2013', name:'Target', year:2013, affected:'40M card numbers + 70M personal records', data:['Payment cards','Name','Phone','Email','Address'], type:'Retail'},
-  {id:'jpmorgan_2014', name:'JPMorgan Chase', year:2014, affected:'76M households + 7M small businesses', data:['Name','Address','Phone','Email'], type:'Banking'}
+  // ---------- 2024-2025 ----------
+  {id:'npd_2024', name:'National Public Data', year:2024, occurred:'Dec 2023 – summer 2024',
+   affected:'Disputed — see note', data:['SSN','Name','DOB','Address','Phone'], ssn:'yes',
+   type:'Background-check data broker', v:'contested',
+   src:'https://nationalpublicdata.com/breach.html',
+   note:'The "2.9 billion" figure everywhere is a count of ROWS, not people, and sampling found only about a third of them carried a unique SSN. The company’s own regulatory filing said 1.3 million people. The widely quoted 272 million SSNs is a private firm’s estimate that no regulator has adopted. Treat your own notification letter as the only reliable evidence you were in it.'},
+
+  {id:'ticketmaster_2024', name:'Ticketmaster / Live Nation', year:2024, occurred:'2 Apr – 18 May 2024',
+   affected:'Not disclosed by the company', data:['Name','Email','Address','Phone','Partial payment info'], ssn:'no',
+   type:'Ticketing', v:'contested',
+   src:'https://www.sec.gov/Archives/edgar/data/1335258/000133525824000081/lyv-20240520.htm',
+   note:'The "560 million" figure came from the people selling the data. Live Nation’s SEC filing states no number. No Social Security numbers in the disclosed categories.'},
+
+  {id:'att_2024_customer', name:'AT&T — customer data set (March 2024)', year:2024, occurred:'data appears to be 2019 or earlier',
+   affected:'73.0 million (7.6M current, 65.4M former)', data:['SSN','DOB','Name','Phone','Account info'], ssn:'yes',
+   type:'Telecom', v:'confirmed',
+   src:'https://about.att.com/story/2024/addressing-data-set-released-on-dark-web.html'},
+
+  {id:'att_2024_records', name:'AT&T — call and text records (July 2024)', year:2024, occurred:'accessed 14–25 Apr 2024',
+   affected:'Nearly all wireless customers', data:['Phone numbers called or texted','Call counts and durations'], ssn:'no',
+   type:'Telecom', v:'confirmed',
+   src:'https://www.sec.gov/Archives/edgar/data/732717/000073271724000046/t-20240506.htm',
+   note:'AT&T’s 8-K states this set contains no call or message content and no Social Security numbers, dates of birth or other identifying information. If this is the AT&T breach you were in and not the March one, your SSN was not exposed by it.'},
+
+  {id:'change_healthcare_2024', name:'Change Healthcare', year:2024, occurred:'Feb 2024',
+   affected:'192.7 million (HHS, as of 31 Jul 2025)', data:['Medical records','SSN','Insurance info','Name','Address'], ssn:'yes',
+   type:'Healthcare clearing house', v:'confirmed',
+   src:'https://www.hhs.gov/hipaa/for-professionals/special-topics/change-healthcare-cybersecurity-incident-frequently-asked-questions/index.html',
+   note:'The count grew as notification went out — 100 million in October 2024, 130 million by January 2025, 192.7 million by July 2025. Most people never dealt with Change Healthcare directly; it processes claims behind your insurer.'},
+
+  {id:'evolve_bank_2024', name:'Evolve Bank & Trust', year:2024, occurred:'to 31 May 2024',
+   affected:'~7.6 million (AG filings)', data:['SSN','DOB','Name','Address','Account numbers'], ssn:'yes',
+   type:'Banking', v:'confirmed',
+   src:'https://www.getevolved.com/substitute-notice-of-data-breach/',
+   note:'Evolve is the bank behind a number of fintech apps, so many affected people had never heard of it. Its own notice confirms SSN for most personal, mortgage, trust and small-business customers.'},
+
+  {id:'kaiser_2024', name:'Kaiser Permanente', year:2024, occurred:'reported Apr 2024',
+   affected:'13.4 million members', data:['Name','IP address','Search terms on their health site'], ssn:'no',
+   type:'Healthcare', v:'confirmed',
+   src:'https://www.hhs.gov/hipaa/for-professionals/compliance-enforcement/index.html',
+   note:'This was website tracking data going to advertisers rather than an intrusion. Kaiser states it did not include usernames, passwords, Social Security numbers, financial account information or card numbers.'},
+
+  {id:'powerschool_2024', name:'PowerSchool (school records)', year:2024, occurred:'discovered 28 Dec 2024',
+   affected:'No national total published', data:['Name','Contact info','DOB','SSN (minority of people)','Medical alerts','Education records'], ssn:'partial',
+   type:'Education software', v:'confirmed',
+   src:'https://www.businesswire.com/news/home/20250128218088/en/PowerSchool-Notice-of-Data-Breach',
+   note:'PowerSchool states the majority of affected individuals did NOT have a Social Security number involved. Notices went out in 2025 for a December 2024 intrusion. Your own letter is what says whether yours was in it. Children are affected here, and a child’s credit file can be frozen too.'},
+
+  {id:'conduent_2025', name:'Conduent (government services processor)', year:2025, occurred:'21 Oct 2024 – 13 Jan 2025',
+   affected:'10.5 million confirmed to one state regulator; higher figures reported elsewhere', data:['Name','Address','DOB','SSN','Health insurance details','Medical information'], ssn:'yes',
+   type:'Government services processor', v:'contested',
+   src:'https://www.sec.gov/Archives/edgar/data/1677703/000167770325000067/cndt-20250409.htm',
+   note:'Conduent’s own SEC filing gives no count and no data categories. Individual notices did not go out until October 2025, a year after the intrusion. If you receive benefits through a state agency you may be in this without ever having heard the name.'},
+
+  {id:'globe_life_2024', name:'Globe Life', year:2024, occurred:'2024',
+   affected:'Reported in the hundreds of thousands', data:['Name','DOB','SSN'], ssn:'yes',
+   type:'Insurance', v:'unverified'},
+
+  // ---------- 2023 ----------
+  {id:'tmobile_2023', name:'T-Mobile (January 2023)', year:2023, occurred:'from ~25 Nov 2022',
+   affected:'37 million accounts', data:['Name','Email','Phone','DOB','Account info'], ssn:'no',
+   type:'Telecom', v:'confirmed',
+   src:'https://www.sec.gov/Archives/edgar/data/1283699/000119312523010949/d641142d8k.htm',
+   note:'T-Mobile’s 8-K states the source did not give access to payment card information, Social Security or tax IDs, driver’s licence or government ID numbers, passwords or PINs. Different from their 2021 breach, which did expose SSNs.'},
+
+  {id:'23andme_2023', name:'23andMe', year:2023, occurred:'~5 months to Oct 2023',
+   affected:'Nearly 7 million users', data:['Name','Ancestry','Genetic and health-predisposition data','Location'], ssn:'no',
+   type:'Consumer genetics', v:'confirmed',
+   src:'https://oag.ca.gov/news/press-releases/attorney-general-bonta-sues-chrome-holding-co-formerly-known-23andme-over-2023',
+   note:'Credential stuffing — attackers reused passwords leaked elsewhere. No Social Security numbers, but the exposed data is permanent in a way a card number is not.'},
+
+  {id:'mgm_2023', name:'MGM Resorts', year:2023, occurred:'Sep 2023',
+   affected:'Reported in the tens of millions', data:['Name','Address','DOB','Driver\'s licence','Passport'], ssn:'partial',
+   type:'Hospitality', v:'unverified'},
+
+  {id:'moveit_2023', name:'MOVEit file-transfer cascade (hundreds of organisations)', year:2023, occurred:'May–Jun 2023',
+   affected:'Private trackers estimate 85–96 million across 2,600+ organisations', data:['Varies entirely by organisation'], ssn:'varies',
+   type:'File-transfer software', v:'contested',
+   src:'https://www.emsisoft.com/en/blog/44123/unpacking-the-moveit-breach-statistics-and-analysis/',
+   note:'No regulator ever published a total, and the trackers that produced these figures say plainly that people affected through more than one organisation are counted more than once. What matters for you is which organisation notified you, not the cascade total.'},
+
+  {id:'xfinity_2023', name:'Xfinity / Comcast', year:2023, occurred:'Oct 2023',
+   affected:'~36 million customers', data:['Name','Email','Username','Scrambled password','Partial SSN','DOB'], ssn:'partial',
+   type:'Telecom', v:'unverified'},
+
+  // ---------- 2022 ----------
+  {id:'twitter_2022', name:'Twitter / X', year:2022, occurred:'2021–22',
+   affected:'Reported in the hundreds of millions', data:['Email','Phone','Username'], ssn:'no',
+   type:'Social media', v:'unverified'},
+  {id:'lastpass_2022', name:'LastPass', year:2022, occurred:'Aug–Nov 2022',
+   affected:'All customers with stored vaults', data:['Encrypted password vaults','Vault metadata including site URLs'], ssn:'no',
+   type:'Password manager', v:'unverified',
+   note:'No SSN, but a stolen vault is a long-term problem in its own right: change the master password and rotate anything valuable that was stored in it.'},
+  {id:'samsung_2022', name:'Samsung', year:2022, occurred:'Jul 2022',
+   affected:'Reported in the millions of US customers', data:['Name','Address','DOB','Product registration'], ssn:'no',
+   type:'Electronics', v:'unverified'},
+
+  // ---------- 2021 ----------
+  {id:'tmobile_2021', name:'T-Mobile (August 2021)', year:2021, occurred:'Aug 2021',
+   affected:'~54.6 million (company accounting)', data:['Name','DOB','SSN','Driver\'s licence / ID','Phone'], ssn:'yes',
+   type:'Telecom', v:'confirmed',
+   src:'https://www.t-mobile.com/news/network/additional-information-regarding-2021-cyberattack-investigation',
+   note:'The 76.6 million figure often quoted for this breach is the size of the settlement class, not T-Mobile’s count of affected people. About 7.8 million current postpaid customers and 40 million former or prospective ones had a Social Security number exposed; several million others had no SSN or ID exposed at all.'},
+
+  {id:'facebook_2021', name:'Facebook / Meta scraped profile data', year:2021, occurred:'scraped before Sep 2019',
+   affected:'Reported at 533 million', data:['Phone','Email','Name','Location','DOB'], ssn:'no',
+   type:'Social media', v:'unverified'},
+  {id:'godaddy_2021', name:'GoDaddy managed WordPress', year:2021, occurred:'Sep–Nov 2021',
+   affected:'Reported at 1.2 million', data:['Email','Customer number','SSL keys'], ssn:'no',
+   type:'Web hosting', v:'unverified'},
+
+  // ---------- 2020 ----------
+  {id:'marriott_2020', name:'Marriott (2020 incident)', year:2020, occurred:'Sep 2018 – Feb 2020',
+   affected:'5.2 million guests worldwide, about 1.8 million Americans', data:['Name','Address','Email','Phone','Month and day of birth','Loyalty info'], ssn:'no',
+   type:'Hospitality', v:'confirmed',
+   src:'https://www.ftc.gov/news-events/news/press-releases/2024/10/ftc-takes-action-against-marriott-starwood-over-multiple-data-breaches'},
+
+  {id:'solarwinds_2020', name:'SolarWinds supply chain', year:2020, occurred:'2019–20',
+   affected:'Organisations rather than consumers', data:['Varies by organisation'], ssn:'no',
+   type:'IT software', v:'unverified',
+   note:'This one hit organisations, including federal agencies. It is here for recognition; it is rarely the reason an individual’s credit file is at risk.'},
+
+  // ---------- 2019 ----------
+  {id:'capital_one_2019', name:'Capital One', year:2019, occurred:'22–23 Mar 2019',
+   affected:'100 million US, 6 million Canada — but about 140,000 SSNs', data:['Name','Address','DOB','Income','Credit scores','SSN for about 140,000 card customers','Linked bank account numbers for about 80,000'], ssn:'partial',
+   type:'Banking', v:'confirmed',
+   src:'https://www.capitalone.com/digital/facts2019/',
+   note:'The most misread breach on this list. Being one of the 100 million does not mean your Social Security number was exposed — for about 99.9% of those people it was not. Capital One notified the SSN group separately, so your own letter is what settles it.'},
+
+  {id:'first_american_2019', name:'First American Financial (title documents)', year:2019, occurred:'exposed 2014–2019',
+   affected:'Over 800 million document images (SEC)', data:['SSN','Bank account numbers','Mortgage documents','Tax records'], ssn:'yes',
+   type:'Real-estate title insurance', v:'contested',
+   src:'https://www.sec.gov/files/litigation/admin/2021/34-92176.pdf',
+   note:'Two things worth knowing. The figure is document images, not people — one closing generates many. And this was an exposure rather than a theft: the files sat reachable by anyone who guessed a URL, and nobody established which were actually retrieved. If you closed on a property in those years your file may have been reachable.'},
+
+  {id:'doordash_2019', name:'DoorDash', year:2019, occurred:'May 2019',
+   affected:'Reported at 4.9 million', data:['Name','Email','Phone','Address','Partial card'], ssn:'partial',
+   type:'Food delivery', v:'unverified'},
+
+  // ---------- 2018 ----------
+  {id:'marriott_2018', name:'Marriott / Starwood (2018 disclosure)', year:2018, occurred:'Jul 2014 – Sep 2018',
+   affected:'339 million guest records worldwide (FTC)', data:['Name','Address','Email','Phone','Passport number','DOB'], ssn:'no',
+   type:'Hospitality', v:'confirmed',
+   src:'https://www.ftc.gov/news-events/news/press-releases/2024/10/ftc-takes-action-against-marriott-starwood-over-multiple-data-breaches',
+   note:'Marriott first estimated 500 million and later revised down; the FTC’s findings put it at 339 million records, including 5.25 million unencrypted passport numbers. The FTC identifies no Social Security exposure.'},
+
+  {id:'quora_2018', name:'Quora', year:2018, occurred:'Nov 2018',
+   affected:'Reported at 100 million', data:['Name','Email','Hashed password'], ssn:'no',
+   type:'Q&A platform', v:'unverified'},
+
+  // ---------- 2017 ----------
+  {id:'equifax_2017', name:'Equifax', year:2017, occurred:'13 May – 30 Jul 2017',
+   affected:'147 million Americans', data:['SSN (145.5 million)','Name','DOB','Address','Phone','Email','Some payment card numbers'], ssn:'yes',
+   type:'Credit bureau', v:'confirmed',
+   src:'https://www.ftc.gov/system/files/documents/cases/172_3203_equifax_complaint_7-22-19.pdf',
+   note:'If you had credit in 2017 you were probably in this. Two things are still open to you and cost nothing — see the free-help page in your packet. Note that driver’s licence numbers, often listed in summaries of this breach, are not in the FTC’s own list of what was taken.'},
+
+  {id:'yahoo_2017', name:'Yahoo (all accounts)', year:2017, occurred:'Aug 2013, disclosed Oct 2017',
+   affected:'All Yahoo accounts', data:['Name','Email','Phone','DOB','Hashed password','Security questions'], ssn:'no',
+   type:'Internet services', v:'confirmed',
+   src:'https://www.sec.gov/Archives/edgar/data/732712/000073271217000003/a2017_10x3xoathxexhibitx991.htm',
+   note:'Yahoo confirmed every account was affected by the August 2013 theft. No passwords in clear text, no payment cards, no bank accounts, no Social Security numbers. Security-question answers are the lasting problem — those are still used to verify identity elsewhere.'},
+
+  {id:'uber_2017', name:'Uber', year:2017, occurred:'Oct 2016, disclosed 2017',
+   affected:'Reported at 57 million riders and drivers', data:['Name','Email','Phone','Driver\'s licence for drivers'], ssn:'no',
+   type:'Rideshare', v:'unverified'},
+
+  // ---------- classics ----------
+  {id:'anthem_2015', name:'Anthem (Blue Cross Blue Shield)', year:2015, occurred:'2 Dec 2014 – 27 Jan 2015',
+   affected:'Almost 79 million people', data:['SSN','Name','DOB','Address','Email','Medical ID numbers','Income','Employment'], ssn:'yes',
+   type:'Health insurance', v:'confirmed',
+   src:'https://www.hhs.gov/hipaa/for-professionals/compliance-enforcement/agreements/anthem/index.html'},
+
+  {id:'opm_2015', name:'US Office of Personnel Management', year:2015, occurred:'2014–15',
+   affected:'21.5 million background-investigation records, plus 4.2 million personnel records', data:['SSN','Fingerprints','SF-86 background investigation data'], ssn:'yes',
+   type:'US government', v:'confirmed',
+   src:'https://www.af.mil/Portals/1/documents/cybersecurity/backgroundinvestigationspressrelease.pdf',
+   note:'Two separate incidents. About 1.1 million sets of fingerprints were taken as well. If you or a family member went through a federal background investigation, this is the most sensitive breach on this list.'},
+
+  {id:'ebay_2014', name:'eBay', year:2014, occurred:'2014',
+   affected:'Reported at 145 million', data:['Name','Email','DOB','Encrypted password','Address','Phone'], ssn:'no',
+   type:'E-commerce', v:'unverified'},
+  {id:'home_depot_2014', name:'Home Depot', year:2014, occurred:'Apr–Sep 2014',
+   affected:'Reported at 56 million payment cards', data:['Credit and debit card numbers'], ssn:'no',
+   type:'Retail', v:'unverified'},
+  {id:'target_2013', name:'Target', year:2013, occurred:'Nov–Dec 2013',
+   affected:'Reported at 40 million cards and 70 million personal records', data:['Payment cards','Name','Phone','Email','Address'], ssn:'no',
+   type:'Retail', v:'unverified'},
+
+  {id:'other', name:'A breach that is not on this list', year:null, occurred:null,
+   affected:null, data:[], ssn:'unknown', type:null, v:'unverified',
+   note:'Thousands of breaches happen that never make the news, and a notification letter from a company you barely remember is just as real. Your letter will name the company and say what was taken; we will use what you tell us rather than a figure of ours.'},
+
+  {id:'unknown', name:'I know I was in one, I just do not know which', year:null, occurred:null,
+   affected:null, data:[], ssn:'unknown', type:null, v:'unverified',
+   note:'That is common and it does not stop you. The steps that matter most after any exposure are the same, and they are all free: freeze everything, and watch the file.'}
 ];
 
 // ========== BUREAU ADDRESSES ==========
@@ -8062,8 +8294,13 @@ function userHeader() {
     name: p.name || '[YOUR FULL NAME]',
     address: p.address || '[YOUR STREET ADDRESS]',
     city: p.city || '[CITY, STATE ZIP]',
-    dob: p.dob || '[MM/DD/YYYY]',
-    ssnLast4: p.ssnLast4 || '[XXXX]',
+    // No brackets. A letter is mailed exactly as printed, and "[XXXX]" in the
+    // header of a dispute is the tell that a machine wrote it — the same defect
+    // as "[Furnisher Name]", in every letter that carries an identity line
+    // rather than in one. Blank means the line is left out and the separator
+    // sheet, which is not mailed, says to write it in by hand.
+    dob: p.dob || '',
+    ssnLast4: p.ssnLast4 || '',
     date
   };
 }
@@ -8206,7 +8443,12 @@ function mailEnvelope(bodyLines, recipientBlock, ctx = {}) {
     recipientBlock,
     '',
     `Re: ${ctx.re || 'Dispute of Inaccurate Information'}`,
-    ctx.ssnLine ? `SSN (last 4): ${u.ssnLast4}    DOB: ${u.dob}` : null,
+    ctx.ssnLine ? (
+      (u.ssnLast4 && u.dob) ? `SSN (last 4): ${u.ssnLast4}    DOB: ${u.dob}`
+      : u.ssnLast4 ? `SSN (last 4): ${u.ssnLast4}`
+      : u.dob      ? `DOB: ${u.dob}`
+      : null
+    ) : null,
     '',
     'To Whom It May Concern:',
     '',
@@ -9006,7 +9248,9 @@ function compileInquiryPermissiblePurpose(ctx) {
 function compile605B(ctx) {
   const bureau = ctx.bureau || 'experian';
   const items = ctx.items || [];
-  const ftcReportNumber = ctx.ftcReportNumber || '[Your FTC Identity Theft Report Number from IdentityTheft.gov]';
+  // Blank rather than a bracket. This letter is sworn, and a placeholder in a
+  // sworn document is worse than a gap somebody has been told to fill.
+  const ftcReportNumber = ctx.ftcReportNumber || '';
   const breachRef = ctx.breachRef || null;
   const u = userHeader();
   
@@ -9034,7 +9278,8 @@ function compile605B(ctx) {
     'I affirm that I have no knowledge or consent relating to any of these items, that I did not authorize or participate in any of these transactions, and that these items are the product of identity theft.',
     '',
     'Enclosed with this letter:',
-    '• A copy of my FTC Identity Theft Report (Report Number: ' + ftcReportNumber + ') from IdentityTheft.gov;',
+    '\u2022 A copy of my FTC Identity Theft Report from IdentityTheft.gov' +
+      (ftcReportNumber ? ' (Report Number: ' + ftcReportNumber + ')' : '') + ';',
     '• A copy of my government-issued photo identification;',
     '• Proof of my current address;',
     '• A signed Identity Theft Affidavit;',
@@ -9056,9 +9301,9 @@ function compile605B(ctx) {
     ssnLine: true
   });
   
-  const portal = `Identity theft § 605B block request. FTC Report #${ftcReportNumber}. ${breachRef ? 'Result of ' + breachRef.name + ' breach (' + breachRef.year + '). ' : ''}Items to block:\n${itemsList}\n4-business-day block required. Enclosing FTC report, photo ID, proof of address, affidavit. — ${u.name}`;
+  const portal = `Identity theft § 605B block request.${ftcReportNumber ? ' FTC Report #' + ftcReportNumber + '.' : ''} ${breachRef ? 'Result of ' + breachRef.name + ' breach (' + breachRef.year + '). ' : ''}Items to block:\n${itemsList}\n4-business-day block required. Enclosing FTC report, photo ID, proof of address, affidavit. — ${u.name}`;
   
-  const short = `FCRA § 605B identity theft block request. FTC Report #${ftcReportNumber}. 4-business-day block mandatory. ${items.length > 0 ? items.length + ' item(s)' : 'Items'} fraudulent. — ${u.name}`;
+  const short = `FCRA § 605B identity theft block request.${ftcReportNumber ? ' FTC Report #' + ftcReportNumber + '.' : ''} 4-business-day block mandatory. ${items.length > 0 ? items.length + ' item(s)' : 'Items'} fraudulent. — ${u.name}`;
   
   return {mail, portal: portal.length > 2000 ? portal.substring(0,1990)+'…' : portal, short};
 }
@@ -9109,14 +9354,27 @@ function compileFraudAlert(ctx) {
 
 // ========== COMPILER: BREACH NOTIFICATION TO CREDITOR ==========
 function compileBreachNotification(ctx) {
-  const creditor = ctx.creditor || {name:'[Creditor Name]', addr:'[Creditor Address]'};
-  const breach = ctx.breach || {name:'[Breach Name]', year:'[Year]', data:['sensitive personal information']};
+  // This letter fans out to every creditor the person still does business with
+  // (see letterFanTargets), so ctx.creditor is set per copy. The old default
+  // put "[Creditor Name] / [Creditor Address]" in an envelope whenever it was
+  // not — the same defect the furnisher dispute had.
+  const creditor = ctx.creditor || {name:'', addr:''};
+  // No brackets, ever. With no breach identified the letter still works — it
+  // says a breach without naming one, which is true and mailable, rather than
+  // printing "[Breach Name]" into an envelope.
+  const breach = ctx.breach || null;
+  const bName  = breach && breach.name ? breach.name : null;
+  const bYear  = breach && breach.year ? breach.year : null;
+  const bWhen  = bName ? (bYear ? 'the ' + bName + ' data breach of ' + bYear : 'the ' + bName + ' data breach') : 'a data breach';
+  const bData  = (breach && breach.data && breach.data.length) ? breach.data.join(', ') : 'personal information held about me';
   const u = userHeader();
   
   const body = [
     pickFrom(fragments.bn_opening, 130),
     '',
-    `I am a customer of your institution. My personal information — including ${breach.data ? breach.data.join(', ') : 'sensitive data'} — was exposed in the ${breach.name} data breach of ${breach.year}. This breach affected ${breach.affected || 'a large number of individuals'} and has placed my identity at elevated risk of misuse.`,
+    `I am a customer of your institution. My personal information — including ${bData} — was exposed in ${bWhen}.` +
+      (breach && breach.affected && breach.v === 'confirmed' ? ` That breach affected ${breach.affected}.` : '') +
+      ` My identity is at elevated risk of misuse as a result.`,
     '',
     'Because of this exposure, I am formally placing you on notice to:',
     '',
@@ -9139,13 +9397,13 @@ function compileBreachNotification(ctx) {
   const creditorAddr = typeof creditor === 'object' ? (creditor.addr || '') : '';
   
   const mail = mailEnvelope(body, `${creditorName}\nAttn: Fraud / Identity Theft Department\n${creditorAddr}`, {
-    re: `Breach Notification and Demand for Enhanced Verification — ${breach.name} Breach`,
+    re: 'Breach Notification and Demand for Enhanced Verification' + (bName ? ' — ' + bName : ''),
     ssnLine: false
   });
   
-  const portal = `Notification: my data was exposed in the ${breach.name} breach of ${breach.year}. Demand enhanced identity verification before any account changes or new accounts. Do not rely on SSN/DOB/address alone. Notify me of any new applications in my name. Liability preserved. — ${u.name}`;
+  const portal = `Notification: my data was exposed in ${bWhen}. Demand enhanced identity verification before any account changes or new accounts. Do not rely on SSN/DOB/address alone. Notify me of any new applications in my name. Liability preserved. — ${u.name}`;
   
-  const short = `My data was in the ${breach.name} breach (${breach.year}). Demand enhanced ID verification before any account action. Notify me of any new applications in my name. — ${u.name}`;
+  const short = `My data was exposed in ${bWhen}. Demand enhanced ID verification before any account action. Notify me of any new applications in my name. — ${u.name}`;
   
   return {mail, portal, short};
 }
@@ -13832,6 +14090,19 @@ function letterFanTargets(tmpl, ctx) {
     return out;
   }
 
+  // A breach notification is a warning to each company that holds an account of
+  // yours, so it goes to each of them — the same recipient list the opt-out
+  // uses. One letter naming a single creditor picked out of the list warns one
+  // company and leaves the rest unwarned, which is most of the point missed.
+  if (tmpl.id === 'breach_notification') {
+    return (ctx.optOutTargets || []).map(t => ({
+      name: t.name,
+      addr: t.addr || furnisherAddressFor(t.name),
+      account: t.account || '',
+      label: t.name
+    }));
+  }
+
   // The opt-out is the one where combining recipients actively leaks: a single
   // letter naming two creditors tells each of them about the other's account,
   // which is the exact movement of information the letter exists to stop.
@@ -14998,7 +15269,10 @@ function buildLetterContext(tmpl) {
   // letter cannot be addressed to two companies and telling Capital One about
   // an Amex account would be handing over exactly the information the letter is
   // trying to stop moving.
-  if (tmpl.id === 'privacy_opt_out') {
+  // The breach notification goes to the same list for a different reason: it
+  // warns each company that holds an account of yours. Built here so the two
+  // letters share one recipient list rather than two that can drift apart.
+  if (tmpl.id === 'privacy_opt_out' || tmpl.id === 'breach_notification') {
     const contacts = parsed.creditorContacts || [];
     // All three rights in this letter run against a private company. GLBA
     // § 6802 binds a "financial institution"; the two FCRA affiliate
@@ -15062,13 +15336,28 @@ function buildLetterContext(tmpl) {
     // business day block depends on.
     ctx.ftcReportNumber = (state.ftcReportNumber && state.ftcReportNumber.trim())
       ? state.ftcReportNumber.trim()
-      : '[Your FTC Report Number from IdentityTheft.gov]';
-    // Find breach ref if available
-    if (analysis.flags && analysis.flags.data_breach && state.selectedBreach) {
-      ctx.breachRef = state.selectedBreach;
-    }
+      : '';
+  }
+
+  // Which breach a letter refers to. Set for every letter that can mention one
+  // — the § 605B block and the fraud alert both do — rather than only inside
+  // the identity-theft branch, which is where it used to live and why the fraud
+  // alert never named the breach it was being sent because of.
+  if (analysis.flags && analysis.flags.data_breach) {
+    const chosenB = (typeof breachesChosen === 'function') ? breachesChosen() : [];
+    const namedB = chosenB.filter(b => b.id !== 'other' && b.id !== 'unknown');
+    ctx.breachRef = state.selectedBreach || namedB[0] || null;
   }
   
+  // Whichever breach they named. The on-screen lookup still works and wins if
+  // they used it; otherwise the first one they ticked in the intake is the one
+  // the letter names, and with nothing ticked the letter says "a data breach"
+  // rather than printing a placeholder.
+  if (tmpl.id === 'breach_notification') {
+    const chosen = (typeof breachesChosen === 'function') ? breachesChosen() : [];
+    const named = chosen.filter(b => b.id !== 'other' && b.id !== 'unknown');
+    ctx.breach = state.selectedBreach || named[0] || null;
+  }
   if (tmpl.id === 'breach_notification' && state.selectedBreach) {
     ctx.breach = state.selectedBreach;
   }
@@ -15160,6 +15449,71 @@ function renderIdentityTheftWalkthrough() {
       </div>
     </section>
   `;
+}
+
+
+// Whether the § 605B identity-theft route is honestly available. It is not a
+// question of how bad the breach was; it is whether a fraud was committed or
+// attempted, which is what an FTC Identity Theft Report alleges and what
+// 12 CFR § 1022.3 defines identity theft to be.
+function idTheftRouteOpen() {
+  const flags = (state.intake && state.intake.special_flags) || [];
+  // Somebody who came here saying they are a victim is taken at their word.
+  if (flags.indexOf('identity_theft') >= 0) return true;
+  if (state.intake && state.intake.situation === 'idtheft') return true;
+  // Otherwise it opens on something actually having been used.
+  return (typeof breachMisuse === 'function') && breachMisuse().length > 0;
+}
+
+// ========== WHAT THE BREACH ANSWERS MEAN ==========
+// Two questions decide everything downstream, and they are different questions
+// that the whole industry runs together.
+//
+// FIRST: was a Social Security number actually exposed? Not "was there a big
+// breach" — was an SSN in it. The headline count and the SSN answer are close
+// to unrelated. Capital One: 100 million affected, about 140,000 SSNs. AT&T's
+// call-records breach: nearly every wireless customer, and its 8-K states in
+// terms that there were no Social Security numbers, no dates of birth and no
+// other identifying information in it. Kaiser's 13.4 million: none. If an SSN
+// was exposed the answer is a freeze at every agency and an IRS identity
+// protection PIN. If it was not, that advice is noise.
+//
+// SECOND: has anything actually been USED. Exposure is not identity theft.
+// Identity theft, in the definition the rules use, is "a fraud committed or
+// attempted using the identifying information of another person without
+// authority" — 12 CFR § 1022.3. An FTC Identity Theft Report alleges exactly
+// that. Somebody whose data sat in a file and was never used has no such
+// allegation to make, and a report saying otherwise is a false statement on a
+// federal form that can be withdrawn later and take the § 605B blocks built on
+// it down with it. So the § 605B path opens on actual misuse and on nothing
+// else, and the person is told plainly why rather than being quietly refused.
+function breachesChosen() {
+  const ids = (state.intake && state.intake.breach_which) || [];
+  return ids.map(id => breachDatabase.find(b => b.id === id)).filter(Boolean);
+}
+
+// yes  — a chosen breach is confirmed to have exposed SSNs
+// maybe — only partial/varies/unknown ones chosen, or the notice was unclear
+// no   — every chosen breach is confirmed not to have
+function breachSsnExposure() {
+  const notice = (state.intake || {}).breach_notice;
+  if (notice === 'yes_ssn') return 'yes';       // their own letter beats any list
+  const picked = breachesChosen();
+  if (!picked.length) return notice === 'yes_nossn' ? 'no' : 'maybe';
+  if (picked.some(b => b.ssn === 'yes')) return 'yes';
+  if (picked.every(b => b.ssn === 'no')) return notice === 'yes_ssn' ? 'yes' : 'no';
+  return 'maybe';
+}
+
+// Anything actually used against them. This is the gate on the identity-theft
+// route, and "nothing" is a real answer rather than an empty one.
+function breachMisuse() {
+  const m = (state.intake && state.intake.breach_misuse) || [];
+  return m.filter(x => x && x !== 'nothing');
+}
+function breachExposureOnly() {
+  const m = (state.intake && state.intake.breach_misuse) || [];
+  return m.indexOf('nothing') >= 0 && !breachMisuse().length;
 }
 
 // ========== BREACH LOOKUP ==========
@@ -15649,6 +16003,66 @@ function buildActionPlanDoc() {
     </section>`;
   })();
 
+  // ================= WHAT THE BREACH ACTUALLY MEANS FOR YOU =================
+  // Printed only for somebody who told us they were in one. Two things this
+  // page does that nothing else in the packet does: it separates exposure from
+  // misuse, and it names free help that is still open and that almost nobody
+  // claims.
+  (function () {
+    const flagsB = (state.intake && state.intake.special_flags) || [];
+    if (flagsB.indexOf('data_breach') < 0) return;
+    const picked = (typeof breachesChosen === 'function') ? breachesChosen() : [];
+    const ssn = (typeof breachSsnExposure === 'function') ? breachSsnExposure() : 'maybe';
+    const misuse = (typeof breachMisuse === 'function') ? breachMisuse() : [];
+    const inEquifax = picked.some(b => b.id === 'equifax_2017');
+
+    const rows = picked.filter(b => b.id !== 'other' && b.id !== 'unknown').map(b =>
+      '<tr><td>' + planEsc(b.name) + '</td><td>' +
+      planEsc(b.ssn === 'yes' ? 'Yes' : b.ssn === 'no' ? 'No' : b.ssn === 'partial' ? 'Some people only' : 'Depends on the organisation') +
+      '</td><td>' + planEsc(b.affected || 'Not published') + '</td></tr>').join('');
+
+    h += `<section class="plan-sheet">
+      ${planHead('What the breach means for you')}
+      ${planTitle('What the breach means for you', 'Two questions decide everything here, and they are not the same question.')}
+
+      <div class="plan-rule ${misuse.length ? '' : 'plan-rule-check'}">
+        <b>${misuse.length ? 'Something has been used against you' : 'Your information was exposed &mdash; nothing has been used'}</b>
+        <p>${misuse.length
+          ? 'You told us your information has actually been used. That is identity theft rather than exposure, and it opens the strongest route there is: an FTC Identity Theft Report at IdentityTheft.gov, and then a &sect; 605B block, which a bureau must apply within four business days. Your packet is built on that footing.'
+          : 'That is the honest position and it is not a weak one. Being in a breach is not identity theft &mdash; identity theft is somebody using your information, which 12 CFR &sect; 1022.3 defines as a fraud committed or attempted against you. An FTC Identity Theft Report alleges exactly that, so filing one when nothing has happened is a false report; it can be withdrawn later and it takes every block built on it down with it. Everything in your packet is available to you without one, and all of it is free.'}</p>
+      </div>
+
+      ${rows ? `<table class="plan-table mt">
+        <thead><tr><th>Breach</th><th>Social Security number exposed</th><th>How many</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>` : ''}
+
+      <div class="plan-rule mt">
+        <b>${ssn === 'yes' ? 'Treat your Social Security number as public' : ssn === 'no' ? 'Your Social Security number was not in it' : 'Whether your Social Security number was exposed is not settled'}</b>
+        <p>${ssn === 'yes'
+          ? 'At least one of these exposed Social Security numbers, so act as though yours is known. Freeze at all seven agencies in this packet, not just the big three, and get an Identity Protection PIN from the IRS &mdash; it is free, it takes minutes, and it is the only thing that reliably stops a fraudulent tax return in your name.'
+          : ssn === 'no'
+          ? 'Every breach you named is confirmed not to have exposed Social Security numbers. That genuinely changes what you need: the freeze is still worth having and still free, but the urgent SSN steps are not aimed at you. Change the passwords involved, and be alert to someone who knows real details about you calling to ask for more.'
+          : 'The breaches you named exposed a Social Security number for some people and not others, which is the usual case and the reason headline numbers mislead. Capital One affected 100 million people and exposed about 140,000 Social Security numbers. Your own notification letter is the only thing that settles it &mdash; dig it out. Until then, act as though it was: a freeze costs nothing and comes off in an hour.'}</p>
+      </div>
+
+      <div class="plan-rule mt">
+        <b>The headline number is not your number</b>
+        <p>Every figure in the table above is either a company's own filing or a regulator's finding, and several of the numbers you have seen in the news are neither. National Public Data was reported as 2.9 billion people; that is a count of rows, and the company's own filing said 1.3 million people. Ticketmaster's 560 million came from the people selling the data &mdash; Live Nation's filing gives no number at all. What decides your exposure is the notification letter addressed to you, not any of it.</p>
+      </div>
+
+      ${inEquifax ? `<div class="plan-rule plan-rule-check mt">
+        <b>Two things from the Equifax settlement that are still open, and cost nothing</b>
+        <p>The claims deadline passed on 22 January 2024 and cannot be reopened. But free assisted identity restoration runs for at least seven years from 11 January 2022 &mdash; into January 2029 &mdash; and it is available to class members whether or not they ever filed a claim. Almost nobody uses it. And through 2026 you can pull seven free Equifax reports a year at annualcreditreport.com, on top of the free weekly reports from all three. Details are at equifaxbreachsettlement.com.</p>
+      </div>` : ''}
+
+      <div class="plan-rule mt">
+        <b>Where to check, and what a checker can and cannot tell you</b>
+        <p>There is no official lookup for National Public Data and there never was; the Equifax 2017 checker has been retired and that domain now points at the settlement site. HaveIBeenPwned.com is free, needs no account, and tells you whether your email address appears in known breach dumps &mdash; but appearing there does not mean your Social Security number was taken, and not appearing does not mean you are clear. It is a starting point, not an answer.</p>
+      </div>
+    </section>`;
+  })();
+
   // ================= ROUND TWO =================
   // The page that says what this packet is NOT doing. Somebody on their second
   // round is looking for the letters they expected to see, and the honest
@@ -15769,6 +16183,18 @@ function buildActionPlanDoc() {
           <div><em>Before you send</em><p>Rewrite it in your own words, keeping the citations, account numbers and dates exactly as printed. Sign in ink, enclose your ID and proof of address, and send it certified with return receipt.</p></div>
         </div>
         ${tmpl.id === 'privacy_opt_out' ? `<div class="plan-divider-grid"><div><em>While you are at it</em><p>The prescreened-offer opt-out is separate, free, and nothing a creditor can do for you — it is exercised directly with the bureaus under FCRA § 604(e), 15 U.S.C. § 1681b(e). Call 1-888-5-OPT-OUT (1-888-567-8688) or use optoutprescreen.com. Online or by phone it lasts five years; to make it permanent you print the form from that site and mail it. This is not part of the letter on the next page and does not go in that envelope.</p></div></div>` : ''}
+        ${tmpl.id === 'idtheft_block' && !((state.ftcReportNumber || '').trim())
+          ? `<div class="plan-divider-grid"><div><em>Do not mail this one yet</em><p>This letter is sworn under penalty of perjury and it runs on your FTC Identity Theft Report number. You have not entered one, so no number is printed and none was invented. File at IdentityTheft.gov first &mdash; it is free, it takes about fifteen minutes, and it issues the report immediately &mdash; then write the number onto this letter, or enter it and print again. Mailed without it, the four-business-day block under &sect; 605B does not start.</p></div></div>`
+          : ''}
+        ${(function(){
+          // A bureau letter that carries no identity line is one the person has
+          // to complete by hand, and they will only know that if it is said
+          // here — on the page that does not go in the envelope.
+          const uh = (typeof userHeader === 'function') ? userHeader() : {};
+          const needId = /SSN \(last 4\)|DOB:/.test(String(out.mail || '')) === false &&
+                         (tmpl.recipient === 'bureau') && (!uh.ssnLast4 || !uh.dob);
+          return needId ? `<div class="plan-divider-grid"><div><em>Write your identity line in by hand</em><p>This letter goes to a credit bureau, and a bureau matches a dispute to a file using the last four digits of your Social Security number and your date of birth. You did not give us those, so they are not printed. Write them under your address at the top of the letter before you sign it: "SSN (last 4): 1234    DOB: 01/01/1980". A dispute the bureau cannot match to a file comes back as unable to verify your identity, and thirty days are gone.</p></div></div>` : '';
+        })()}
         ${(function(){ const hw = handwriteNote(tmpl, out); return `<div class="plan-divider-grid"><div><em>${planEsc(hw.em)}</em><p>${planEsc(hw.p)} Sign in dark blue or black ballpoint. Not red, orange, yellow or highlighter — forms scanners are commonly set to drop one of those colours out of the image, and anything written in it can vanish from the scan.</p></div></div>`; })()}
         <p class="plan-divider-foot">The next page is the finished letter. Nothing on it is addressed to you.</p>
       </div>
