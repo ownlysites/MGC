@@ -103,3 +103,57 @@ Current as of this date, from the work in `MGC_HANDOFF.md` § 11:
 | 33 | **TransUnion OSC parser is built on one sample** | The format is read correctly — 6 accounts, 3 hard inquiries, limits and balances all verified against source — but the sample has only a "Satisfactory Accounts" section. The adverse-account and collections shapes in this format are inferred from the label vocabulary, not observed. | **TODO** — needs one TransUnion Online Service Center export with an adverse account or a collection on it. | S |
 | 34 | **Soft inquiries are counted, not named** | `soft_inquiry_count` is parsed (46 on the sample) and nothing reads it. The analysis could say "and 46 soft pulls, which are not disputable and do not affect your score" — useful, because a screen of inquiries is what an inquiry-only visitor is reacting to and most of them are usually soft. | **TODO** | S |
 | 35 | **Node.js 20 on another Vercel project** | Not MGC (that is on 24.x), but Vercel is warning that builds on one of Dave's other projects fail after 2026-09-30. | **TODO** — Dave's call which project. | S |
+
+---
+
+## 2026-09-10 — session log
+
+**Shipped, in order.**
+
+| Commit | What |
+|---|---|
+| `66d746f` | Action Plan decides what is disputed. Outcome-aware: Delete/Remove blocked on a protected account, Correct/Update allowed. `Accounts in Good Standing` and `Self-Reported Accounts` added to AP_SECTIONS. Freeze page, military page, AP-stance page. |
+| `fdc8b13` | Round two prints round two. Deleted/waiting/reinserted get no letter; verified/frivolous/corrected rotate to a different field or are dropped by name; no-response/identity resend citing the date the bureau received round one. Empty fan-outs dropped instead of compiling a letter addressed to nobody. |
+| `2c01bd4` | Variation engine fixed. One seed drove every slot, so the ceiling was lcm(pool sizes) = 420 letters, not the product. 300 people → 221 distinct packets, four letters byte-identical for all 300. Now 300/300. 115 new fragments for the five letters that never touched the pools. Voice given five phrasings per tone. `pickMulti` stride-7 collision fixed. Handwriting and ink guidance on the separator sheets. |
+| `59dde90` | Six new intake questions, each removing a fabricated claim or changing an output: why_now, payment_status, hardship, deadline, channel, military_status. No defaults — unanswered means the sentence is not printed. `depends_on.includes` for multi-select parents. Skip button on optional questions. |
+| `6dad9cb` | Breach database rebuilt against primary sources. Every entry carries `ssn` and a provenance flag. Three intake questions. § 605B gates on actual misuse, not exposure. Breach letter fanned out; five brackets removed; `[XXXX]`/`[MM/DD/YYYY]` removed from every bureau letter. |
+| `46beecd` | Free-help and limits section, on screen and in the packet. Eleven free routes verified against source. CROA advance-fee warning. Ownly Funds referral, last and optional. |
+
+**Harnesses now 12 plus 3 browser.** New this session: `r2test.js` (30), `unique.js`, `original.js`, `intake.js` (42), `breach.js` (49), `croa.js` (47). Every one run at least four times over, because the variation engine made one existing check fail on about one seed in six.
+
+### Verified this session against primary sources
+
+- **FTC sample dispute letters** — our opening fragment was the FTC's own sentence with two words inserted. Rewritten. `original.js` now fails the build on any fragment sharing seven consecutive words with a public template. 0 of 236.
+- **Drop-out colour** — forms scanners are configured to ignore a colour so pre-printed lines vanish; the usual choices are pastel yellow, red and orange. No support found for the claim that black ink is flagged. Guidance is dark blue or black ballpoint, never red/orange/yellow/highlighter.
+- **Breach figures** — NPD 2.9 billion is a row count (own filing said 1.3M people); Ticketmaster 560M came from the sellers, Live Nation's 8-K gives no number; T-Mobile 2021 is ~54.6M not 77M (77M is the settlement class); Marriott 2018 is 339M per FTC not 500M; First American is "over 800 million" document images per SEC, not 885M people; MOVEit has no official total; Conduent's sourced range is 10.5M–62M, not 25M; Change Healthcare is 192.7M not 100M; PowerSchool is a 2024 intrusion disclosed in 2025 with no national total.
+- **SSN exposure is near-unrelated to headline counts** — Capital One 100M affected / ~140,000 SSNs; AT&T's ~110M call-records breach expressly no SSNs, no DOBs; Kaiser 13.4M none; T-Mobile 2023 37M none.
+- **12 CFR § 1022.3** — identity theft is "a fraud committed or attempted using the identifying information of another person without authority". Exposure alone supports no FTC Identity Theft Report. § 605B now gates on misuse.
+- **Equifax settlement** — claims closed 22 Jan 2024, cannot be reopened. Free assisted identity restoration runs into January 2029 and is available whether or not a claim was filed; seven free Equifax reports a year through 2026.
+- **CROA, 15 U.S.C. § 1679a(3)** — full definition read. Free tool with no consideration is outside it. § 1679b(a) binds "no person" regardless. § 1679b(b) advance-fee prohibition quoted in the product.
+- **Eleven free consumer resources** — all confirmed live with current URLs. ChexSystems moved to `/request-reports/`; the old path 404s.
+
+### Competitive position, checked 2026-09-10
+
+Nothing on the market combines: free, no account, upload-and-parse, contradiction detection, letters **and** an action plan, with no data leaving the browser. Every product that parses a report holds it server-side; every tool that stays local makes you type accounts in by hand.
+
+Four competitors each beat us on one axis:
+
+| Competitor | Price | Data leaves device | Beats us on |
+|---|---|---|---|
+| DisputeDesk | Free | No (localStorage) | Nothing now — round two closed this gap |
+| Credit Versio | ~$28–30/mo bundled | Yes | Monthly re-import showing what actually got deleted |
+| Kikoff AI Disputes | Free to users | Yes | Distribution — 1M+ users, in-app |
+| Dovly | $0 / $99 a year | Yes | Price-for-automation; blunts "free" as a differentiator |
+
+The named reference sites are not competitors: IDIQ and SmartCredit are monitoring subscriptions, LevelUpScore is B2B software sold to credit repair pros, Bayou Credit Kings is a local CRO service shop.
+
+**The moat is contradiction detection.** No competitor advertises it — they all do "flag the negative items", not "find where the report contradicts itself". "Free dispute letters" is a crowded, low-trust category; that is not the thing to lead with.
+
+### New — open
+
+| # | Item | Why it matters | Status | Size |
+|---|---|---|---|---|
+| 36 | **Round two has no feedback loop** | Credit Versio re-imports monthly and tells the consumer what was actually deleted. We ask them. That is the honest consequence of storing nothing, but a second upload could be diffed against the printed packet the consumer still holds — no storage needed, the diff happens in the browser. | **TODO** — the one place a competitor is genuinely ahead. | M |
+| 37 | **CROA copy needs a lawyer's eye** | The referral section is written to stay outside 15 U.S.C. § 1679a(3) and `croa.js` gates the language, but implied purpose turns on marketing wording and is a facts-and-circumstances judgement. The free tool and the paid offer are read together. | **TODO — Dave's call.** Not a code change. | — |
+| 38 | **Plans counter has not moved from 5,025** | It should increment on reaching the letters step. Plans have been printed since it went live. Either the session flag suppressed it or the POST is not landing. | **TODO** — one browser check. | S |
+| 39 | **Monthly review task runs but writes nothing** | Fired 2026-09-01, ran 27 minutes, reported success, appended nothing. Created without folder access, so it cannot reach the file. A binding cannot be added after creation. Its prompt is also stale — names `mgc-orpin.vercel.app` and "764 KB / 10,100 lines"; the file is now 1.14 MB / ~16,700 lines. | **TODO** — delete and recreate with the MGC folder attached. | S |
