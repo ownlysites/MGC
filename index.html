@@ -13812,6 +13812,11 @@ function renderLetterPacket() {
     html += renderLiveHelpCTA();
   }
   
+  // Last, after every letter and every walkthrough: the limits and the free
+  // help. It goes at the end deliberately — it is the part that says what the
+  // rest of the page cannot do, and it would read as a disclaimer at the top.
+  html += renderFreeHelpSection();
+
   // Footer in the step
   html += '<div style="margin-top:var(--space-16);padding:var(--space-8);background:var(--pink-cream);border-radius:var(--radius-lg);text-align:center;">';
   html += '<h3>You\'ve got everything you need.</h3>';
@@ -15516,6 +15521,158 @@ function breachExposureOnly() {
   return m.indexOf('nothing') >= 0 && !breachMisuse().length;
 }
 
+
+// ========== WHAT THIS TOOL CANNOT DO ==========
+// The trust section, and the reason it is built the way it is.
+//
+// CROA — 15 U.S.C. § 1679a(3) — defines a credit repair organization as
+// someone who sells or performs a service "in return for the payment of money
+// or other valuable consideration" for the express or implied purpose of
+// improving a consumer's credit record, OR of advising or assisting a consumer
+// with regard to that. There is no carve-out for "education", "coaching" or
+// "advisory": clause (B) exempts 501(c)(3) nonprofits, creditors restructuring
+// their own debt, and depository institutions. That is the whole list.
+//
+// This tool is free, takes no signup, captures no email and sells nothing, so
+// no consideration passes and the definition is not met. Three rules keep it
+// that way, and they are constraints on this file rather than opinions:
+//
+//   1. NOTHING IS WITHHELD. No capability is held back behind a paid version.
+//      The moment a free diagnosis exists to sell a paid cure, the two read as
+//      one credit-improvement service and the fee is consideration for it.
+//   2. NOTHING PROMISES A SCORE OR A REMOVAL. Not here, not anywhere. No
+//      estimate, no implication, no "typically".
+//   3. THE FREE HELP COMES FIRST AND IS COMPLETE ON ITS OWN. Everything below
+//      is a government agency, a nonprofit, or a consumer reporting agency's
+//      own statutory disclosure duty. All of it was verified against the
+//      source, and none of it earns anybody here anything.
+//
+// Separately, § 1679b(a) binds "no person" rather than "no credit repair
+// organization" — it prohibits counselling a consumer to make an untrue or
+// misleading statement to a bureau or a creditor, and prohibits advising anyone
+// to alter their identification to conceal accurate adverse information. That
+// applies to this file whatever its CROA status, and is why the identity-theft
+// route gates on actual misuse and why no letter here asserts anything the
+// consumer has not said.
+
+const FREE_HELP = [
+  {
+    group: 'The reports you are entitled to and almost nobody pulls',
+    items: [
+      {what: 'Your three main reports, weekly',
+       how: 'annualcreditreport.com',
+       note: 'Free every week from Equifax, Experian and TransUnion. Worth knowing precisely: weekly access is a commitment the three bureaus made and have extended, not a right the statute gives you. What the Fair Credit Reporting Act guarantees is one free report from each of them every twelve months. Use the weekly access while it is there.'},
+      {what: 'Innovis — the fourth bureau',
+       how: 'innovis.com/personal/creditReport · 1-866-712-0021',
+       note: 'A nationwide agency most people have never heard of, used by mortgage and auto lenders. One free report every twelve months. If you are freezing your file, freeze this one too.'},
+      {what: 'LexisNexis consumer disclosure',
+       how: 'consumer.risk.lexisnexis.com/consumer · 1-866-897-8126',
+       note: 'Insurance, banking and tenant decisions are made from this file, and it holds things your credit report does not. One free report every twelve months.'},
+      {what: 'SageStream',
+       how: 'sagestreamllc.com/consumer-report · 888-395-0277',
+       note: 'In their own words, SageStream does not charge you for a copy of your report. Allow seven business days.'},
+      {what: 'ChexSystems — why a bank account gets refused',
+       how: 'chexsystems.com/request-reports/consumer-disclosure · 800-428-9623',
+       note: 'All consumer disclosure reports are free of charge. If you have been turned down for a checking account, the reason is in here and not on your credit report.'},
+      {what: 'NCTUE — utilities, phone and pay TV',
+       how: 'nctue.com/consumer · 1-866-349-5185',
+       note: 'One free disclosure a year. This is the file a phone carrier or a power company reads, and a bad entry here does not show up anywhere else.'}
+    ]
+  },
+  {
+    group: 'Free protections that take minutes',
+    items: [
+      {what: 'An IRS Identity Protection PIN',
+       how: 'irs.gov/identity-theft-fraud-scams/get-an-identity-protection-pin',
+       note: 'The IRS is explicit that anyone with a Social Security number or ITIN who can verify their identity may enrol, and that you can get one as a precaution even if you are not required to file a return. It is free, and it is the one thing that reliably stops a fraudulent return in your name. It runs for a calendar year and is retrieved again each January.'},
+      {what: 'Stop prescreened offers',
+       how: 'optoutprescreen.com · 1-888-5-OPT-OUT (1-888-567-8688)',
+       note: 'Five years if you do it online or by phone; permanent if you print and post the election form from that site. It is run by the bureaus themselves under FCRA § 604(e), and it cuts off the pre-approved mail that identity thieves fish out of bins.'},
+      {what: 'Freeze everything',
+       how: 'Each agency directly — all free',
+       note: 'A freeze is free to place, free to lift, and lifts in one hour online against three business days by mail under FCRA § 605A(i)(3)(C). Freeze the three, then Innovis, LexisNexis, SageStream, ChexSystems and NCTUE.'}
+    ]
+  },
+  {
+    group: 'People who will help you for nothing',
+    items: [
+      {what: 'Nonprofit credit counselling — NFCC',
+       how: 'nfcc.org · 1-877-360-6322',
+       note: 'A nonprofit network of counselling agencies operating since 1951. Most member agencies offer free credit counselling; some charge for specific services, and fees vary by agency and by state, so ask before you start. This is a different thing from credit repair and it is the right call if the problem is the budget rather than the reporting.'},
+      {what: 'A consumer lawyer — NACA',
+       how: 'consumeradvocates.org/findanattorney',
+       note: 'Searching the directory costs nothing. The reason consumer-side FCRA and FDCPA cases are commonly taken with no money up front is that the statutes shift fees: § 1681n(a)(3) and § 1681o(a)(2) award costs and reasonable attorney fees on a successful action under the FCRA, and § 1692k(a)(3) does the same under the FDCPA. If a bureau has verified something twice that is provably wrong, that is worth a phone call before it is worth another letter.'},
+      {what: 'The CFPB complaint system',
+       how: 'consumerfinance.gov/complaint · (855) 411-2372',
+       note: 'A free federal service. It takes under ten minutes, the company generally responds within fifteen days, and in some cases takes up to sixty. Do not file while your dispute is still open with the bureau — that is the one thing that gets a complaint sent back.'}
+    ]
+  }
+];
+
+// What this file genuinely cannot do. Each of these is a real limit of a
+// parser and a letter generator, not a teaser for something paid.
+const TOOL_LIMITS = [
+  {limit: 'It cannot tell you whether removing something will help you get a mortgage',
+   why: 'That is an underwriting judgement about a specific loan programme, and it sometimes runs the other way: taking an old account off your file takes its age with it, and age is the one thing a dispute can never give back. This tool will not decide that for you, which is exactly why it lets an advisor’s Action Plan overrule it when you upload one.'},
+  {limit: 'It cannot remember you',
+   why: 'Nothing you type here is stored, sent or kept — not by us and not by anyone. That is the point of it, and it has a cost: when you come back for round two, the tool will not know what you sent or what came back. Your notes and this printout are the record. Keep them.'},
+  {limit: 'It cannot negotiate for you',
+   why: 'A settlement letter is a letter. Whether to take an offer, what to counter with, and what a collector will actually accept are judgement calls made by someone who does it often, and this tool is not that.'},
+  {limit: 'It cannot represent you',
+   why: 'If you have been sued, or if a bureau has verified something twice that you can prove is wrong, you have passed the point where a letter is the right instrument. See the NACA line above — the fee-shifting provisions are why that call is usually free to make.'}
+];
+
+
+// The same content on screen as in the packet, built from the same two arrays
+// so the two cannot drift. Placed at the end of the analysis, after every
+// letter, because it is the part that says what the letters cannot do.
+function renderFreeHelpSection() {
+  let html = '<section style="margin-top:var(--space-16);">';
+  html += '<div class="module-card">';
+  html += '<div class="module-header"><p class="eyebrow">Before you go</p>' +
+          '<h2>What this tool cannot do</h2>' +
+          '<p style="margin-top:var(--space-3);">Four honest limits, and where to go instead. Every resource below is a government agency, a nonprofit, or a reporting agency&rsquo;s own duty to give you your file. None of it costs anything and nobody here is paid if you use it.</p></div>';
+
+  html += '<div class="id-list">';
+  TOOL_LIMITS.forEach(l => {
+    html += '<div class="id-row" style="flex-direction:column;align-items:stretch;">' +
+            '<div class="id-row-label">' + idEsc(l.limit) + '</div>' +
+            '<p style="font-size:0.9375rem;color:var(--text-secondary);margin:var(--space-2) 0 0;">' + idEsc(l.why) + '</p>' +
+            '</div>';
+  });
+  html += '</div>';
+
+  FREE_HELP.forEach(g => {
+    html += '<h3 style="margin:var(--space-8) 0 var(--space-3);">' + idEsc(g.group) + '</h3>';
+    html += '<div class="id-list">';
+    g.items.forEach(i => {
+      html += '<div class="id-row" style="flex-direction:column;align-items:stretch;">' +
+              '<div class="id-row-label">' + idEsc(i.what) + '</div>' +
+              '<p style="font-size:0.875rem;color:var(--rose-text);margin:var(--space-1) 0 0;font-variant-numeric:tabular-nums;">' + idEsc(i.how) + '</p>' +
+              '<p style="font-size:0.9375rem;color:var(--text-secondary);margin:var(--space-2) 0 0;">' + idEsc(i.note) + '</p>' +
+              '</div>';
+    });
+    html += '</div>';
+  });
+
+  html += `<div class="card card-pink" style="margin-top:var(--space-8);">
+    <h3 style="margin-bottom:var(--space-3);">Before you pay anyone for credit repair</h3>
+    <p style="font-size:0.9375rem;margin:0 0 var(--space-3);">Under the Credit Repair Organizations Act it is illegal for a credit repair business to take any money before the service is fully performed &mdash; 15 U.S.C. &sect; 1679b(b) says no such organisation may charge or receive money for a service before that service is fully performed. You must also get a written contract, a separate written statement of your rights before you sign anything, and three business days to cancel without penalty.</p>
+    <p style="font-size:0.9375rem;margin:0;">Anyone asking for a setup fee or a monthly retainer up front is breaking that rule. Nobody can lawfully promise to remove accurate information, and nobody can do anything for you that you cannot do yourself with what is on this page.</p>
+  </div>`;
+
+  html += `<div class="card" style="border:1px solid var(--rose-gold-light);margin-top:var(--space-6);">
+    <h3 style="margin-bottom:var(--space-3);">If you would rather have a person</h3>
+    <p style="font-size:0.9375rem;color:var(--text-secondary);margin:0 0 var(--space-3);"><strong>Everything here is yours already.</strong> There is no paid version of this tool, no upgrade, no account, and nothing you typed left your browser. If you never speak to anyone you still have every letter and every deadline above.</p>
+    <p style="font-size:0.9375rem;color:var(--text-secondary);margin:0 0 var(--space-3);">Two of the four limits above are not solvable by better software. Whether an item is worth removing depends on the loan you are going for and what an underwriter makes of your file &mdash; a judgement about a mortgage, not about a credit report. And a plan for the next twelve months is about income and timing, neither of which is on this page.</p>
+    <p style="font-size:0.9375rem;color:var(--text-secondary);margin:0 0 var(--space-4);">Ownly Funds does that work: mortgage and funding readiness, and financial coaching. Not credit repair, and nobody there will offer to take anything off your file for a fee. If your report is the only thing in your way, you do not need it &mdash; mail the letters.</p>
+    <a class="btn btn-primary btn-sm" href="https://ownlyfunds.myfundalytics.com/book" target="_blank" rel="noopener">Book a conversation</a>
+  </div>`;
+
+  html += '</div></section>';
+  return html;
+}
+
 // ========== BREACH LOOKUP ==========
 function renderBreachLookupSection() {
   return `
@@ -15999,6 +16156,62 @@ function buildActionPlanDoc() {
       <div class="plan-rule plan-rule-check mt">
         <b>Why an account you might expect to see is not being disputed</b>
         <p>An account your plan is paying down, keeping open or building with is worth more to you where it is than it would be removed. Age and available limit are the two things a dispute cannot give back, and a removal request on an account you are actively working can cost you both. Nothing in this packet asks for any account above to come off your file. If your plan has changed, say so and print again.</p>
+      </div>
+    </section>`;
+  })();
+
+
+  // ================= WHAT THIS TOOL CANNOT DO =================
+  // Printed for everyone, at the end, after the letters. It names the limits
+  // of a parser honestly and then lists help that costs nothing — every entry
+  // a government agency, a nonprofit, or a reporting agency's own statutory
+  // disclosure duty. Nothing in this file is held back for a paid version, and
+  // nothing anywhere in this packet promises a score or a removal.
+  (function () {
+    if (typeof FREE_HELP === 'undefined') return;
+    h += `<section class="plan-sheet">
+      ${planHead('What this tool cannot do')}
+      ${planTitle('What this tool cannot do', 'Four honest limits, and where to go instead. None of what follows costs anything.')}
+      ${TOOL_LIMITS.map(l => `<div class="plan-rule mt">
+        <b>${planEsc(l.limit)}</b>
+        <p>${planEsc(l.why)}</p>
+      </div>`).join('')}
+    </section>`;
+
+    FREE_HELP.forEach(g => {
+      h += `<section class="plan-sheet">
+        ${planHead(g.group)}
+        ${planTitle(g.group, 'Free. Not a referral, and nobody here is paid if you use any of it.')}
+        <table class="plan-table">
+          <thead><tr><th>What</th><th>Where</th></tr></thead>
+          <tbody>${g.items.map(i =>
+            '<tr><td><strong>' + planEsc(i.what) + '</strong><br><span style="font-size:8.5pt;color:#566579;">' + planEsc(i.note) + '</span></td>' +
+            '<td style="white-space:normal;">' + planEsc(i.how) + '</td></tr>').join('')}</tbody>
+        </table>
+      </section>`;
+    });
+
+    // The offer. Deliberately short, deliberately last, and deliberately not
+    // about credit repair — a paid service performed for the purpose of
+    // improving a credit record is a credit repair organization service under
+    // 15 U.S.C. § 1679a(3)(A), whatever it is called. This is a different
+    // thing, and the page says out loud that the packet is complete without it.
+    h += `<section class="plan-sheet">
+      ${planHead('If you would rather have a person')}
+      ${planTitle('If you would rather have a person', 'Optional, and nothing above depends on it.')}
+      <div class="plan-rule plan-rule-check">
+        <b>Everything in this packet is yours already</b>
+        <p>Nothing has been held back. There is no paid version of this tool, no upgrade, no account, and no part of your report or your answers has left your browser. If you never speak to anyone, you still have every letter, every deadline and every free resource on the pages above.</p>
+      </div>
+      <div class="plan-rule mt">
+        <b>Where a conversation actually helps</b>
+        <p>Two of the four limits on the first page of this section are not solvable by better software. Whether an item is worth removing at all depends on the loan you are going for and on what an underwriter will make of your file — that is a judgement about a mortgage, not about a credit report. And a plan for the next twelve months is about income, timing and what you can carry, none of which is on the page in front of you.</p>
+        <p>Ownly Funds does that work. It is mortgage and funding readiness and financial coaching &mdash; not credit repair, and nobody there will offer to remove anything from your file for a fee. If your report is the only thing in your way, you do not need it: mail the letters above.</p>
+        <p><strong>ownlyfunds.myfundalytics.com/book</strong></p>
+      </div>
+      <div class="plan-rule mt">
+        <b>Before you pay anyone, anywhere, for credit repair</b>
+        <p>The law is on your side and most people never hear it. Under the Credit Repair Organizations Act it is illegal for a credit repair business to take any money before the service is fully performed &mdash; 15 U.S.C. &sect; 1679b(b), in terms: no such organisation may charge or receive money for a service before that service is fully performed. You must be given a written contract, a separate written statement of your rights before you sign anything, and three business days to cancel without penalty. Anyone asking for a setup fee or a monthly retainer up front is breaking that rule. Nobody can lawfully promise to remove accurate information, and nobody can do anything for you that you cannot do yourself with the pages in this packet.</p>
       </div>
     </section>`;
   })();
