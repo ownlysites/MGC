@@ -9186,10 +9186,22 @@ function compileFurnisherDispute(ctx) {
   const timeline = pickFrom(fragments.timeline_30, 24);
   const damages = pickFrom(fragments.damages_closing, 25);
   
+  // Not every report carries an account number for every tradeline, and a
+  // § 623(b) letter reading "Account ending [XXXX]" is a bracket in an envelope.
+  // The creditor already knows which of their accounts is mine; the number
+  // narrows it where we have one and is simply left out where we do not.
   const itemsList = items.length > 0 ? items.map((it, i) => {
     const reason = it.reason || 'The information is inaccurate as reported.';
-    return `${i+1}. Account ending ${it.account || '[XXXX]'} — ${it.creditor || '[Creditor]'}\n   Issue: ${reason}`;
-  }).join('\n\n') : '[Describe each disputed item: account number, what is inaccurate, and what the correct information should be]';
+    const who = it.creditor || 'the account below';
+    const num = it.account ? ' — account ending ' + it.account : '';
+    return `${i+1}. ${who}${num}\n   Issue: ${reason}`;
+  }).join('\n\n') : [
+    'Each item I am disputing, with what is wrong about it:',
+    '',
+    '    ______________________________________________________________',
+    '',
+    '    ______________________________________________________________'
+  ].join('\n');
   
   const body = [
     opening,

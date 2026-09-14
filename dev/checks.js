@@ -410,6 +410,55 @@ R.section('entering the FTC number refreshes what is on screen, not just the let
 // string returns the string, so prefixing "$" doubled it on every three-bureau
 // report — on the one screen where someone decides whether an account is
 // theirs.
+// A § 623(b) letter for a tradeline whose account number the report did not
+// carry printed "Account ending [XXXX]". Every real fixture has numbers on
+// every account, so no harness had ever built this letter without one.
+R.section('a missing account number does not become a bracket');
+(function () {
+  const fdApi = H.load(['buildLetterContext']);
+  const st = H.session(fdApi, {});
+  st.upload = {parsed: {
+    format: 'three_bureau', bureaus: BUREAUS.slice(), inquiries: [], collections: [],
+    publicRecords: [], scores: [], personal: {},
+    accounts: [acct({creditor: 'HARBOR POINT CARD', account_number: '',
+      status: 'Late 60 Days', has_late_payments: true,
+      late_counts: {d30: 3, d60: 1, d90: 0, d120: 0},
+      per_bureau_fields: perBureau({account_status: 'Late 60 Days',
+        payment_status: 'Late 60 Days', past_due: '$180'})})]
+  }};
+  fdApi.runAnalysis();
+  st.analysis.letters = fdApi.determineLetterPacket(st.analysis);
+  fdApi.regenerateAllLetters();
+  const copies = st.letterVariants['furnisher_dispute'] ||
+                 [st.letterOutputs['furnisher_dispute']].filter(Boolean);
+  R.check('the § 623(b) letter is built', copies.length > 0, copies.length + ' copies');
+  copies.forEach((o, i) => {
+    const mail = String(o.mail || '');
+    R.check('copy ' + (i + 1) + ' carries no bracket', !/\[[^\]]{2,60}\]/.test(mail),
+            (mail.match(/\[[^\]]{2,60}\]/g) || []).slice(0, 2).join(' '));
+    R.check('copy ' + (i + 1) + ' still names the creditor', /HARBOR POINT CARD/i.test(mail));
+  });
+
+  // And where the number IS there, it is still printed.
+  const st2 = H.session(fdApi, {});
+  st2.upload = {parsed: {
+    format: 'three_bureau', bureaus: BUREAUS.slice(), inquiries: [], collections: [],
+    publicRecords: [], scores: [], personal: {},
+    accounts: [acct({creditor: 'HARBOR POINT CARD', account_number: '4417',
+      status: 'Late 60 Days', has_late_payments: true,
+      late_counts: {d30: 3, d60: 1, d90: 0, d120: 0},
+      per_bureau_fields: perBureau({account_status: 'Late 60 Days',
+        payment_status: 'Late 60 Days', past_due: '$180'})})]
+  }};
+  fdApi.runAnalysis();
+  st2.analysis.letters = fdApi.determineLetterPacket(st2.analysis);
+  fdApi.regenerateAllLetters();
+  const c2 = st2.letterVariants['furnisher_dispute'] ||
+             [st2.letterOutputs['furnisher_dispute']].filter(Boolean);
+  R.check('a report that does carry the number still prints it',
+          c2.some(o => /account ending 4417/i.test(String(o.mail || ''))));
+})();
+
 R.section('the item review prints money once');
 (function () {
   const revApi = H.load(['renderItemReview']);
