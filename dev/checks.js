@@ -380,6 +380,30 @@ R.section('the § 605B block letter, for someone who really is a victim');
   R.check('and does say to mail it once it is', /Mail the § 605B Block letter above/i.test(walk2));
 })();
 
+// Entering the FTC number rebuilt the letters and left everything around them
+// stale — the walkthrough still read "No FTC report number entered yet", and an
+// already-built plan still carried the separator sheet telling the victim to
+// hold the letter. That sheet is the one that costs them the four-business-day
+// clock once the number is actually in hand.
+R.section('entering the FTC number refreshes what is on screen, not just the letter');
+(function () {
+  const src = api.SRC;
+  R.check('there is a refresh helper', /function refreshIdentityTheftViews/.test(src));
+  R.check('it regenerates the letters', /refreshIdentityTheftViews[\s\S]{0,400}regenerateAllLetters/.test(src));
+  R.check('it re-renders the letters step', /refreshIdentityTheftViews[\s\S]{0,700}renderLetterPacket/.test(src));
+  R.check('and rebuilds an already-built plan',
+          /refreshIdentityTheftViews[\s\S]{0,1100}state\.planHtml[\s\S]{0,120}buildActionPlanDoc/.test(src));
+  R.check('the FTC input calls it on change',
+          /id="ftc-report-number"[\s\S]{0,260}onchange="refreshIdentityTheftViews\(\)"/.test(src));
+  R.check('and still updates the letter on every keystroke',
+          /id="ftc-report-number"[\s\S]{0,200}oninput="state\.ftcReportNumber[\s\S]{0,60}regenerateAllLetters/.test(src));
+  // On input rather than on change would destroy the field mid-typing.
+  R.check('but does not re-render while they are still typing in the field',
+          !/oninput="[^"]*refreshIdentityTheftViews/.test(src));
+  R.check('the police-report toggle uses the same refresh',
+          /function setPoliceReport[\s\S]{0,420}refreshIdentityTheftViews/.test(src));
+})();
+
 // Also found on screen and not in any assertion: the review printed
 // "balance $$1,412". acc.balance is a number from the columnar parser and a
 // string like "$1,412" from the three-bureau one, and toLocaleString() on a
