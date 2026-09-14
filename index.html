@@ -5433,6 +5433,28 @@ function tbMaxInt(s) {
   const nums = (s.match(/\b\d+\b/g) || []).map(Number);
   return nums.length ? Math.max.apply(null, nums) : 0;
 }
+
+// The same row, read as three values instead of one.
+//
+// "30 Days Past Due   2   0   2" is three bureaus disagreeing about how many
+// times an account went thirty days late, and tbMaxInt threw that away to
+// return 2. The disagreement is the finding: a payment either was or was not
+// made on time, every furnisher reports to all three, and two bureaus giving
+// different counts means at least one history is wrong.
+//
+// N/A is a bureau not reporting the account, which is not a count of zero.
+function tbIntTriple(row) {
+  if (!row) return [null, null, null];
+  const toks = row.trim().split(/\s+/);
+  const out = [];
+  for (const t of toks) {
+    if (out.length >= 3) break;
+    if (/^N\/A$/i.test(t) || /^-$/.test(t)) { out.push(null); continue; }
+    if (/^\d+$/.test(t)) { out.push(parseInt(t, 10)); continue; }
+  }
+  while (out.length < 3) out.push(null);
+  return out;
+}
 function tbWord(s, words) {
   if (!s) return null;
   for (const w of words) {
@@ -5568,6 +5590,21 @@ function parseThreeBureauReport(text) {
       is_collection: collCount > 0,
       is_repossession: repoCount > 0,
       in_bankruptcy: bkCount > 0,
+      // Per-bureau late grid, in the same shape the columnar parser produces, so
+      // one rule compares both formats. Only bureaus that report a count at all
+      // appear — a bureau not carrying the account is absent, not on zero.
+      late_by_bureau: (function () {
+        const t30 = tbIntTriple(tbRow(blk, '30 Days Past Due'));
+        const t60 = tbIntTriple(tbRow(blk, '60 Days Past Due'));
+        const t90 = tbIntTriple(tbRow(blk, '90 Days Past Due'));
+        const t120 = tbIntTriple(tbRow(blk, '120 Days Past Due'));
+        const lbb = {};
+        TB_BUREAU_COLS.forEach((b, i) => {
+          if (t30[i] === null && t60[i] === null && t90[i] === null && t120[i] === null) return;
+          lbb[b] = {d30: t30[i] || 0, d60: t60[i] || 0, d90: t90[i] || 0, d120: t120[i] || 0};
+        });
+        return lbb;
+      })(),
       // Per-bureau field map, in the same shape the columnar parser produces,
       // so the factual consistency rules work on both formats. This layout
       // actually carries two fields the other one does not — Date Of First
@@ -5920,6 +5957,64 @@ function tbCleanRef(raw) {
   return r || null;
 }
 
+// Which bureau reports a public record, and which court it was filed in.
+//
+// Both are on the page and neither was being read. On Jose Santiago's report
+// the Bankruptcies heading is followed by the single line "TransUnion" — that
+// is the bureau reporting it, and the other two are not — and the detail table
+// header reads "Date Filed | Reference Number | Status | Court | Liability |
+// Exempt Amount | Asset Amount", with his row carrying N/A in the Court column.
+//
+// A public record with no court on it is the clearest defect on his whole file:
+// a bankruptcy is a court proceeding, the court is the one fact that makes the
+// record verifiable, and a bureau reporting the record without it cannot have
+// checked it against anything.
+//
+// One sample is one sample, so this reads what is demonstrably there and leaves
+// anything else null. The bureau is taken only when exactly one bureau name
+// sits between the kind heading and the next heading; the court only when the
+// header row actually declares a Court column.
+const TB_PR_BUREAUS = ['TransUnion', 'Experian', 'Equifax'];
+const TB_PR_STATUSES = ['Dismissed', 'Discharged', 'Satisfied', 'Released', 'Vacated', 'Filed', 'Withdrawn'];
+
+function tbPrBureauFor(blk, kind) {
+  const start = blk.findIndex(l => new RegExp('^' + kind + '$', 'i').test(l));
+  if (start < 0) return null;
+  const found = [];
+  for (let i = start + 1; i < blk.length; i++) {
+    const l = String(blk[i]).trim();
+    // Anchored. The unanchored version matched the descriptive paragraph that
+    // begins "Bankruptcies are a legal status..." on the very next line and
+    // broke before it ever reached the bureau name.
+    if (/^(Bankruptcies|Judgments|Liens)$/i.test(l) || /^Date Filed\b/i.test(l)) break;
+    const hit = TB_PR_BUREAUS.find(b => new RegExp('^' + b + '$', 'i').test(l));
+    if (hit && found.indexOf(hit) < 0) found.push(hit);
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
+function tbPrHasCourtColumn(blk) {
+  return blk.some(l => /\bStatus\b[\s\S]*\bCourt\b/i.test(String(l)));
+}
+
+// The row is "date ref status court liability exempt asset". The three trailing
+// money columns are each a figure or N/A, so the court is whatever sits between
+// the status word and them — one token or several, since a real court name is
+// several. Nothing there, or N/A, means no court was reported.
+function tbPrCourt(rowRest) {
+  let r = String(rowRest || '').trim();
+  const st = TB_PR_STATUSES.find(w => new RegExp('\\b' + w + '\\b', 'i').test(r));
+  if (st) r = r.replace(new RegExp('^[\\s\\S]*?\\b' + st + '\\b', 'i'), '').trim();
+  const toks = r.split(/\s+/).filter(Boolean);
+  const isAmount = t => /^N\/A$/i.test(t) || /^\$?-?[\d,]+(?:\.\d{2})?$/.test(t);
+  let end = toks.length;
+  let trailing = 0;
+  while (end > 0 && trailing < 3 && isAmount(toks[end - 1])) { end--; trailing++; }
+  const courtToks = toks.slice(0, end).filter(t => !/^N\/A$/i.test(t));
+  const court = courtToks.join(' ').trim();
+  return court || null;
+}
+
 function tbParsePublicRecords(blk) {
   const out = [];
   const kinds = ['Bankruptcies', 'Judgments', 'Liens'];
@@ -5928,6 +6023,8 @@ function tbParsePublicRecords(blk) {
     !blk.some(l => new RegExp('you currently have no ' + k, 'i').test(l))
   );
   if (!present.length) return out;
+  const prBureau = present.length === 1 ? tbPrBureauFor(blk, present[0]) : null;
+  const hasCourt = tbPrHasCourtColumn(blk);
 
   // The detail tables are rendered after all three headings, so they cannot be
   // sliced by heading. When exactly one kind is populated every table belongs to
@@ -5938,12 +6035,19 @@ function tbParsePublicRecords(blk) {
     const m = l.match(/^([A-Z][a-z]{2}\s+\d{1,2},\s*\d{4})\s*(.*)$/);
     if (!m) return;
     const context = [l, blk[i + 1] || '', blk[i + 2] || ''].join(' ');
-    const status = tbWord(context, ['Dismissed', 'Discharged', 'Satisfied', 'Released', 'Vacated', 'Filed', 'Withdrawn']);
+    const status = tbWord(context, TB_PR_STATUSES);
     out.push({
       type: kind,
       date_filed: m[1],
       status: status || null,
       reference: tbCleanRef(m[2]),
+      // Null and "not reported" are different facts. court stays null when the
+      // layout has no Court column at all; court_reported records whether the
+      // column existed, so a missing court can be told apart from a format
+      // that never carried one.
+      court: hasCourt ? tbPrCourt(m[2]) : null,
+      court_column: hasCourt,
+      bureau: prBureau,
       ambiguous_kind: present.length > 1
     });
   });
@@ -11107,8 +11211,63 @@ function fiParseDate(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// The day-31 checks compare a report date against the date the consumer says
+// they mailed round one, and those two dates arrive in different shapes: the
+// intake date field is ISO, while a parsed report date is "May 30, 2023" on one
+// format and "05/30/2023" on another. fiParseDate is deliberately strict
+// because the cross-bureau comparison must not guess at a date it cannot read;
+// this one is for the two places where a wider read is correct.
+const FI_MONTHS = {jan:0, feb:1, mar:2, apr:3, may:4, jun:5,
+                   jul:6, aug:7, sep:8, oct:9, nov:10, dec:11};
+function fiAnyDate(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return null;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    const d = new Date(+iso[1], +iso[2] - 1, +iso[3]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const slash = fiParseDate(s);
+  if (slash) return slash;
+  const named = s.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s*(\d{4})$/);
+  if (named) {
+    const mo = FI_MONTHS[named[1].toLowerCase()];
+    if (mo === undefined) return null;
+    const d = new Date(+named[3], mo, +named[2]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const monthYear = s.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{4})$/);
+  if (monthYear) {
+    const mo = FI_MONTHS[monthYear[1].toLowerCase()];
+    if (mo === undefined) return null;
+    const d = new Date(+monthYear[2], mo, 1);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+function fiDaysBetween(a, b) {
+  return Math.floor((b.getTime() - a.getTime()) / 86400000);
+}
+
+// Whether a tradeline carries the § 623(a)(3) dispute notation. The exact
+// wording differs by furnisher and by bureau, so this matches the shapes that
+// actually appear rather than one canonical string.
+const FI_DISPUTE_NOTE = /(consumer|customer)\s+disput|disputed\s+by\s+(consumer|customer)|dispute\s+resolved|account\s+information\s+disputed|disputes?\s+this\s+account|now\s+resolved.*reported\s+by\s+(consumer|subscriber)/i;
+function fiHasDisputeNote(acc) {
+  const hay = [(acc.comments || []).join(' '), fiText(acc.status),
+               fiText(acc.payment_status), fiText(acc.creditor_remarks)].join(' ');
+  return FI_DISPUTE_NOTE.test(hay);
+}
+
 function fiDatesDisagree(values) {
-  const dates = values.map(fiParseDate);
+  // fiAnyDate, not fiParseDate. The span rule below is what stops a date
+  // written to two precisions being disputed as a contradiction, and it only
+  // ever applied to MM/DD/YYYY — so on the three-bureau format, where every
+  // date reads "Aug 01, 2025", every comparison fell through to the string
+  // fallback and two dates three days apart counted as a disagreement. That is
+  // the exact false positive the span rule was written to prevent, running on
+  // the format most reports arrive in.
+  const dates = values.map(fiAnyDate);
   if (dates.some(d => d === null)) {
     return [...new Set(values.map(v => String(v).trim()))].length > 1;
   }
@@ -11232,14 +11391,29 @@ function findFactualInconsistencies(parsed) {
           bureaus: [b]});
       }
 
-      // Transferred means the original creditor no longer holds it.
-      if (/transferred/i.test(status) && (bal > 0 || due > 0)) {
+      // Transferred means the original creditor no longer holds it. Balance and
+      // past due are two different assertions and two different disputes: one
+      // says the original creditor still holds money on the account, the other
+      // says a payment is overdue to a creditor who no longer owns the debt.
+      // Firing one rule for both meant a report showing only a past due got a
+      // finding that said "balance", and the dispute reason cited was the wrong
+      // field — which is the one thing a furnisher can answer in a line.
+      if (/transferred/i.test(status) && bal > 0) {
         out.push({rule: 'balance_on_transferred', creditor: acc.creditor, account: acc.account_number,
           reason: 'balance', impact: FACT_IMPACT.balance,
           label: 'An account marked transferred is still reporting a balance',
-          detail: b + ' shows this account as transferred and still reports ' +
-                  (bal > 0 ? 'a balance of $' + bal : '$' + due + ' past due') +
+          detail: b + ' shows this account as transferred and still reports a balance of $' + bal +
                   '. Once an account is transferred, the original creditor reports no balance.',
+          bureaus: [b]});
+      }
+
+      if (/transferred/i.test(status) && due > 0) {
+        out.push({rule: 'past_due_on_transferred', creditor: acc.creditor, account: acc.account_number,
+          reason: 'balance', impact: FACT_IMPACT.balance,
+          label: 'An account marked transferred is still reporting a past-due amount',
+          detail: b + ' shows this account as transferred and still reports $' + due +
+                  ' past due. A past due is money owed to the creditor reporting it, and a ' +
+                  'creditor that transferred the account is no longer owed anything on it.',
           bureaus: [b]});
       }
 
@@ -11253,6 +11427,114 @@ function findFactualInconsistencies(parsed) {
           bureaus: [b]});
       }
     });
+
+    // ---- the two day-31 checks, run rather than recommended ----
+    //
+    // The packet has always told people to pull a fresh report on day 31 and
+    // look for these two things by hand. In round two we have both halves: the
+    // date they say round one was received, and a report pulled since. So look.
+    //
+    // Both are violations regardless of whether the dispute succeeded, which is
+    // what makes them worth more than the deletion that was asked for.
+    if (typeof r2Active === 'function' && r2Active() && r2MailedOn()) {
+      const mailed = fiAnyDate(r2MailedOn());
+      const r2s = (typeof r2Status === 'function') ? r2Status(acc.creditor) : null;
+      const reported = fiAnyDate(acc.date_reported);
+
+      // 1. NOTICE OF DISPUTE — FCRA § 623(a)(3), 15 U.S.C. § 1681s-2(a)(3).
+      // A furnisher that knows an account is disputed must say so when it
+      // reports it. Thirty days after the bureau received the dispute the
+      // notation should be on the tradeline. The report in hand has to have
+      // been pulled after day 30 for its silence to mean anything.
+      if (mailed && r2s && !R2_ROUND_ONE_ONLY[r2s] && reported &&
+          fiDaysBetween(mailed, reported) >= 30 && !fiHasDisputeNote(acc)) {
+        out.push({rule: 'notice_of_dispute_missing', creditor: acc.creditor, account: acc.account_number,
+          reason: 'notice_of_dispute', impact: FACT_IMPACT.notice_of_dispute,
+          label: 'The dispute notation never appeared on this account',
+          detail: 'You disputed this on ' + r2LongDate(r2MailedOn()) + '. This report was last ' +
+                  'updated ' + fiText(acc.date_reported) + ', more than thirty days later, and the ' +
+                  'tradeline still carries no note that the account is disputed. FCRA § 623(a)(3) ' +
+                  'requires a furnisher who knows of a dispute to report it as disputed. That ' +
+                  'omission is a violation on its own, separately from whether the account is accurate.',
+          bureaus: Object.keys(per)});
+      }
+
+      // 2. DATE LAST REPORTED. If the answer was "verified", something was
+      // examined on some date, and the date the account was last reported
+      // should have moved to it. A tradeline that comes back verified with its
+      // last-reported date still sitting before the dispute says nobody looked.
+      if (mailed && reported && (r2s === 'verified' || r2s === 'frivolous') &&
+          fiDaysBetween(mailed, reported) < 0) {
+        out.push({rule: 'status_update_not_moved', creditor: acc.creditor, account: acc.account_number,
+          reason: 'status_update', impact: FACT_IMPACT.status_update,
+          label: 'Reported as verified, but the last-reported date never moved',
+          detail: 'The bureau says this account was verified after your dispute of ' +
+                  r2LongDate(r2MailedOn()) + ', yet it is still reporting ' +
+                  fiText(acc.date_reported) + ' as the date it was last reported — before the ' +
+                  'dispute was even received. A verification is an examination on a date. If ' +
+                  'nothing about the date changed, nothing was examined, and that goes directly ' +
+                  'to whether the reinvestigation was reasonable under FCRA § 611.',
+          bureaus: Object.keys(per)});
+      }
+    }
+
+    // A third-party collection is not an account you have a payment schedule
+    // with, so there is nothing to be thirty days late on. Late marks on a
+    // collection tradeline are payment history carried over from a closed
+    // original account, or invented — either way the collection agency is
+    // reporting activity on an account that closed before it ever held it.
+    //
+    // The cheat sheets call this "no late payments after close date". The close
+    // date itself is not on every format and the late grid carries counts
+    // rather than dated months, so this is not dated arithmetic — it is the
+    // simpler point that the grid should not be there at all.
+    const collLate = acc.late_counts || {};
+    const collLateTotal = ['d30', 'd60', 'd90', 'd120', 'd150', 'd180']
+      .reduce((t, k) => t + (Number(collLate[k]) || 0), 0);
+    if (acc.is_collection && collLateTotal > 0) {
+      out.push({rule: 'late_payments_on_collection', creditor: acc.creditor, account: acc.account_number,
+        reason: 'activity_after_closed', impact: FACT_IMPACT.activity_after_closed,
+        label: 'A collection account is reporting late payments',
+        detail: 'This is reported as a collection and also carries ' + collLateTotal +
+                ' late-payment mark(s). A collection agency has no payment arrangement with you ' +
+                'to be late on, so the payment history on this tradeline belongs to a closed ' +
+                'account and is being reported as activity on this one.',
+        bureaus: Object.keys(per)});
+    }
+
+    // Late payments should be the same on all three. A payment either was or was
+    // not made on time; the furnisher reports the same history to every bureau
+    // it reports to. Two bureaus giving different counts is not a matter of
+    // opinion — one of them is carrying a history the furnisher did not send,
+    // and neither can be verified without producing the payment record.
+    //
+    // Only bureaus that report the account are compared, so a bureau that has
+    // never carried it does not read as "zero lates" and manufacture a finding.
+    const lbCmp = acc.late_by_bureau || {};
+    const lbNames = Object.keys(lbCmp);
+    if (lbNames.length >= 2) {
+      const sig = b => ['d30', 'd60', 'd90', 'd120']
+        .map(k => Number(lbCmp[b][k]) || 0).join('/');
+      const sigs = [...new Set(lbNames.map(sig))];
+      if (sigs.length > 1) {
+        const worst = lbNames.map(b => ({b: b, t: ['d30', 'd60', 'd90', 'd120']
+          .reduce((x, k) => x + (Number(lbCmp[b][k]) || 0), 0)}));
+        const lo = Math.min(...worst.map(w => w.t));
+        const hi = Math.max(...worst.map(w => w.t));
+        out.push({rule: 'late_grid_mismatch', creditor: acc.creditor, account: acc.account_number,
+          reason: 'first_delinquency', impact: FACT_IMPACT.first_delinquency,
+          label: 'The bureaus report different late payments on this account',
+          detail: lbNames.map(b => b + ' reports ' +
+                    ['30', '60', '90', '120'].map((d, i) =>
+                      (Number(lbCmp[b]['d' + d]) || 0) + ' at ' + d + ' days').join(', ')).join('; ') +
+                  '. The same furnisher reports the same payment history to every bureau it ' +
+                  'reports to, so these cannot all be right' +
+                  (lo === 0 ? ' \u2014 and one of them is showing this account as never late' : '') +
+                  '. Ask each of them to produce the payment record behind its own figure.',
+          bureaus: lbNames});
+        void hi;
+      }
+    }
 
     // A 90-day late with no 30 or 60 before it is a sequence that cannot happen.
     const lb = acc.late_by_bureau || {};
@@ -11320,6 +11602,173 @@ const DR_DEFECTS = [
   'reporting inaccurate amounts', 'reporting inaccurate dates'
 ];
 
+// ========== PUBLIC RECORDS: THE SAME TEST, APPLIED TO A COURT FILE ==========
+// A public record is the one item on a credit report that has an independent,
+// public original. Every other tradeline is the furnisher's word against the
+// consumer's; a bankruptcy, a judgment or a tax lien exists in a court file
+// anybody can pull. That makes two defects provable without arguing about the
+// debt at all:
+//
+//   1. NO COURT. A bankruptcy is a court proceeding, and the court is the one
+//      fact that makes the record checkable. A bureau reporting the record with
+//      the Court column empty is reporting a proceeding it cannot have verified
+//      against anything, and the consumer can say so without knowing a thing
+//      about the filing.
+//
+//   2. DATES THAT DISAGREE. The filing date is stamped by the clerk. It is one
+//      date. Two bureaus reporting the same record filed in different months
+//      means at least one of them did not take it from the court, and the one
+//      running late is holding the record past its own fall-off date.
+//
+// Both produce findings in exactly the shape findFactualInconsistencies does,
+// so they flow into the same letters and the same dispute-reason vocabulary.
+// creditor is the record's own description because a public record has no
+// furnisher — the letter names the record, and the bureau is the recipient.
+function prLabelFor(type) {
+  const t = String(type || '').toLowerCase();
+  if (/bankrupt/.test(t)) return 'bankruptcy';
+  if (/judg/.test(t)) return 'judgment';
+  if (/lien/.test(t)) return 'tax lien';
+  return 'public record';
+}
+
+function prName(r) {
+  const kind = prLabelFor(r.type);
+  const ref = r.reference ? ' ' + r.reference : '';
+  return kind.charAt(0).toUpperCase() + kind.slice(1) + ref;
+}
+
+// ========== DOUBLE JEOPARDY ==========
+// One debt, two balances. When a charged-off account is sold or assigned, the
+// original creditor's tradeline should report a zero balance and the collection
+// agency reports what is owed — the debt moved, it did not multiply. A report
+// showing a balance on both is claiming the consumer owes the same money twice,
+// and it is counted twice in every utilisation and total-debt figure a lender
+// sees.
+//
+// The cheat sheets call this double jeopardy. Their one-line version is "only
+// the account-holder should report the balance", which is ambiguous between
+// this and the authorized-user argument; this implements the reading that is an
+// arithmetic inaccuracy on the face of the report rather than a contested legal
+// claim about whose debt it is.
+//
+// Matching is by the collection's own stated original creditor, never by
+// balance alone: two different debts of the same size are not one debt.
+function findDoubleJeopardy(parsed) {
+  const out = [];
+  const accounts = (parsed && parsed.accounts) || [];
+  const collections = (parsed && parsed.collections) || [];
+  if (!accounts.length) return out;
+
+  const money = v => {
+    if (v === null || v === undefined) return null;
+    const m = String(v).replace(/[$,]/g, '').match(/-?\d+(\.\d+)?/);
+    return m ? parseFloat(m[0]) : null;
+  };
+
+  // Every claim of an amount owed, from either side of the report.
+  const claims = [];
+  collections.forEach(c => {
+    const orig = c.original_creditor || '';
+    if (!orig) return;
+    const bal = money(c.balance);
+    if (!(bal > 0)) return;
+    claims.push({orig: orig, who: c.agency || c.creditor || 'a collection agency',
+                 amount: bal, kind: 'collection'});
+  });
+  accounts.filter(a => a && a.is_collection && a.original_creditor).forEach(a => {
+    const bal = money(a.balance);
+    if (!(bal > 0)) return;
+    claims.push({orig: a.original_creditor, who: a.creditor || 'a collection agency',
+                 amount: bal, kind: 'collection'});
+  });
+  if (!claims.length) return out;
+
+  accounts.forEach(a => {
+    if (!a || !a.creditor || a.is_collection) return;
+    const bal = money(a.balance);
+    if (!(bal > 0)) return;
+    const hit = claims.find(c =>
+      typeof credSimilar === 'function' ? credSimilar(mgcCredNorm(c.orig), mgcCredNorm(a.creditor))
+                                        : mgcCredNorm(c.orig) === mgcCredNorm(a.creditor));
+    if (!hit) return;
+    out.push({
+      rule: 'double_jeopardy_balance',
+      creditor: a.creditor, account: a.account_number || '',
+      reason: 'balance', impact: 2,
+      label: 'This debt is reporting a balance twice',
+      detail: a.creditor + ' still reports a balance of $' + bal + ' on this account, and ' +
+              hit.who + ' reports $' + hit.amount + ' owed on the same debt as a collection. ' +
+              'A debt that was sold or assigned moved; it did not become two debts. One of ' +
+              'these balances has to be zero, and it is the original creditor\'s — they no ' +
+              'longer hold the account. Until then this is counted twice in every total a ' +
+              'lender sees.',
+      bureaus: Object.keys(a.per_bureau_fields || {})
+    });
+  });
+
+  return out;
+}
+
+function findPublicRecordDefects(parsed) {
+  const out = [];
+  const recs = (parsed && parsed.publicRecords) || [];
+  if (!recs.length) return out;
+
+  recs.forEach(r => {
+    // Only where the layout actually has a Court column. A format that never
+    // carried one says nothing about whether the bureau holds a court name,
+    // and a finding built on that would be an assertion about a gap in our
+    // parsing rather than a gap in their reporting.
+    if (r.court_column && !r.court && /bankrupt/i.test(String(r.type || ''))) {
+      out.push({
+        rule: 'bankruptcy_court_not_reported',
+        creditor: prName(r), account: r.reference || '',
+        reason: 'not_mine', impact: 2,
+        label: 'A bankruptcy is reported with no court named',
+        detail: (r.bureau ? r.bureau + ' reports' : 'This report carries') +
+                ' a bankruptcy filed ' + (r.date_filed || 'on a date it does not give') +
+                (r.reference ? ', reference ' + r.reference : '') +
+                ', and the Court field is blank. A bankruptcy is a proceeding in a named ' +
+                'court, and the court is what makes the record verifiable. Reported without ' +
+                'it, the record cannot have been checked against the court\'s own file — which ' +
+                'is what FCRA \u00a7 611 requires the bureau to have done.',
+        bureaus: r.bureau ? [r.bureau] : []
+      });
+    }
+  });
+
+  // Same record, two bureaus, two filing dates. Grouped by kind and reference
+  // number; a record with no reference is not matched to anything, because
+  // "the bankruptcy" on two bureaus could be two filings.
+  const byRef = {};
+  recs.forEach(r => {
+    if (!r.reference || !r.bureau || !r.date_filed) return;
+    const k = prLabelFor(r.type) + '|' + String(r.reference).toUpperCase();
+    (byRef[k] = byRef[k] || []).push(r);
+  });
+  Object.keys(byRef).forEach(k => {
+    const group = byRef[k];
+    const bureaus = [...new Set(group.map(r => r.bureau))];
+    if (bureaus.length < 2) return;
+    if (!fiDatesDisagree(group.map(r => r.date_filed))) return;
+    const kind = prLabelFor(group[0].type);
+    out.push({
+      rule: 'public_record_filing_date_mismatch',
+      creditor: prName(group[0]), account: group[0].reference || '',
+      reason: 'date_last_active', impact: 1,
+      label: 'The bureaus report different filing dates for the same ' + kind,
+      detail: group.map(r => r.bureau + ' reports it filed ' + r.date_filed).join('; ') +
+              '. A filing date is stamped once by the court clerk. Whichever bureau has it ' +
+              'wrong did not take the record from the court file, and if the later date is ' +
+              'the wrong one the record is being held past the date it should come off.',
+      bureaus: bureaus
+    });
+  });
+
+  return out.sort((a, b) => a.impact - b.impact);
+}
+
 // Every factual rule this app can fire, mapped to the one element it is really
 // about. A rule with no entry here gets no lead sentence — silence is correct,
 // a guessed element is not.
@@ -11332,6 +11781,15 @@ const DR_RULE_MAP = {
   monthly_payment_on_closed:      {outcome: 'Delete',  element: 'monthly payment',         defect: 'inaccurate'},
   past_due_on_collection:         {outcome: 'Delete',  element: 'past due',                defect: 'inaccurate'},
   balance_on_transferred:         {outcome: 'Delete',  element: 'balance',                 defect: 'inaccurate'},
+  past_due_on_transferred:        {outcome: 'Delete',  element: 'past due',                defect: 'inaccurate'},
+  late_payments_on_collection:    {outcome: 'Delete',  element: 'activity after close date', defect: 'inaccurate'},
+  notice_of_dispute_missing:      {outcome: 'Delete',  element: 'notice of dispute',        defect: 'missing'},
+  status_update_not_moved:        {outcome: 'Delete',  element: 'status',                  defect: 'inaccurate'},
+  bankruptcy_court_not_reported:  {outcome: 'Delete',  element: 'status',                  defect: 'incomplete'},
+  double_jeopardy_balance:        {outcome: 'Update',  element: 'balance',                 defect: 'inaccurate'},
+  late_grid_mismatch:             {outcome: 'Delete',  element: 'late payments',           defect: 'reporting inaccurate dates'},
+  public_record_filing_date_mismatch:
+                                  {outcome: 'Delete',  element: 'date last active',        defect: 'reporting different dates'},
   chargeoff_balance_exceeds_high: {outcome: 'Delete',  element: 'balance',                 defect: 'incorrect'},
   ninety_without_thirty:          {outcome: 'Delete',  element: 'payment history',         defect: 'incomplete'}
 };
@@ -12142,7 +12600,10 @@ function analyzeReport(parsed, analysis) {
 
   // Field-level contradictions the report makes impossible. Computed before
   // anything else so the priority ranking and the letters can both use them.
-  analysis.factual = dedupeFactual(findFactualInconsistencies(parsed));
+  analysis.factual = dedupeFactual(
+    findFactualInconsistencies(parsed)
+      .concat(findDoubleJeopardy(parsed))
+      .concat(findPublicRecordDefects(parsed)));
 
   // The same findings regrouped by account and deduplicated by which field they
   // are about. This is what makes a second letter a new dispute rather than a
