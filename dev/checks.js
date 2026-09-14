@@ -299,4 +299,67 @@ R.section('each new rule carries a dispute reason');
   });
 })();
 
+// ------------------------------------------- the § 605B path, end to end
+//
+// Dave asked why MGC does not build the identity-theft letter. It does — but
+// only once the consumer has marked which accounts are not theirs, because the
+// letter is sworn under penalty of perjury and nothing here will assemble a
+// sworn statement out of the derogatory list. That gate is correct and it is
+// why an earlier harness run, which ticked the intake box and marked nothing,
+// saw no letter and made it look broken. This proves both halves.
+R.section('the § 605B block letter, for someone who really is a victim');
+(function () {
+  const idtApi = H.load(['accountKey', 'renderIdentityTheftWalkthrough', 'reviewedAccounts']);
+  const parsed = idtApi.parseCreditReport(H.fixture('michelle.txt'));
+  if (!parsed || !(parsed.accounts || []).length) {
+    R.check('fixture parsed', false, 'no accounts'); return;
+  }
+
+  // Nothing marked: no letter, and the walkthrough says why.
+  const st1 = H.session(idtApi, {situation: 'idtheft', special_flags: ['identity_theft']});
+  st1.upload = {parsed: parsed};
+  idtApi.runAnalysis();
+  st1.analysis.letters = idtApi.determineLetterPacket(st1.analysis);
+  const ids1 = (st1.analysis.letters || []).map(l => l.id);
+  R.check('nothing marked yet — no sworn letter is produced',
+          ids1.indexOf('idtheft_block') < 0);
+  R.check('and the fraud alert still goes out immediately', ids1.indexOf('fraud_alert') >= 0);
+  const walk1 = String(idtApi.renderIdentityTheftWalkthrough() || '');
+  R.check('Step 5 says the letter is not built yet', /not built yet/i.test(walk1));
+  R.check('and says what builds it', /Never mine/i.test(walk1));
+  R.check('and does not still promise a letter that is not there',
+          !/mail the § 605B Block letter we&#39;ve generated|we’ve generated \(above\)/.test(
+            walk1.split('not built yet')[0] || ''));
+
+  // One account marked "never mine": the letter appears, naming it.
+  const st2 = H.session(idtApi, {situation: 'idtheft', special_flags: ['identity_theft']});
+  st2.upload = {parsed: parsed};
+  const victimOf = parsed.accounts[0];
+  st2.itemReview.accounts[idtApi.accountKey(victimOf, 0)] = 'never';
+  st2.itemReview.reviewed = true;
+  idtApi.runAnalysis();
+  st2.analysis.letters = idtApi.determineLetterPacket(st2.analysis);
+  const ids2 = (st2.analysis.letters || []).map(l => l.id);
+  R.check('one account marked "never mine" — the § 605B letter is built',
+          ids2.indexOf('idtheft_block') >= 0, ids2.join(', '));
+
+  idtApi.regenerateAllLetters();
+  const out = st2.letterOutputs['idtheft_block'] || {};
+  const mail = String(out.mail || '');
+  R.check('and it names that account', mail.indexOf(victimOf.creditor) >= 0,
+          victimOf.creditor);
+  R.check('and no FTC number is invented when none was entered',
+          !/Report Number:\s*\S/.test(mail));
+
+  // With a number entered, it prints — the same live-rebuild round two uses.
+  st2.ftcReportNumber = 'FTC-2026-114477';
+  idtApi.regenerateAllLetters();
+  const withNum = String((st2.letterOutputs['idtheft_block'] || {}).mail || '');
+  R.check('entering the FTC number puts it in the letter',
+          withNum.indexOf('FTC-2026-114477') >= 0);
+  const walk2 = String(idtApi.renderIdentityTheftWalkthrough() || '');
+  R.check('and Step 5 now confirms what it was built from',
+          /Built from what you marked/i.test(walk2));
+})();
+
 R.done();
