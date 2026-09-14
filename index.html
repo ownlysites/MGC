@@ -9237,7 +9237,11 @@ function compileFurnisherDispute(ctx) {
   
   const portal = `Direct dispute under FCRA § 623(b) (15 U.S.C. § 1681s-2(b)). You must reasonably investigate and correct inaccurate reporting to all CRAs.\n\nItems disputed:\n${itemsList}\n\n30-day response window. Willful violations: $100-$1,000 per violation + punitive + attorney fees (15 U.S.C. § 1681n). — ${u.name}`;
   
-  const short = `FCRA § 623(b) direct dispute — investigate and correct inaccurate reporting on ${items.length > 0 ? items.map(i=>'account ending '+(i.account||'[XXXX]')).join(', ') : 'the accounts indicated'}. 30 days. Statutory damages apply. — ${u.name}`;
+  // Same rule as the mailed body above: no account number means the number is
+  // left out, not bracketed. This is the portal/short version, which is what a
+  // person pastes into a bureau's web form — the channel, not the standard,
+  // is what differs.
+  const short = `FCRA § 623(b) direct dispute — investigate and correct inaccurate reporting on ${items.length > 0 ? items.map(i=>i.account ? 'account ending '+i.account : (i.creditor||'the account indicated')).join(', ') : 'the accounts indicated'}. 30 days. Statutory damages apply. — ${u.name}`;
   
   return {mail, portal: portal.length > 2000 ? portal.substring(0,1990)+'…' : portal, short};
 }

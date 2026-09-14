@@ -138,6 +138,20 @@ SCENARIOS.forEach(s => {
         const hit = String(o.mail || '').match(rx);
         if (hit) problems.push(why + ': ' + [...new Set(hit)].slice(0, 3).join(' | ') + (who ? ' → ' + who : ''));
       });
+      // The portal and short versions had never been checked at all, and they
+      // are not drafts — portal is what a person pastes into a bureau's web
+      // form and short is what goes in a character-limited field. A bracket
+      // there reaches a bureau exactly as a bracket in an envelope does.
+      // Found when the § 623(b) short version turned out to still carry
+      // "account ending [XXXX]" after the mailed body had been fixed.
+      ['portal', 'short'].forEach(channel => {
+        const v = String(o[channel] || '');
+        if (!v) return;
+        const br = v.match(/\[[^\]]{2,60}\]/g);
+        if (br) problems.push('a bracket in .' + channel + ': ' + [...new Set(br)].slice(0, 3).join(' | ') + (who ? ' → ' + who : ''));
+        if (/undefined|NaN|\[object Object\]/.test(v)) problems.push('.' + channel + ' carries an unresolved value');
+      });
+
       // A letter that fans out must know who it is going to.
       if (out.length > 1 && !(o.to && String(o.to).trim())) problems.push('copy ' + (i + 1) + ' is addressed to nobody');
     });
