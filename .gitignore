@@ -3,3 +3,4 @@
 dev/fixtures/
 dev/node_modules/
 dev/*.out
+.DS_Store

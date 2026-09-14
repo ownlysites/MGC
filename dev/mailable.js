@@ -16,7 +16,7 @@ if (!H.haveFixtures()) {
   console.log('\n  No fixtures. Run:  cd dev && node extract.cjs\n');
   process.exit(2);
 }
-const api = H.load();
+const api = H.load(['bankruptcyRecord']);
 
 const BAD = [
   [/\[[^\]]{2,60}\]/g,                         'a bracket'],
@@ -55,6 +55,13 @@ const SCENARIOS = [
   {label: 'breach, Equifax named',           file: 'smartcredit3.txt',  intake: {situation: 'breach', special_flags: ['data_breach'], breach_which: ['equifax_2017'], breach_notice: 'yes_ssn', breach_misuse: ['nothing']}},
   {label: 'breach with real misuse',         file: 'jose_santiago.txt', intake: {situation: 'breach', special_flags: ['data_breach', 'identity_theft'], breach_which: ['npd_2024'], breach_misuse: ['new_accounts', 'tax']}},
   {label: 'military',                        file: 'michelle.txt',      intake: {special_flags: ['scra'], military_status: 'active'}},
+  // The bankruptcy letters were never covered here, and both were printing
+  // "[Collector]" and "[Address]" into an envelope because neither was wired
+  // into the fan-out. jose_santiago.txt carries a DISMISSED filing, so its
+  // bankruptcy letters are the ones the packet must WITHHOLD; michelle.txt has
+  // no public record, so the intake tick is what builds them.
+  {label: 'bankruptcy filed, from intake',   file: 'michelle.txt',      intake: {special_flags: ['bankruptcy']}},
+  {label: 'considering bankruptcy',          file: 'michelle.txt',      intake: {special_flags: ['bankruptcy_considering']}},
   {label: 'round two, all verified',         file: 'michelle.txt',      intake: {}, roundTwo: 'verified'},
   {label: 'round two, no response',          file: 'smartcredit3.txt',  intake: {}, roundTwo: 'no_response'},
   // Nobody filled the optional identity fields in. Every bureau letter carries
@@ -109,7 +116,15 @@ SCENARIOS.forEach(s => {
     // served with and nothing here can know them. It is allowed to carry ruled
     // blanks ONLY because the separator sheet says so in terms — which is
     // asserted separately below, so the exemption cannot become a hiding place.
-    const blanksAllowed = (id === 'scra_default_protection');
+    // The stay notice earns the same exemption for the same reason: the court
+    // it was filed in and the dates of the contact that violated the stay are
+    // on the petition and in the person's own log, not on a credit report. Its
+    // separator-sheet wording is asserted separately below too.
+    // And the discharge dispute, whose chapter, case number and discharge date
+    // are on the court's order and on no credit report.
+    const blanksAllowed = (id === 'scra_default_protection' ||
+                           id === 'bankruptcy_automatic_stay' ||
+                           id === 'bankruptcy_discharged');
     out.forEach((o, i) => {
       copies++;
       const who = out.length > 1 ? (o.to || 'copy ' + (i + 1)) : '';
@@ -151,6 +166,70 @@ R.section('the one letter allowed to carry blanks says so');
   }
   R.check('the pre-service warning is on the 6% letter',
           /BEFORE you went on active duty/i.test(plan));
+})();
+
+// Same rule for the stay notice, plus the two gating decisions that keep the
+// packet from asserting something the court record contradicts.
+R.section('the bankruptcy letters');
+(function () {
+  const st = H.session(api, {special_flags: ['bankruptcy']});
+  st.upload = {parsed: api.parseCreditReport(H.fixture('michelle.txt'))};
+  api.runAnalysis();
+  st.analysis.letters = api.determineLetterPacket(st.analysis);
+  api.regenerateAllLetters();
+  api.buildActionPlanDoc();
+  const plan = String(st.planHtml || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
+  const ids = (st.analysis.letters || []).map(l => l.id);
+  const built = ids.indexOf('bankruptcy_automatic_stay') >= 0;
+  R.check('a filing with no court record still builds the stay notice', built,
+          built ? 'yes' : 'not built — the checks below are vacuous');
+  if (built) {
+    R.check('the separator sheet says to fill it in first',
+            /Fill this one in before you send it/i.test(plan));
+    R.check('and says the court is on the petition', /petition/i.test(plan));
+    R.check('and asks for the dates of the contact', /dates? of the calls|each date/i.test(plan));
+    const copiesOut = st.letterVariants['bankruptcy_automatic_stay'] || [];
+    R.check('it fans out to the collectors rather than one "[Collector]"',
+            copiesOut.length >= 1 && copiesOut.every(c => c.to && String(c.to).trim()),
+            copiesOut.length + ' copies');
+  }
+  R.check('ticking "I have filed" does not produce a pre-filing notice',
+          ids.indexOf('bankruptcy_pre_filing') < 0);
+  if (ids.indexOf('bankruptcy_discharged') >= 0) {
+    R.check('the discharge dispute says to copy the case off the order',
+            /discharge order/i.test(plan));
+    const disc = st.letterOutputs['bankruptcy_discharged'] || {};
+    R.check('and never prints "Chapter null"', !/Chapter null|Chapter undefined/.test(String(disc.mail || '')));
+  }
+})();
+
+(function () {
+  const st = H.session(api, {special_flags: ['bankruptcy_considering']});
+  st.upload = {parsed: api.parseCreditReport(H.fixture('michelle.txt'))};
+  api.runAnalysis();
+  st.analysis.letters = api.determineLetterPacket(st.analysis);
+  api.regenerateAllLetters();
+  const ids = (st.analysis.letters || []).map(l => l.id);
+  R.check('"considering" builds the pre-filing notice', ids.indexOf('bankruptcy_pre_filing') >= 0);
+  R.check('and does not claim a stay that does not exist yet',
+          ids.indexOf('bankruptcy_automatic_stay') < 0);
+})();
+
+(function () {
+  // Jose Santiago's filing reads DISMISSED. The stay ended with the case under
+  // 11 U.S.C. § 362(c)(2)(B) and the debts were never discharged, so neither
+  // letter is true and neither may be in the packet.
+  const st = H.session(api, {});
+  st.upload = {parsed: api.parseCreditReport(H.fixture('jose_santiago.txt'))};
+  api.runAnalysis();
+  st.analysis.letters = api.determineLetterPacket(st.analysis);
+  const ids = (st.analysis.letters || []).map(l => l.id);
+  const rec = api.bankruptcyRecord(st.upload.parsed);
+  R.check('the dismissed filing is read as dismissed', !!(rec && rec.dismissed),
+          rec ? JSON.stringify({d: rec.discharged, x: rec.dismissed}) : 'no record found');
+  R.check('no discharge letter on a dismissed case', ids.indexOf('bankruptcy_discharged') < 0);
+  R.check('no stay letter on a dismissed case', ids.indexOf('bankruptcy_automatic_stay') < 0);
+  R.check('no pre-filing notice on a case already filed', ids.indexOf('bankruptcy_pre_filing') < 0);
 })();
 
 console.log('\n  ' + letters + ' letter template(s), ' + copies + ' copies checked');

@@ -27,7 +27,30 @@ function load(extra) {
     apply() { return stub; }
   });
 
-  global.document = {getElementById: () => stub, querySelector: () => stub,
+  // The personalisation inputs have to answer with what state.userInfo holds.
+  // A blanket stub returns '' for every .value, and buildActionPlanDoc calls
+  // updateUserInfo() which reads those inputs — so building the plan wiped the
+  // name and address and every letter came out saying [YOUR FULL NAME]. That
+  // looked like a serious product defect and was entirely the stub. The real
+  // page has a guard (planDetailsComplete) that asks for the details first.
+  const UI_FIELDS = {'ui-name': 'name', 'ui-address': 'address', 'ui-city': 'city',
+                     'ui-dob': 'dob', 'ui-ssn': 'ssnLast4'};
+  const inputStub = key => new Proxy(function () {}, {
+    get(t, k) {
+      if (k === 'value') return (global.__api && global.__api.state && global.__api.state.userInfo &&
+                                 global.__api.state.userInfo[key]) || '';
+      if (k === 'style' || k === 'classList' || k === 'dataset') return stub;
+      if (k === 'children' || k === 'childNodes') return [];
+      if (k === Symbol.toPrimitive || k === 'toString') return () => '';
+      return stub;
+    },
+    set() { return true; },
+    apply() { return stub; }
+  });
+
+  global.document = {
+    getElementById: id => (UI_FIELDS[id] ? inputStub(UI_FIELDS[id]) : stub),
+    querySelector: () => stub,
     querySelectorAll: () => [], createElement: () => stub,
     addEventListener: () => {}, body: stub, head: stub, documentElement: stub};
   global.window = {addEventListener: () => {},

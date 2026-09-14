@@ -30,7 +30,11 @@ const JOBS = {
   'mg_equifax.txt':    'Mike Gibson/MiG-Equifax.pdf',
   'mg_transunion.txt': 'Mike Gibson/TransunionMG.pdf',
   'jose_santiago.txt': 'Gio/jose_santiago.pdf',
-  'gibson_james.txt':  '2026-09-09-james-gibson.pdf'
+  'gibson_james.txt':  '2026-09-09-james-gibson.pdf',
+  // Advisor Action Plans. A second document about the same person, not another
+  // source of tradelines — they decide what must NOT be disputed.
+  'ap_michelle.txt':   'Michelle Ivery/michelle_ivery.pdf',
+  'ap_gio.txt':        'Gio/Action Plan for Gio.pdf'
 };
 
 async function extract(file) {

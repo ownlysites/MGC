@@ -3125,6 +3125,7 @@ const intakeQuestions = [
       {v:'identity_theft', t:'I\'m a victim of identity theft'},
       {v:'data_breach', t:'My info was in a known data breach'},
       {v:'bankruptcy', t:'I\'ve filed bankruptcy in the last 10 years'},
+      {v:'bankruptcy_considering', t:'I\'m considering filing bankruptcy'},
       {v:'scra', t:'I\'m active duty military or recently separated'},
       {v:'student_loans', t:'I have student loan issues on my report'},
       {v:'tax_debt', t:'I have IRS or state tax debt'},
@@ -7387,6 +7388,75 @@ function canonBureau(v) {
   const k = String(v == null ? '' : v).trim().toLowerCase().replace(/[^a-z]/g, '');
   return BUREAU_CANON[k] || (v == null ? v : String(v).trim());
 }
+// A three-bureau report lists each collection once per bureau. Jose Santiago's
+// file parsed as ten collections; he has four debts. LVNV Funding appears three
+// times at $443, three times at $510 and three times at $1,651 — the same three
+// debts as reported by Equifax, Experian and TransUnion.
+//
+// Telling somebody they have ten collections when they have four is wrong in
+// the direction that frightens people, and it makes every count on the analysis
+// screen and the plan cover wrong with it. Same agency and same balance is the
+// same debt; where a balance is missing the agency and the original creditor
+// have to match instead, and anything that cannot be told apart is left alone.
+function dedupeCollections(result) {
+  const list = result && result.collections;
+  if (!Array.isArray(list) || list.length < 2) return result;
+  const norm = v => String(v == null ? '' : v).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const money = v => {
+    const m = String(v == null ? '' : v).match(/[\d,]+(?:\.\d{2})?/);
+    return m ? m[0].replace(/,/g, '') : '';
+  };
+  const byKey = {};
+  const out = [];
+  list.forEach(c => {
+    const agency = norm(c.agency || c.creditor);
+    const amount = money(c.balance);
+    if (!agency) { out.push(c); return; }
+    // Without a balance, fall back to the original creditor. With neither, keep
+    // the row rather than collapsing two debts that might be different.
+    const key = amount
+      ? 'A|' + agency + '|' + amount
+      : (c.original_creditor ? 'O|' + agency + '|' + norm(c.original_creditor) : null);
+    if (!key) { out.push(c); return; }
+    // "LVNV FUNDING" and "LVNV FUNDING LLC" are one agency, so an exact key
+    // still left Jose Santiago with seven collections for four debts. Same
+    // balance and a name that matches the way creditor names match is the same
+    // debt, reported by two bureaus that write the agency differently.
+    let hitKey = byKey[key] ? key : null;
+    if (!hitKey && amount && typeof credSimilar === 'function') {
+      const same = Object.keys(byKey).filter(k2 =>
+        k2.charAt(0) === 'A' && k2.slice(k2.lastIndexOf('|') + 1) === amount &&
+        credSimilar(k2.slice(2, k2.lastIndexOf('|')), agency));
+      if (same.length === 1) hitKey = same[0];
+    }
+    if (hitKey) {
+      const t = byKey[hitKey];
+      t.reported_by = t.reported_by || [];
+      [c.bureau].concat(c.reported_by || []).forEach(b => {
+        if (b && t.reported_by.indexOf(b) < 0) t.reported_by.push(b);
+      });
+      ['original_creditor', 'date_reported', 'account_number', 'status', 'date_opened'].forEach(f => {
+        if (!t[f] && c[f]) t[f] = c[f];
+      });
+      // Keep the longer, more complete spelling of the agency — it is the one
+      // that will match a mailing address.
+      const an = String(c.agency || c.creditor || '');
+      const tn = String(t.agency || t.creditor || '');
+      if (an.length > tn.length) { if (t.agency) t.agency = an; else t.creditor = an; }
+      return;
+    }
+    const copy = Object.assign({}, c);
+    copy.reported_by = [];
+    [c.bureau].concat(c.reported_by || []).forEach(b => {
+      if (b && copy.reported_by.indexOf(b) < 0) copy.reported_by.push(b);
+    });
+    byKey[key] = copy;
+    out.push(copy);
+  });
+  result.collections = out;
+  return result;
+}
+
 function canonBureauNames(result) {
   if (!result || typeof result !== 'object') return result;
   if (result.bureau) result.bureau = canonBureau(result.bureau);
@@ -7406,7 +7476,7 @@ function parseCreditReport(text) {
   if (tuIsOnlineServiceCenter(text)) {
     try {
       const tu = parseTransUnionOSC(text);
-      if (tu && tu.accounts.length > 0) return canonBureauNames(tu);
+      if (tu && tu.accounts.length > 0) return dedupeCollections(canonBureauNames(tu));
     } catch (e) {
       // fall through
     }
@@ -7414,7 +7484,7 @@ function parseCreditReport(text) {
   if (isExperianPrintable(text)) {
     try {
       const single = parseExperianPrintable(text);
-      if (single && single.accounts.length > 0) return canonBureauNames(single);
+      if (single && single.accounts.length > 0) return dedupeCollections(canonBureauNames(single));
     } catch (e) {
       // fall through
     }
@@ -7422,7 +7492,7 @@ function parseCreditReport(text) {
   if (tbIsThreeBureauReport(text)) {
     try {
       const structured = parseThreeBureauReport(text);
-      if (structured && structured.accounts.length > 0) return canonBureauNames(structured);
+      if (structured && structured.accounts.length > 0) return dedupeCollections(canonBureauNames(structured));
     } catch (e) {
       // Fall through to the generic heuristics rather than failing the upload.
     }
@@ -7430,7 +7500,7 @@ function parseCreditReport(text) {
   if (ctIsColumnarTriMerge(text)) {
     try {
       const columnar = parseColumnarTriMerge(text);
-      if (columnar && columnar.accounts.length > 0) return canonBureauNames(columnar);
+      if (columnar && columnar.accounts.length > 0) return dedupeCollections(canonBureauNames(columnar));
     } catch (e) {
       // Fall through, same as above.
     }
@@ -9891,24 +9961,38 @@ function compileSCRACreditReporting(ctx) {
 function compileBKDischarged(ctx) {
   const bureau = ctx.bureau || 'experian';
   const items = ctx.items || [];
-  const dischargeDate = ctx.dischargeDate || '[Discharge date]';
-  const chapter = ctx.chapter || '[7 or 13]';
-  const caseNumber = ctx.caseNumber || '[Bankruptcy case number]';
+  // The discharge order carries the date, the chapter and the case number. A
+  // report that names the filing often carries none of them, and the intake
+  // tick carries nothing at all — so these are ruled blanks the person copies
+  // off the order, not brackets. The separator sheet says so.
+  const dischargeDate = ctx.dischargeDate || '______________________';
+  const chapter = ctx.chapter || null;
+  const caseNumber = ctx.caseNumber || null;
+  const chapLabel = chapter ? 'Chapter ' + chapter : 'Chapter ______';
+  const chapPhrase = chapter ? 'Chapter ' + chapter + ' Bankruptcy' : 'Bankruptcy';
   const u = userHeader();
   
   const opening = `I am writing to dispute inaccurate credit reporting regarding debts that were discharged in my bankruptcy. Continued reporting of these debts as carrying balances, as past-due, or as continuing to accrue interest is a direct violation of the Fair Credit Reporting Act.`;
   const damages = pickFrom(fragments.damages_closing, 70);
   
-  const itemsList = items.length > 0 ? items.map((it, i) => 
-    `${i+1}. ${it.creditor || '[Creditor]'}${it.account ? ' — Account #' + it.account : ''}\n   Current reporting: ${it.status || '[How it currently appears]'}\n   Correct reporting should be: "Discharged in Chapter ${chapter} Bankruptcy" with $0 balance`
-  ).join('\n\n') : '[List each discharged debt that is still being reported with a balance or as delinquent]';
+  // Nothing invented. An item whose current status the report does not carry
+  // simply does not get a "Current reporting" line, and a packet with no items
+  // gets ruled lines to write them on rather than an instruction in brackets.
+  const itemsList = items.length > 0 ? items.map((it, i) => {
+    const lines = [`${i+1}. ${it.creditor || ''}${it.account ? ' — Account #' + it.account : ''}`];
+    if (it.status) lines.push(`   Current reporting: ${it.status}`);
+    lines.push(`   Correct reporting should be: "Discharged in ${chapPhrase}" with $0 balance`);
+    return lines.join('\n');
+  }).join('\n\n') : ['    ______________________________________________________________', '',
+                      '    ______________________________________________________________', '',
+                      '    ______________________________________________________________'].join('\n');
   
   const body = [
     opening,
     '',
     `Bankruptcy case details:`,
-    `• Chapter: ${chapter}`,
-    `• Case Number: ${caseNumber}`,
+    `• ${chapLabel}`,
+    caseNumber ? `\u2022 Case Number: ${caseNumber}` : '\u2022 Case Number: ______________________',
     `• Discharge Date: ${dischargeDate}`,
     '',
     'Debts that were included in and discharged by the bankruptcy but are currently reported inaccurately:',
@@ -9918,7 +10002,7 @@ function compileBKDischarged(ctx) {
     'Once a debt is discharged in bankruptcy, the creditor\'s right to collect is permanently enjoined, and the debt itself ceases to be a legal obligation. Reporting such debts as continuing to have a balance, as "past due," or with ongoing "delinquency" statuses is materially misleading and inaccurate — each such report is an independent FCRA violation.',
     '',
     'The correct reporting for each discharged debt is:',
-    '(a) Status: "Discharged in Chapter ' + chapter + ' Bankruptcy" (or equivalent);',
+    '(a) Status: "Discharged in ' + chapPhrase + '" (or equivalent);',
     '(b) Balance: $0;',
     '(c) No ongoing "past due" amount;',
     '(d) No continuing monthly delinquency notations post-discharge.',
@@ -9933,28 +10017,51 @@ function compileBKDischarged(ctx) {
   ];
   
   const mail = mailEnvelope(body, bureauHeader(bureau), {
-    re: `Dispute — Inaccurate Post-Discharge Bankruptcy Reporting — Case ${caseNumber}`,
+    re: 'Dispute \u2014 Inaccurate Post-Discharge Bankruptcy Reporting' + (caseNumber ? ' \u2014 Case ' + caseNumber : ''),
     ssnLine: true
   });
   
-  const portal = `Inaccurate post-discharge bankruptcy reporting. Chapter ${chapter}, Case ${caseNumber}, Discharged ${dischargeDate}. Items still showing balance/past-due when they should show "Discharged in Ch. ${chapter} Bankruptcy" with $0:\n${itemsList}\nStatutory damages per FCRA violation apply. Correct and report to all bureaus. — ${u.name}`;
+  const portal = `Inaccurate post-discharge bankruptcy reporting. ${chapLabel}, Case ${caseNumber || '(see discharge order)'}, Discharged ${ctx.dischargeDate || '(see discharge order)'}. Items still showing balance/past-due when they should show "Discharged in Ch. ${chapter} Bankruptcy" with $0:\n${itemsList}\nStatutory damages per FCRA violation apply. Correct and report to all bureaus. — ${u.name}`;
   
-  const short = `Post-discharge bankruptcy reporting violation — Ch. ${chapter} case ${caseNumber} discharged ${dischargeDate}. Debts still showing balance/past-due. Correct to $0 / "Discharged." — ${u.name}`;
+  const short = `Post-discharge bankruptcy reporting violation — ${chapLabel} case ${caseNumber || '(see order)'} discharged ${ctx.dischargeDate || '(see order)'}. Debts still showing balance/past-due. Correct to $0 / "Discharged." — ${u.name}`;
   
   return {mail, portal: portal.length > 2000 ? portal.substring(0,1990)+'…' : portal, short};
 }
 
 function compileBKStay(ctx) {
-  const collector = ctx.collector || {name:'[Collector]', addr:'[Address]'};
-  const filingDate = ctx.filingDate || '[Date of bankruptcy filing]';
-  const caseNumber = ctx.caseNumber || '[Case Number]';
+  // Fanned out per collector (see letterFanTargets), so ctx.collector is set
+  // per copy. Blank rather than a bracket if it somehow is not — "[Collector]"
+  // in an address block is a letter addressed to nobody.
+  const collector = ctx.collector || {name:'', addr:''};
+  // The court's name and the filing details come off the petition, and the
+  // collection activity comes out of the person's own log of the calls. None of
+  // it is on a credit report. Ruled blanks, called out on the separator sheet,
+  // rather than brackets that read as a form.
+  const filingDate = ctx.filingDate || null;
+  const caseNumber = ctx.caseNumber || null;
+  const courtLine  = ctx.court || '________________________________________';
+  const filedPhr   = filingDate ? 'on ' + filingDate : 'on the date shown on my petition';
+  const casePhr    = caseNumber
+    ? 'The case number is ' + caseNumber + '.'
+    : 'The case number is on the notice of filing enclosed with this letter.';
+  const reCase     = caseNumber ? ' \u2014 Case ' + caseNumber : '';
+  const reFiled    = filingDate ? ' \u2014 Bankruptcy Filed ' + filingDate : '';
   const u = userHeader();
   
   const body = [
-    `I filed a petition for bankruptcy on ${filingDate} in the [COURT]. The case number is ${caseNumber}. The automatic stay under 11 U.S.C. § 362 took effect immediately upon filing and prohibits any act to collect, assess, or recover a claim against me that arose before the commencement of the case.`,
+    `I filed a petition for bankruptcy ${filedPhr} in the following court:`,
     '',
-    'Despite my filing, your agency has continued to attempt collection of an alleged debt. Specifically:',
-    '[DESCRIBE THE COLLECTION ACTIVITY — calls, letters, credit reporting, lawsuits, etc., AND DATES]',
+    '    ' + courtLine,
+    '',
+    `${casePhr} The automatic stay under 11 U.S.C. § 362 took effect immediately upon filing and prohibits any act to collect, assess, or recover a claim against me that arose before the commencement of the case.`,
+    '',
+    'Despite my filing, your agency has continued to attempt collection of an alleged debt. Each contact, with its date:',
+    '',
+    '    ______________________________________________________________',
+    '',
+    '    ______________________________________________________________',
+    '',
+    '    ______________________________________________________________',
     '',
     'Each of these actions is a violation of the automatic stay. Under 11 U.S.C. § 362(k), an individual injured by a willful violation of the stay is entitled to actual damages (including costs and attorney fees) and, in appropriate circumstances, punitive damages.',
     '',
@@ -9966,26 +10073,27 @@ function compileBKStay(ctx) {
     '',
     'I am keeping a log of all contact in violation of the stay and will present it to the bankruptcy court if violations continue. Willful stay violations have resulted in substantial sanctions in federal bankruptcy courts.',
     '',
-    'Please direct all further communication to my bankruptcy attorney [IF REPRESENTED] or to the Bankruptcy Court directly.'
+    'Please direct all further communication about this account to the Bankruptcy Court, or to counsel of record in the case if you have been served with an appearance.'
   ];
   
   const collectorName = typeof collector === 'string' ? collector : collector.name;
   const collectorAddr = typeof collector === 'object' ? (collector.addr || '') : '';
   
   const mail = mailEnvelope(body, `${collectorName}\n${collectorAddr}`, {
-    re: `Automatic Stay Violation — Case ${caseNumber} — Bankruptcy Filed ${filingDate}`,
+    re: `Automatic Stay Violation${reCase}${reFiled}`,
     ssnLine: false
   });
   
-  const portal = `Automatic stay violation notice. Bankruptcy filed ${filingDate}, Case ${caseNumber}. Stay under 11 USC § 362 prohibits all collection. You have continued contact. Cease immediately, withdraw reporting, dismiss any actions. § 362(k) damages apply (actual + attorney fees + potential punitive). — ${u.name}`;
+  const portal = `Automatic stay violation notice. Bankruptcy filed ${filingDate || '(see petition)'}, Case ${caseNumber || '(see petition)'}. Stay under 11 USC § 362 prohibits all collection. You have continued contact. Cease immediately, withdraw reporting, dismiss any actions. § 362(k) damages apply (actual + attorney fees + potential punitive). — ${u.name}`;
   
-  const short = `Automatic stay violation — BK filed ${filingDate}, case ${caseNumber}. Cease ALL collection. § 362(k) damages apply. — ${u.name}`;
+  const short = `Automatic stay violation — BK filed ${filingDate || '(see petition)'}, case ${caseNumber || '(see petition)'}. Cease ALL collection. § 362(k) damages apply. — ${u.name}`;
   
   return {mail, portal, short};
 }
 
 function compileBKPreFiling(ctx) {
-  const collector = ctx.collector || {name:'[Collector]', addr:'[Address]'};
+  // Fanned out per collector (see letterFanTargets). Blank, never a bracket.
+  const collector = ctx.collector || {name:'', addr:''};
   const u = userHeader();
   
   const body = [
@@ -10270,6 +10378,31 @@ function calculateDayZero(intake) {
   return 'fresh';
 }
 
+// The bankruptcy public record, read off the report rather than asked for.
+// A filing carries a date, a chapter, a case reference and — the part that
+// decides which letter is honest — whether it was DISCHARGED or DISMISSED.
+// Those are opposite outcomes. A discharge wipes the debts; a dismissal ends
+// the case with the debts intact. Jose Santiago's file shows a 2023 filing
+// marked Dismissed, and the packet was offering him a letter demanding that
+// furnishers report his debts as discharged. That letter would have been false.
+function bankruptcyRecord(parsed) {
+  const recs = (parsed && parsed.publicRecords) || [];
+  const hit = recs.find(r => /bankrupt|chapter\s*(7|11|13)/i.test(
+    String((r && (r.type || r.kind || r.description)) || '')));
+  if (!hit) return null;
+  const blob = [hit.type, hit.kind, hit.description, hit.status, hit.disposition]
+    .filter(Boolean).join(' ');
+  const ch = blob.match(/chapter\s*(7|11|13)\b/i) || String(hit.chapter || '').match(/(7|11|13)/);
+  return {
+    filingDate: hit.date_filed || hit.date || null,
+    caseNumber: hit.reference || hit.case_number || hit.docket || null,
+    chapter: ch ? ch[1] : null,
+    discharged: /discharg/i.test(blob),
+    dismissed: /dismiss/i.test(blob),
+    raw: hit
+  };
+}
+
 function computeFlags(intake, upload) {
   const flags = {
     aggressive_collector: intake.collector_contact === 'aggressive',
@@ -10278,7 +10411,20 @@ function computeFlags(intake, upload) {
     maybe_lawsuit: intake.lawsuit_status === 'notsure',
     identity_theft: intake.special_flags && intake.special_flags.includes('identity_theft'),
     data_breach: intake.special_flags && intake.special_flags.includes('data_breach'),
-    bankruptcy: intake.special_flags && intake.special_flags.includes('bankruptcy'),
+    // A bankruptcy on the report is a bankruptcy whether or not the person
+    // thought to tick the box. Jose Santiago's file carries a dismissed Chapter
+    // filing from 2023 as a public record, and none of the bankruptcy handling
+    // switched on because the intake flag was the only thing consulted.
+    bankruptcy: (intake.special_flags && intake.special_flags.includes('bankruptcy')) ||
+      ((((upload || {}).parsed || {}).publicRecords || []).some(r => /bankrupt|chapter\s*(7|11|13)/i.test(
+        String((r && (r.type || r.kind || r.description)) || '')))) ||
+      ((((upload || {}).parsed || {}).accounts || []).some(a => a && a.in_bankruptcy)),
+    // Separate from having filed. The pre-filing notice says "I intend to
+    // file", which is false for someone who already has — and the only
+    // bankruptcy question asked was about a filing in the past ten years, so
+    // that letter had no honest trigger at all until this one existed.
+    bankruptcy_considering: intake.special_flags &&
+      intake.special_flags.includes('bankruptcy_considering'),
     scra: intake.special_flags && intake.special_flags.includes('scra'),
     student_loans: intake.special_flags && intake.special_flags.includes('student_loans'),
     tax_debt: intake.special_flags && intake.special_flags.includes('tax_debt'),
@@ -12950,8 +13096,39 @@ function determineLetterPacket(analysis) {
   
   // Bankruptcy
   if (f.bankruptcy) {
-    packet.push(letterTemplates.bankruptcy_discharged);
-    packet.push(letterTemplates.bankruptcy_automatic_stay);
+    // The post-discharge letter demands that furnishers report the debts as
+    // discharged with a zero balance. That is only true after a discharge. On a
+    // DISMISSED case the debts survive, and sending it would assert something
+    // the court record contradicts — so it is withheld unless the filing was
+    // discharged, or we cannot tell and the consumer said so themselves.
+    const bkRec = (typeof bankruptcyRecord === 'function')
+      ? bankruptcyRecord((state.upload && state.upload.parsed) || {}) : null;
+    const saidSo = (state.intake.special_flags || []).indexOf('bankruptcy') >= 0;
+    if (!bkRec || bkRec.discharged || (!bkRec.dismissed && saidSo)) {
+      packet.push(letterTemplates.bankruptcy_discharged);
+    }
+    // The automatic stay exists between filing and the end of the case. Under
+    // 11 U.S.C. § 362(c)(2) it terminates when the case is closed or dismissed
+    // or when a discharge is granted — so on Jose Santiago's dismissed filing
+    // there is no stay to enforce, and after a discharge the instrument is the
+    // § 524 discharge injunction, not the stay. Either way a letter demanding
+    // compliance with a stay that has ended is one the collector can dismiss on
+    // sight, and it makes everything else in the envelope look unread.
+    if (!bkRec || (!bkRec.dismissed && !bkRec.discharged)) {
+      packet.push(letterTemplates.bankruptcy_automatic_stay);
+    }
+    // And the pre-filing notice announces an intent to file, which contradicts
+    // both a filing on the report and the intake box that says they already
+    // filed. It goes out only for someone who said they are considering it.
+    if (f.bankruptcy_considering && !bkRec) {
+      packet.push(letterTemplates.bankruptcy_pre_filing);
+    }
+  }
+
+  // Considering bankruptcy without having filed is its own route into the
+  // pre-filing notice — f.bankruptcy is about a filing that already happened.
+  if (f.bankruptcy_considering && !f.bankruptcy &&
+      !packet.includes(letterTemplates.bankruptcy_pre_filing)) {
     packet.push(letterTemplates.bankruptcy_pre_filing);
   }
   
@@ -14430,6 +14607,28 @@ function letterFanTargets(tmpl, ctx) {
     return out;
   }
 
+  // Both bankruptcy letters are addressed to a collection agency, and there is
+  // never only one. Fanned out the same way the settlement offer is, so each
+  // agency gets its own envelope instead of one letter naming "[Collector]".
+  if (tmpl.id === 'bankruptcy_automatic_stay' || tmpl.id === 'bankruptcy_pre_filing') {
+    const seenB = {};
+    const outB = [];
+    const addB = (name, ref) => {
+      if (!name) return;
+      const k = mgcNorm(name);
+      if (seenB[k]) return;
+      seenB[k] = 1;
+      outB.push({name: name, addr: furnisherAddressFor(name),
+                 refNumber: ref || '', label: name});
+    };
+    (parsed.collections || []).forEach(c => addB(c.agency || c.creditor, c.account_number));
+    if (!outB.length) {
+      (parsed.accounts || []).filter(a => a && a.is_collection)
+        .forEach(a => addB(a.creditor, a.account_number));
+    }
+    return outB;
+  }
+
   // A breach notification is a warning to each company that holds an account of
   // yours, so it goes to each of them — the same recipient list the opt-out
   // uses. One letter naming a single creditor picked out of the list warns one
@@ -14486,6 +14685,14 @@ function applyFanTarget(tmpl, ctx, t) {
     c.creditor = {name: t.name, addr: t.addr || ''};
     c.accountLines = t.name + (t.account ? '   Account #: ' + t.account : '');
     c.alsoSendTo = [];        // each copy is complete on its own now
+  } else if (tmpl.id === 'bankruptcy_automatic_stay' || tmpl.id === 'bankruptcy_pre_filing') {
+    c.collector = {name: t.name, addr: t.addr || '', refNumber: t.refNumber || ''};
+  } else if (tmpl.id === 'scra_interest_cap' || tmpl.id === 'scra_credit_reporting' ||
+             tmpl.id === 'breach_notification') {
+    // These three fanned out into copies that were never given their target,
+    // so every copy compiled with an empty creditor and the address block came
+    // out blank. The fan-out was only half wired.
+    c.creditor = {name: t.name, addr: t.addr || '', account: t.account || ''};
   }
   c.fanTarget = t;
   return c;
@@ -15564,7 +15771,20 @@ function buildLetterContext(tmpl) {
       return sa - sb;
     });
   }
-  ctx.items = disputableItems.length > 0 ? disputableItems : [];
+  // One line per account per reason. Jose Santiago's bureau dispute listed
+  // Credit One Bank twice because two rules reached the same conclusion about
+  // the same account, and a letter that says the same thing twice reads as
+  // careless to the person who has to answer it.
+  const seenItem = {};
+  const uniqueItems = [];
+  disputableItems.forEach(it => {
+    const k = String(it.creditor || '').toUpperCase() + '|' +
+              String(it.account || '') + '|' + String(it.reason || '').slice(0, 80);
+    if (seenItem[k]) return;
+    seenItem[k] = 1;
+    uniqueItems.push(it);
+  });
+  ctx.items = uniqueItems.length > 0 ? uniqueItems : [];
 
   // Round two: an item the bureau has already answered does not get the same
   // letter again. What survives is rewritten to lead on a field the first
@@ -15652,6 +15872,17 @@ function buildLetterContext(tmpl) {
         ctx.alsoSendTo = targets.slice(1);
       }
     }
+  }
+
+  // The bankruptcy letters used to print "[Date of bankruptcy filing]" and
+  // "[Bankruptcy case number]" because nothing ever handed them the filing —
+  // which is on the report, in the public records section, already parsed.
+  const bkr = (typeof bankruptcyRecord === 'function') ? bankruptcyRecord(parsed) : null;
+  if (bkr) {
+    if (bkr.filingDate && !ctx.filingDate) ctx.filingDate = bkr.filingDate;
+    if (bkr.caseNumber && !ctx.caseNumber) ctx.caseNumber = bkr.caseNumber;
+    if (bkr.chapter && !ctx.chapter) ctx.chapter = bkr.chapter;
+    ctx.bankruptcyRecord = bkr;
   }
 
   ctx.billingErrorItems = reviewedAccounts('charges');
@@ -16746,6 +16977,15 @@ function buildActionPlanDoc() {
         ${tmpl.id === 'privacy_opt_out' ? `<div class="plan-divider-grid"><div><em>While you are at it</em><p>The prescreened-offer opt-out is separate, free, and nothing a creditor can do for you — it is exercised directly with the bureaus under FCRA § 604(e), 15 U.S.C. § 1681b(e). Call 1-888-5-OPT-OUT (1-888-567-8688) or use optoutprescreen.com. Online or by phone it lasts five years; to make it permanent you print the form from that site and mail it. This is not part of the letter on the next page and does not go in that envelope.</p></div></div>` : ''}
         ${tmpl.id === 'scra_default_protection'
           ? `<div class="plan-divider-grid"><div><em>Fill this one in before you file it</em><p>This is a motion to a court, not a letter to a company, and three things on it are blank because nothing here can know them: the court&rsquo;s name and address, your case number, and your defences to the underlying claim. All three are on the papers you were served with. A motion filed with blanks on it is returned. If you are still serving, your installation&rsquo;s legal assistance office will help you complete and file it at no cost &mdash; that is what they are for.</p></div></div>`
+          : ''}
+        ${tmpl.id === 'bankruptcy_discharged'
+          ? `<div class="plan-divider-grid"><div><em>Copy these off your discharge order before you send it</em><p>The chapter, the case number and the discharge date are blank on this letter wherever your report did not carry them, because nothing here can read a court file. All three are on the first page of the discharge order the court mailed you. A bureau that receives a bankruptcy dispute with no case on it has nothing to check the filing against, and the dispute goes nowhere.</p></div></div>`
+          : ''}
+        ${tmpl.id === 'bankruptcy_automatic_stay'
+          ? `<div class="plan-divider-grid"><div><em>Fill this one in before you send it</em><p>Two things on this letter are blank because nothing here can know them: the name of the court you filed in, and the dates of the calls, letters or filings that came after you filed. The court is on the first page of your petition. The contact log is yours &mdash; write each date and what happened, because that list is the evidence a &sect; 362(k) claim runs on and a letter that alleges violations without dating them is easy to ignore.</p></div></div>`
+          : ''}
+        ${tmpl.id === 'bankruptcy_pre_filing'
+          ? `<div class="plan-divider-grid"><div><em>Only send this before you file</em><p>This letter says a filing is coming. Once you have filed, it is the wrong letter &mdash; the automatic stay notice replaces it, and sending this one afterwards tells the collector you are not tracking your own case.</p></div></div>`
           : ''}
         ${(tmpl.id === 'scra_interest_cap' || tmpl.id === 'scra_credit_reporting')
           ? `<div class="plan-divider-grid"><div><em>Only send this for debts you had BEFORE you went on active duty</em><p>The 6% cap under 50 U.S.C. &sect; 3937 applies to obligations incurred before your active service began, and nothing on a credit report says which of yours those are &mdash; so a copy has been prepared for every creditor and you choose. Sending one for a debt taken on after you started serving does not gain you anything and tells the lender you have not read the statute. Enclose a copy of your orders with each one you do send.</p></div></div>`

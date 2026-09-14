@@ -1,0 +1,85 @@
+Make three separate bureau reports work as one file
+
+The upload box has promised this for weeks: "pick all three single-bureau
+PDFs at once — we'll combine them." It combined them and then threw away
+the only thing that made combining them worth doing.
+
+Michael Gibson's three reports, pulled the same day, one per bureau. What
+the tool did with them before this commit:
+
+  97 accounts in    ->  51 out, 23 cross-referenced
+  per-bureau field maps kept:          0
+  per-bureau status arrays kept:       0
+  cross-bureau contradictions found:   0
+  factual inconsistencies found:       0
+
+Zero, on a file where three bureaus genuinely disagree. The merge matched
+on the account number alone, and the bureaus mask those differently, so
+most accounts never paired. The ones that did paired fine and then lost
+their per-bureau fields, which is what both contradiction detectors
+actually read. The feature was dead and nothing said so.
+
+WHAT CHANGED
+
+Matching. Account number first, then the creditor name — which is hard,
+because the bureaus do not agree on names:
+
+  FREEDOM MORTGAGE CORP  /  FREEDOM MORTGAGE  /  FREEDOM MTG
+  CREDIT ONE BANK NA     /  CREDIT ONE BANK   /  CREDITONEBNK
+  GM FINANCIAL           /  GMFNANCIAL        /  GM FINANCIAL
+
+Exactly ONE name matches exactly across all three. Matching now handles
+truncation (Equifax cuts at 20 characters), containment, a bounded edit
+distance for typos, and a long shared opening. It refuses to merge two
+accounts within one bureau, and when more than one candidate fits and
+nothing separates them it leaves them alone — a wrong pairing does not
+produce a missing dispute, it produces an invented one.
+
+Both per-bureau shapes are now built on merge: per_bureau_fields for the
+factual rules and per_bureau_status for the cross-bureau comparison.
+
+TWO CORRECTNESS BUGS FOUND ON THE WAY, BOTH IN SHIPPED CODE
+
+statusClass matched exact strings only — 'pays as agreed', 'current',
+'paid'. Real reports say "Pays account as agreed", "Open/Never late.",
+"Paid or paying as agreed". Every one of those classified as null, so the
+cross-bureau comparison silently had nothing to compare on any format,
+not just merged ones. Now pattern-based, still conservative: an
+unrecognised status returns null rather than a guess.
+
+Then the first thing the fix produced was a FALSE contradiction. All
+three bureaus reported VERIZON as a collection, and because severity was
+ranked off the raw string — "Collection", "Collection account. $3,927",
+"Collection account" — the tool generated a letter telling the bureaus
+they disagreed about how far behind the account went. Three spellings of
+one fact. Severity is now a category, and a disagreement has to be a
+disagreement about the category.
+
+Absence is also no longer a status: a dash, "n/a" or an empty cell means
+the bureau did not report, not that it reported the account as fine.
+Treating absence as clean manufactures a contradiction out of a bureau
+that simply does not have the account.
+
+Factual findings are deduplicated per account per rule, with the bureaus
+on one line, instead of three identical rows in a letter.
+
+WHAT IT DOES NOW, ON THE SAME THREE FILES
+
+  97 accounts in    ->  41 out, 27 cross-referenced
+  per-bureau field maps kept:         27
+  per-bureau status arrays kept:      27
+  false contradictions:                0
+  factual inconsistencies found:       3   (0 in any single report)
+
+FIRST PREMIER BANK reports a different high balance at each bureau and a
+different opening date at each bureau. VERIZON reports a past-due amount
+on a collection. None of those is visible in any one of the three files —
+they exist only because the files were read together, which is the entire
+argument for doing it.
+
+Harness: parsers.js gains 22 checks over the merge and the status
+classifier, including one that fails the build if a contradiction is
+raised between bureaus whose severity is identical.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UBawHxpNib9Mc6DsuKZTwm

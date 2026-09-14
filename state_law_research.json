@@ -1,0 +1,868 @@
+{
+ "_meta": {
+  "researched": "2026-08-28 / 2026-08-29",
+  "jurisdictions": 41,
+  "note": "Research only. NOT yet merged into stateLaws in index.html. index.html already carries CA TX FL NY IL PA OH GA NC MI, which are NOT in this file \u2014 together that is all 50 states plus DC.",
+  "conventions": {
+   "sol_credit_card": "Where authority is split, the number is the period a court is MOST LIKELY TO APPLY, not the most consumer-favorable one. Asserting a time-bar too early is the dangerous error in a mailed letter. Both positions are in the confidence note, and sol_contested is true.",
+   "fcra_equivalent": "null unless the state has a SUBSTANTIVE analog \u2014 reinvestigation duty, accuracy standard, civil liability. Security-freeze statutes alone do not qualify.",
+   "garnishment_exempt": "Formulas rather than dollar amounts wherever indexed to a state minimum wage, because hardcoded figures go stale."
+  },
+  "extinguishes_debt_states": [
+   "MS",
+   "WI"
+  ],
+  "extinguishes_note": "NCLC counts three: Mississippi, Wisconsin and North Carolina (the last for debt-buyer-owned debts only, N.C. Gen. Stat. 58-70-115(4)). NC is already in index.html and its entry there has not been updated with this.",
+  "medical_debt_laws_found": [
+   "CO",
+   "CT",
+   "DE",
+   "ME",
+   "MD",
+   "MN",
+   "NJ",
+   "OR",
+   "RI",
+   "VT",
+   "VA",
+   "WA"
+  ],
+  "medical_debt_note": "These differ in WHO they bind, which decides who the letter goes to. Oregon binds CRAs AND furnishers. VT, RI, WA, MN, MD, ME bind CRAs. Virginia binds ONLY providers and collection entities, not CRAs \u2014 a letter to a bureau citing Virginia law is aimed at the wrong party. New Jersey additionally VOIDS medical debt reported in violation (N.J.S.A. 56:11-62). Colorado's SUNSETS 2028-07-01. Nevada's SB 248 is a 60-day notice-and-wait window, NOT a ban.",
+  "preemption_caveat": "Cornerstone Credit Union League v. CFPB, 2025 WL 1920148 (E.D. Tex. 2025-07-11) vacated the federal Medical Debt Rule and included dicta suggesting FCRA preempts state medical-debt reporting bans. Per NCLC that is non-binding \u2014 preemption was not litigated and no state statute was invalidated. All the laws above remain operative, but expect it to be raised. Maine's law has separately been litigated: CDIA v. Frey, 26 F.4th 1 (1st Cir. 2022), and on remand D. Me. held FCRA partially preempts its veterans'-debt timing provisions.",
+  "verify_before_use": [
+   "WV sol_written / sol_credit_card \u2014 W. Va. Code 55-2-6 not fetched verbatim; published summaries disagree",
+   "RI garnishment \u2014 R.I. Gen. Laws 9-26-4 subsection numbering unverified",
+   "UT SOL \u2014 le.utah.gov served a navigation shell; rests on section captions, not the operative sentence",
+   "AK garnishment dollar figure \u2014 8 AAC 95.030 is CPI-adjusted, no 2026 refresh confirmed",
+   "HI HRS 480-13 remedy figures \u2014 not pulled directly",
+   "MN SOL subdivision number \u2014 541.05 subd. 1(1) not fetched verbatim",
+   "NJ 56:11-38 \u2014 could not confirm whether it creates a consumer private right of action or only agency-enforced liability"
+  ],
+  "corrections_to_common_sources": [
+   "MD garnishment: the widely repeated $145/week figure and the four-county carve-out are OUTDATED \u2014 current 15-601.1 uses 30x the STATE minimum wage",
+   "NE garnishment: the '85% head of family' figure is stated backwards everywhere \u2014 25-1558 caps garnishment AT 15% for head of family",
+   "WV garnishment: sources citing 30x federal minimum wage are WRONG \u2014 46A-2-130 says fifty times",
+   "VA garnishment: 30x is OUTDATED \u2014 raised to 40x effective 2022",
+   "DC garnishment: the federal 30x rule no longer applies \u2014 D.C. Law 22-296 replaced it with 40x the D.C. minimum wage",
+   "OR garnishment: figures below $254/week (commonly $218) are OUTDATED",
+   "WA: the reinvestigation duty is RCW 19.182.090, NOT .080 \u2014 commonly miscited",
+   "CO: the CFDCPA was renumbered in 2017 from C.R.S. 12-14-101 to 5-16-101",
+   "WI: 893.12 is often miscited as a part-payment revival statute \u2014 it concerns advance payment of tort damages"
+  ]
+ },
+ "AK": {
+  "name": "Alaska",
+  "sol_written": 3,
+  "sol_oral": 3,
+  "sol_credit_card": 3,
+  "fdcpa_equivalent": "Alaska Collection Agencies Act, AS 08.24.010\u2013.380; UTPA AS 45.50.471",
+  "fdcpa_note": "UTPA reaches ORIGINAL CREDITORS with treble damages or $500 (AS 45.50.531), 2-year SOL. Real advantage over federal FDCPA.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Weekly net earnings exempt to a CPI-adjusted figure (~$473/wk per 8 AAC 95.030) \u2014 re-verify before printing",
+  "citations": [
+   "Alaska Stat. \u00a7 09.10.053",
+   "Alaska Stat. \u00a7 09.38.030",
+   "Alaska Stat. \u00a7 45.50.531"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "HIGH on SOL \u2014 single 3-year period for any contract, no written/oral split, no card ambiguity. MEDIUM on the garnishment dollar figure.",
+  "sol_contested": false
+ },
+ "AL": {
+  "name": "Alabama",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 3,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "No Alabama fair-debt statute. ADTPA (Ala. Code 8-19-5) reaches original creditors but is a general UDAP with a demand-letter precondition \u2014 do not cite as a state FDCPA analog.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "75% of wages exempt; only 25% reachable (Ala. Code 6-10-7)",
+  "citations": [
+   "Ala. Code \u00a7 6-2-34(4),(9)",
+   "Ala. Code \u00a7 6-2-37(1)",
+   "Ala. Code \u00a7 6-10-7"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "MEDIUM-LOW on sol_credit_card. Revolving card = open account under 6-2-37(1) = 3 years, but collectors replead as account stated for 6. Assert 3, do not state as settled.",
+  "sol_contested": true
+ },
+ "AR": {
+  "name": "Arkansas",
+  "sol_written": 5,
+  "sol_oral": 3,
+  "sol_credit_card": 5,
+  "fdcpa_equivalent": "Arkansas FDCPA, Ark. Code Ann. \u00a7\u00a7 17-24-501 to -512",
+  "fdcpa_note": "Tracks federal FDCPA and EXCLUDES original creditors (\u00a7 17-24-502(5)(D)(i)). No advantage.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Federal 25%/30x cap; plus first $25/week absolutely exempt (Ark. Code Ann. 16-66-208)",
+  "citations": [
+   "Ark. Code Ann. \u00a7 16-56-111",
+   "Ark. Code Ann. \u00a7 16-56-105(1),(3)",
+   "Ark. Code Ann. \u00a7 16-66-208"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "MEDIUM on sol_credit_card. Rests on In re Pettingill, 403 B.R. 624 (Bankr. E.D. Ark. 2009) \u2014 bankruptcy court, not appellate. Where no cardholder agreement is produced, argue 3 years under 16-56-105. Also: 16-56-111 is expressly tolled by partial payment or written acknowledgment.",
+  "sol_contested": true
+ },
+ "AZ": {
+  "name": "Arizona",
+  "sol_written": 6,
+  "sol_oral": 3,
+  "sol_credit_card": 6,
+  "fdcpa_equivalent": "A.R.S. \u00a7\u00a7 32-1001\u201332-1057; Consumer Fraud Act A.R.S. \u00a7 44-1521 et seq.",
+  "fdcpa_note": "A.R.S. 32-1051 has NO private right of action (criminal only). Cite the Consumer Fraud Act, which reaches original creditors and carries an implied private action.",
+  "fcra_equivalent": "A.R.S. \u00a7\u00a7 44-1691 to 44-1698.01",
+  "garnishment_exempt": "Only 10% of disposable earnings garnishable (A.R.S. 33-1131(B), Prop. 209, Dec 2022); bank exemption $5,000",
+  "citations": [
+   "A.R.S. \u00a7 12-548(A)(1),(A)(2)",
+   "A.R.S. \u00a7 12-543(1),(2)",
+   "A.R.S. \u00a7 33-1131(B)"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "HIGH, no ambiguity. A.R.S. 12-548(A)(2) names credit card debt expressly at 6 years, and (B) makes Arizona's period control over a shorter foreign one \u2014 defeats the Delaware choice-of-law argument in Arizona courts.",
+  "sol_contested": false
+ },
+ "CO": {
+  "name": "Colorado",
+  "sol_written": 6,
+  "sol_oral": 3,
+  "sol_credit_card": 6,
+  "fdcpa_equivalent": "Colorado FDCPA, C.R.S. \u00a7\u00a7 5-16-101 et seq. (recodified 2017 from 12-14-101 \u2014 do NOT use the old cite)",
+  "fdcpa_note": "No original-creditor reach, but \u00a7 5-16-111(2)(b) requires a debt buyer to attach documentary proof it owns THAT debt. Wright v. Portfolio Recovery Associates, 2026 CO 36 (May 2026) held a blank-schedule bill of sale insufficient and imposed \u00a7 5-16-113 liability. Powerful current hook.",
+  "fcra_equivalent": "C.R.S. \u00a7\u00a7 5-18-101 to 5-18-118",
+  "garnishment_exempt": "80% of disposable earnings exempt; only 20% or the excess over 40x minimum wage (C.R.S. 13-54-104(2))",
+  "citations": [
+   "C.R.S. \u00a7 13-80-103.5(1)(a)",
+   "C.R.S. \u00a7 13-80-101(1)(a)",
+   "C.R.S. \u00a7 13-54-104(2)",
+   "C.R.S. \u00a7 5-18-109(1)(f)"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "C.R.S. \u00a7 5-18-109(1)(f) (HB 23-1126), eff. 2023-08-07. SUNSETS 2028-07-01 \u2014 any template citing it must be date-gated.",
+  "confidence": "HIGH. sol_credit_card=6 settled per Portercare Adventist Health System v. Lego, 286 P.3d 525 (Colo. 2012). Do not concede 3 years.",
+  "sol_contested": false
+ },
+ "CT": {
+  "name": "Connecticut",
+  "sol_written": 6,
+  "sol_oral": 3,
+  "sol_credit_card": 6,
+  "fdcpa_equivalent": "Conn. Gen. Stat. \u00a7 36a-646 (creditors) + \u00a7\u00a7 36a-800 to 36a-814 (collectors)",
+  "fdcpa_note": "YES \u2014 one of the strongest original-creditor statutes in the country. \u00a7 36a-646 binds creditors with no third-party limit; \u00a7 36a-648 gives actual damages plus up to $1,000 and fees. CAVEAT: only a ONE-YEAR limitations period, and a bona fide error defense.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Lesser of 25% of disposable earnings or excess over 40x the higher of federal or CT minimum wage (\u00a7 52-361a(f)) \u2014 protects more than the federal 30x",
+  "citations": [
+   "Conn. Gen. Stat. \u00a7 52-576",
+   "Conn. Gen. Stat. \u00a7 52-581",
+   "Conn. Gen. Stat. \u00a7 36a-646; \u00a7 36a-648"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "Conn. Pub. Act 24-6, codified at Conn. Gen. Stat. \u00a7\u00a7 19a-673b and 20-7i. Eff. 2024-07-01.",
+  "confidence": "HIGH, no card split. \u00a7 52-576 covers 'an action for an account, or on any simple or implied contract' \u2014 6 years however the claim is pleaded.",
+  "sol_contested": false
+ },
+ "DC": {
+  "name": "District of Columbia",
+  "sol_written": 3,
+  "sol_oral": 3,
+  "sol_credit_card": 3,
+  "sol_contested": false,
+  "fdcpa_equivalent": "D.C. Code \u00a7 28-3814, as expanded by the Protecting Consumers from Unjust Debt Collection Practices Amendment Act of 2022 (D.C. Law 24-154)",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS. The 2022 Act (eff. 2023-01-01) defines debt collector to include a person 'engaging directly or indirectly in debt collection' and separately defines 'original creditor'. One carve-out: \u00a7 28-3814(m)(3) exempts original creditors from that subsection's documentation requirements only. STRONG private action \u00a7 28-3814(u): actual damages, costs and fees, punitive, plus statutory penalties of $500 to $4,000 per violation. With West Virginia, the most collector-adverse statute researched.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Wages at or below 40x the D.C. minimum wage per week are FULLY exempt; above that a creditor may reach 25% of the excess (\u00a7 16-572); hardship motion at \u00a7 16-572.01. FLAG: any source applying the federal 30x-federal rule to D.C. is OUTDATED \u2014 replaced by D.C. Law 22-296 (2018). D.C.'s minimum wage is indexed and rises each July 1, so compute rather than quote.",
+  "citations": [
+   "D.C. Code \u00a7 12-301(a)(7)",
+   "D.C. Code \u00a7 28-3814",
+   "D.C. Code \u00a7 28-3814(u)",
+   "D.C. Code \u00a7 16-572"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "Fetched from code.dccouncil.gov. \u00a7 12-301(a)(7) gives 3 years for written, oral and card alike with no split \u2014 with South Carolina the shortest researched. GARNISHMENT: resolved a conflict \u2014 a Legal Aid summary described 'gradually increasing' tiers, but the statutory text and an independent source confirm a single flat rule of 25% of the excess over 40x the D.C. minimum wage. Not on NCLC's medical-debt list."
+ },
+ "DE": {
+  "name": "Delaware",
+  "sol_written": 3,
+  "sol_oral": 3,
+  "sol_credit_card": 3,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "No fair-debt statute. Only the Consumer Fraud Act, 6 Del. C. \u00a7 2513, plus the new Medical Debt Protection Act (6 Del. C. ch. 25J) for medical debt specifically.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "85% of wages exempt; only 15% reachable \u2014 better than the federal 25% (10 Del. C. 4913)",
+  "citations": [
+   "10 Del. C. \u00a7 8106",
+   "10 Del. C. \u00a7 8109",
+   "10 Del. C. \u00a7 4913",
+   "6 Del. C. \u00a7 2507J"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "6 Del. C. \u00a7 2507J (SS1 for SB 156, Delaware Medical Debt Protection Act, 6 Del. C. ch. 25J). Eff. 2025-10-27. Reporting to a CRA is an 'extraordinary collection action' under \u00a7 2502J(4)b.",
+  "confidence": "HIGH. MATTERS BEYOND DELAWARE: many national card issuers are Delaware-chartered and their agreements select Delaware law, so a consumer in a borrowing-statute state (e.g. Kentucky, KRS 413.320) may import Delaware's 3 years. Raise as an argument, never as settled.",
+  "sol_contested": false
+ },
+ "HI": {
+  "name": "Hawaii",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "fdcpa_equivalent": "Haw. Rev. Stat. ch. 443B; violations are UDAP under HRS \u00a7 480-2 via \u00a7 443B-20",
+  "fdcpa_note": "Ch. 443B is third-party only, but \u00a7 443B-20 channels violations into \u00a7 480-2, which DOES reach original creditors, with \u00a7 480-13 treble damages or a $1,000 minimum plus fees.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Graduated: 5% of first $100/month, 10% of next $100, 20% above $200 (HRS 652-1); federal 25% cap also applies",
+  "citations": [
+   "Haw. Rev. Stat. \u00a7 657-1(1)",
+   "Haw. Rev. Stat. \u00a7 657-1(4)",
+   "Haw. Rev. Stat. \u00a7 652-1",
+   "Haw. Rev. Stat. \u00a7\u00a7 443B-15, 443B-20"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "HIGH on SOL, no card split \u2014 \u00a7 657-1(1) covers 'any debt founded upon any contract, obligation, or liability' with no written/oral fork. MEDIUM on the \u00a7 480-13 remedy figures; verify before printing.",
+  "sol_contested": false
+ },
+ "IA": {
+  "name": "Iowa",
+  "sol_written": 10,
+  "sol_oral": 5,
+  "sol_credit_card": 5,
+  "fdcpa_equivalent": "Iowa Consumer Credit Code, Iowa Code \u00a7\u00a7 537.7101\u2013537.7103",
+  "fdcpa_note": "YES \u2014 the biggest original-creditor advantage in this batch. \u00a7 537.7102(5) defines debt collector to include collecting 'for the person' \u2014 a creditor collecting its own debt is covered, with no officer/employee carve-out.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Annual per-creditor sliding caps (Iowa Code 642.21): $250 under $12k income, up to 10% of earnings at $50k+",
+  "citations": [
+   "Iowa Code \u00a7 614.1(5)",
+   "Iowa Code \u00a7 614.1(4)",
+   "Iowa Code \u00a7 537.7102(5); \u00a7 537.7103",
+   "Iowa Code \u00a7 642.21"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "MEDIUM on sol_credit_card and CONDITIONAL. Gemini Capital Group v. New (Iowa Ct. App. 2011, unpublished) applied the 5-year \u00a7 614.1(4) where an unsigned cardholder agreement needed parol evidence. Assert 5 and demand the writing; a proven signed contract gives the creditor 10.",
+  "sol_contested": true
+ },
+ "ID": {
+  "name": "Idaho",
+  "sol_written": 5,
+  "sol_oral": 4,
+  "sol_credit_card": 5,
+  "fdcpa_equivalent": "Idaho Collection Agency Act, Idaho Code \u00a7 26-2229A; Idaho Consumer Protection Act \u00a7\u00a7 48-601 to 48-619",
+  "fdcpa_note": "\u00a7 26-2229A is licensee-only. The ICPA is what reaches original creditors, with a private action at \u00a7 48-608.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Mirrors the federal floor \u2014 lesser of 25% or excess over 30x federal minimum wage (Idaho Code 11-207(1))",
+  "citations": [
+   "Idaho Code \u00a7 5-216",
+   "Idaho Code \u00a7 5-217",
+   "Idaho Code \u00a7 11-207(1)",
+   "Idaho Code \u00a7 26-2229A"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "LOW-MEDIUM on sol_credit_card and genuinely split by fact pattern. No Idaho appellate decision resolves credit cards. Assert 5 only where an authenticated cardholder agreement exists; argue 4 under \u00a7 5-217 wherever the writing is not produced \u2014 the stronger consumer position. Idaho Code \u00a7 5-238 permits revival by partial payment.",
+  "sol_contested": true
+ },
+ "IN": {
+  "name": "Indiana",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "fdcpa_equivalent": "Indiana Deceptive Consumer Sales Act, Ind. Code \u00a7 24-5-0.5-3(b)(20)",
+  "fdcpa_note": "DCSA reaches suppliers incl. original creditors BUT \u00a7 24-5-0.5-4(a) withholds the private right of action for debt-collection acts \u2014 AG enforcement only. Route private claims to the federal FDCPA.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Lesser of 25% or excess over 30x federal minimum wage; court may reduce to 10% for good cause (Ind. Code 24-4.5-5-105)",
+  "citations": [
+   "Ind. Code \u00a7 34-11-2-7(1)",
+   "Ind. Code \u00a7 34-11-2-9",
+   "Ind. Code \u00a7 24-4.5-5-105"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "HIGH \u2014 every route lands on 6 years. Smither v. Asset Acceptance, 919 N.E.2d 1153 (Ind. Ct. App. 2010) held a card account is an open account under 34-11-2-7(1). Do NOT cite Ind. Code \u00a7 34-11-2-11 (10 years) \u2014 that is for written contracts NOT for the payment of money.",
+  "sol_contested": false
+ },
+ "KS": {
+  "name": "Kansas",
+  "sol_written": 5,
+  "sol_oral": 3,
+  "sol_credit_card": 3,
+  "fdcpa_equivalent": "Kansas Consumer Protection Act, K.S.A. \u00a7\u00a7 50-623 to 50-643",
+  "fdcpa_note": "YES \u2014 K.S.A. 50-624 defines supplier to include anyone who 'enforces' consumer transactions, capturing original creditors, assignees and debt buyers. \u00a7 50-627 unconscionability is especially useful against collection conduct.",
+  "fcra_equivalent": "K.S.A. \u00a7\u00a7 50-701 to 50-722 \u2014 a genuine substantive FCRA analog, not just a freeze law",
+  "garnishment_exempt": "Lesser of 25%, excess over 30x federal minimum wage, or the claim (K.S.A. 60-2310); one garnishment per 30 days",
+  "citations": [
+   "K.S.A. \u00a7 60-511(1)",
+   "K.S.A. \u00a7 60-512(1)",
+   "K.S.A. \u00a7 60-2310",
+   "K.S.A. \u00a7\u00a7 50-701 to 50-722"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "MEDIUM on sol_credit_card but the consumer-favorable number is the DEFAULT \u2014 60-512(1) covers contracts 'expressed or implied but not in writing'. No Kansas appellate decision on cards. Assert 3 and demand the writing.",
+  "sol_contested": true
+ },
+ "KY": {
+  "name": "Kentucky",
+  "sol_written": 10,
+  "sol_oral": 5,
+  "sol_credit_card": 5,
+  "fdcpa_equivalent": "Kentucky Consumer Protection Act, KRS \u00a7\u00a7 367.110\u2013367.300",
+  "fdcpa_note": "Inverted: KRS 367.220(1) confers standing only on one who 'purchases or leases goods or services', and Kentucky reads in privity (Skilcraft line) \u2014 works against ORIGINAL CREDITORS, generally not against debt buyers.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Lesser of 25% or excess over 30x federal minimum wage (KRS 427.010(2))",
+  "citations": [
+   "KRS \u00a7 413.120(1)",
+   "KRS \u00a7 413.160",
+   "KRS \u00a7 413.090(2)",
+   "KRS \u00a7 413.320",
+   "KRS \u00a7 427.010(2)"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "LOWEST of the batch. NO KENTUCKY APPELLATE COURT has decided which period governs credit cards. The 5-year figure rests on Conway v. Portfolio Recovery Associates, 13 F. Supp. 3d 711 (E.D. Ky. 2014) \u2014 persuasive only. Collector will argue 10 under 413.160 (or 15 under 413.090 pre-July-2014). Two wrinkles: KRS 413.320 is a borrowing statute that can import Delaware's 3 years; single-merchant store cards may fall under UCC 4 years, KRS 355.2-725.",
+  "sol_contested": true
+ },
+ "LA": {
+  "name": "Louisiana",
+  "sol_written": 10,
+  "sol_oral": 10,
+  "sol_credit_card": 3,
+  "sol_contested": false,
+  "fdcpa_equivalent": "La. R.S. 9:3562; LUTPA La. R.S. 51:1401 et seq.",
+  "fdcpa_note": "Reaches original creditors \u2014 9:3562 binds 'the creditor'. Narrow though: mainly third-party contacts, no statutory damages. Use LUTPA for a broader theory (treble after AG notice, fees).",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "75% of disposable earnings exempt, never less than 30x federal minimum wage/week (La. R.S. 13:3881(A)(1)(a))",
+  "citations": [
+   "La. Civ. Code art. 3494",
+   "La. Civ. Code art. 3499",
+   "La. R.S. 9:3562",
+   "La. R.S. 13:3881(A)(1)(a)"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "HIGH. Card = 3 as open account under art. 3494, settled practice. Oral is ALSO 10 (art. 3499 has no oral/written split) \u2014 the 3-year periods attach to transaction type, not absence of a writing. Art. 1762(1) uses 'extinguished' language but effect is remedy-barring and a new promise can create an enforceable obligation \u2014 do NOT claim the debt is void."
+ },
+ "MA": {
+  "name": "Massachusetts",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "M.G.L. c. 93 \u00a7 49, enforced through c. 93A; AG regs 940 CMR 7.00",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS EXPLICITLY \u2014 \u00a7 49 names 'a creditor or an attorney for a creditor, or an assignee of a creditor'. Violation is automatically a c. 93A unfair practice, giving a \u00a7 9 claim with $25 statutory minimum, up to treble for willful, and MANDATORY attorney's fees. Send the 30-day 93A demand letter first \u2014 it is a prerequisite and it is what creates the multiple-damages exposure. One of the strongest states in the country.",
+  "fcra_equivalent": "M.G.L. c. 93 \u00a7\u00a7 50-68 (reinvestigation \u00a7 58; willful \u00a7 63; negligent \u00a7 64; 93A hook \u00a7 68)",
+  "garnishment_exempt": "Greater of 85% of GROSS wages or 50x the greater of federal or Massachusetts minimum wage (M.G.L. c. 246 \u00a7 28) \u2014 among the most protective in the country",
+  "citations": [
+   "M.G.L. c. 260 \u00a7 2",
+   "M.G.L. c. 93 \u00a7 49",
+   "M.G.L. c. 93 \u00a7\u00a7 58, 63, 64, 68",
+   "M.G.L. c. 246 \u00a7 28"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "HIGH. 6 years for both written and oral (c. 260 \u00a7 2 makes no distinction), so no card split. c. 260 \u00a7 1 gives 20 years under seal; c. 106 \u00a7 2-725 gives 4 for sale of goods, occasionally argued for retail cards. NOT on NCLC's 15-state medical-debt list despite a CFPB letter supporting a bill."
+ },
+ "MD": {
+  "name": "Maryland",
+  "sol_written": 3,
+  "sol_oral": 3,
+  "sol_credit_card": 3,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Maryland Consumer Debt Collection Act, Md. Code Com. Law \u00a7\u00a7 14-201 to 14-204",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS \u2014 \u00a7 14-201(b) defines collector as anyone collecting a consumer-transaction debt, no carve-out. Private action \u00a7 14-203 includes emotional distress damages with or without physical injury. Also a CPA unfair practice (\u00a7 13-301(14)(iii)) unlocking \u00a7 13-408 fee-shifting. \u00a7 14-202(8) carries a scienter element \u2014 plead knowledge.",
+  "fcra_equivalent": "Md. Code Com. Law \u00a7\u00a7 14-1201 to 14-1218",
+  "garnishment_exempt": "Greater of 75% of disposable wages or 30x the STATE minimum wage per week (Md. Code Com. Law \u00a7 15-601.1)",
+  "citations": [
+   "Md. Code Cts. & Jud. Proc. \u00a7 5-101",
+   "Md. Code Com. Law \u00a7\u00a7 14-201 to 14-203",
+   "Md. Code Com. Law \u00a7 14-1213",
+   "Md. Code Com. Law \u00a7 15-601.1"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "Md. Code Com. Law \u00a7 14-1213 (2025 HB 1020); provider-side ban at Health-Gen. \u00a7\u00a7 24-2501, 24-2502. Eff. 2025-10-01. No sunset.",
+  "confidence": "HIGH. CORRECTION: the widely repeated '$145 per week' garnishment figure and the Caroline/Kent/Queen Anne's/Worcester county carve-out are OUTDATED \u2014 current \u00a7 15-601.1 uses 30x the state minimum wage with no county exception. Do not print $145. Note \u00a7 5-102 gives 12 years for a specialty under seal, which debt buyers occasionally invoke. 2025 HB 268 adds a 3-year medical-debt-specific SOL and a bar on suits under $500 \u2014 codified section not independently verified."
+ },
+ "ME": {
+  "name": "Maine",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Maine FDCPA, 32 M.R.S. ch. 109-A \u00a7\u00a7 11001-11054",
+  "fdcpa_note": "Generally does not reach a creditor collecting in its own name, but DOES capture a creditor using another name. Private action \u00a7 11054: actual + up to $1,000 ($2,000 vs a debt buyer), costs, fees. STANDOUT: \u00a7 11013(8) bars a collection action more than 6 years after LAST ACTIVITY 'notwithstanding any other applicable statute of limitations', and once expired 'any subsequent payment toward, written or oral affirmation of or other activity on the debt does not revive or extend' it. Non-revival rule stronger than the general SOL \u2014 the single most useful Maine cite.",
+  "fcra_equivalent": "Maine FCRA, 10 M.R.S. ch. 209-B \u00a7\u00a7 1308-1329",
+  "garnishment_exempt": "Lesser of 25% or excess over 40x federal (or higher state) minimum wage (9-A M.R.S. \u00a7 5-105)",
+  "citations": [
+   "14 M.R.S. \u00a7 752",
+   "32 M.R.S. \u00a7 11013(7)-(8)",
+   "10 M.R.S. \u00a7 1310-H(4)",
+   "9-A M.R.S. \u00a7 5-105"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "10 M.R.S. \u00a7 1310-H(4)(A), P.L. 2025 c. 201 \u00a7 5. Eff. 2025-06-09. No sunset.",
+  "confidence": "HIGH. CAVEAT: litigated \u2014 CDIA v. Frey, 26 F.4th 1 (1st Cir. 2022); on remand D. Me. (2024-01-11) held FCRA PARTIALLY preempts the veterans'-medical-debt timing provisions while the non-veteran reporting restriction survived. Expect preemption to be raised."
+ },
+ "MN": {
+  "name": "Minnesota",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Minn. Stat. \u00a7\u00a7 332.31-332.45 (prohibited practices \u00a7 332.37); Minn. Stat. ch. 332C (medical debt)",
+  "fdcpa_note": "Does NOT reach original creditors. FLAG: NO EXPRESS PRIVATE RIGHT OF ACTION under ch. 332 \u2014 enforcement is the Commerce Commissioner and the AG. Whether \u00a7 8.31 subd. 3a reaches ch. 332 is unsettled. Do not promise a consumer damages under ch. 332. By contrast ch. 332C DOES have one: \u00a7 332C.05(b) actual + up to $1,000 per violation + fees, trebled for willful under (c).",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Graduated (Minn. Stat. \u00a7 571.922, revised 2024): 25% if weekly income exceeds 80x minimum wage; 15% if 60-80x; 10% if 40-60x; nothing below 40x",
+  "citations": [
+   "Minn. Stat. \u00a7 541.05 subd. 1(1)",
+   "Minn. Stat. \u00a7 332.37",
+   "Minn. Stat. \u00a7\u00a7 332C.03, 332C.05",
+   "Minn. Stat. \u00a7 571.922"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "Minn. Stat. ch. 332C (Debt Fairness Act, 2024 ch. 368). Eff. 2024-10-01. \u00a7 332C.03(a) bars collecting parties from reporting; (b) bars CRAs from including it. No sunset.",
+  "confidence": "HIGH on ch. 332/332C. fcra_equivalent NULL BY DESIGN \u2014 ch. 13C is access-and-freeze only (annual free report, freezes, employer disclosure, adverse action); no reinvestigation duty, no accuracy standard, no willful/negligent liability. LOWER confidence on the SOL subdivision number \u2014 verify \u00a7 541.05 subd. 1(1) before printing."
+ },
+ "MO": {
+  "name": "Missouri",
+  "sol_written": 10,
+  "sol_oral": 5,
+  "sol_credit_card": 5,
+  "sol_contested": true,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "No dedicated analog. Courts apply the MMPA, Mo. Rev. Stat. \u00a7 407.020, private action \u00a7 407.025 (actual, punitive, fees, class actions allowed). Not limited to third-party collectors, so it reaches original creditors \u2014 but you must tie conduct to a covered transaction, an extra element the FDCPA does not require. Tightened by 2020 amendments (reliance and ascertainable-loss pleading).",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Lesser of 25%, excess over 30x federal minimum wage, or 10% if head of family and a Missouri resident (Mo. Rev. Stat. \u00a7 525.030(2))",
+  "citations": [
+   "Mo. Rev. Stat. \u00a7 516.110(1)",
+   "Mo. Rev. Stat. \u00a7 516.120(1)",
+   "Mo. Rev. Stat. \u00a7 407.020, .025",
+   "Mo. Rev. Stat. \u00a7 525.030(2)"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "SPLIT IS REAL. Consumer position 5 years under \u00a7 516.120: Capital One Bank v. Creed, No. 27752 (Mo. Ct. App. S.D. 2007) held that where no signed written promise was produced the 5-year statute applies. Counter: \u00a7 516.110(1) reaches 'any writing for the payment of money' \u2014 10 years \u2014 and debt buyers press it. Missouri's test is whether the promise AND an ascertainable amount appear from the writing itself; revolving balances generally do not. Assert 5 only where no signed agreement is produced. No Supreme Court resolution found."
+ },
+ "MS": {
+  "name": "Mississippi",
+  "sol_written": 3,
+  "sol_oral": 3,
+  "sol_credit_card": 3,
+  "sol_contested": false,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "NO state FDCPA analog and no collection-agency licensing. MCPA \u00a7 75-24-15 private action is unusually weak \u2014 must exhaust the AG's informal dispute program, limited recovery, no private class actions. Consumers rely on the federal FDCPA.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "ALL wages fully exempt for the first 30 days after service (Miss. Code \u00a7 85-3-4(1)); thereafter lesser of 25% or excess over 30x federal minimum wage",
+  "citations": [
+   "Miss. Code \u00a7 15-1-3(1)-(2)",
+   "Miss. Code \u00a7 15-1-29",
+   "Miss. Code \u00a7 15-1-49",
+   "Miss. Code \u00a7 85-3-4"
+  ],
+  "extinguishes_debt": true,
+  "medical_debt_law": null,
+  "confidence": "VERIFIED EXTINGUISHMENT. \u00a7 15-1-3(1) verbatim: 'The completion of the period of limitation prescribed to bar any action, shall defeat and extinguish the right as well as the remedy.' Critically \u00a7 15-1-3(2) permits revival by part payment or acknowledgment ONLY 'the statute of limitations not having run' \u2014 so after 3 years a later payment CANNOT revive. Extinguishment plus no post-expiration revival is the strongest time-barred position of any state researched; quote it verbatim."
+ },
+ "MT": {
+  "name": "Montana",
+  "sol_written": 8,
+  "sol_oral": 5,
+  "sol_credit_card": 5,
+  "sol_contested": true,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "NO analog for consumer collections. Title 17 ch. 4 is about the STATE collecting debts owed to it \u2014 do NOT cite it in a consumer letter. Fallback is the MCPA, \u00a7 30-14-103 with private action \u00a7 30-14-133 (actual or $500 whichever greater, court may treble, fees). Not limited to third-party collectors so it can reach an original creditor, but every claim is a general unfairness theory.",
+  "fcra_equivalent": "Mont. Code Ann. Title 31 ch. 3 pt. 1, \u00a7\u00a7 31-3-101 to 31-3-153 (compliance \u00a7 31-3-114; disputed accuracy \u00a7 31-3-124; willful \u00a7 31-3-142; negligent \u00a7 31-3-143)",
+  "garnishment_exempt": "Federal CCPA limits \u2014 lesser of 25% or excess over 30x federal minimum wage (Mont. Code Ann. \u00a7 25-13-614)",
+  "citations": [
+   "Mont. Code Ann. \u00a7 27-2-202(1)-(2)",
+   "Mont. Code Ann. \u00a7\u00a7 31-3-124, 31-3-142, 31-3-143",
+   "Mont. Code Ann. \u00a7 30-14-133",
+   "Mont. Code Ann. \u00a7 25-13-614"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "\u00a7 27-2-202 verbatim: (1) 8 years on an instrument in writing; (2) 5 years on 'a contract, account, or promise not founded on an instrument in writing'. Card = 5 because (2) expressly names 'account'. Counter: 8 years where a signed agreement is produced. No Montana Supreme Court decision found either way \u2014 8 is a live risk, flag it."
+ },
+ "ND": {
+  "name": "North Dakota",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "N.D.C.C. ch. 13-05 (prohibited acts \u00a7 13-05-06.3; penalties \u00a7 13-05-10)",
+  "fdcpa_note": "Does NOT reach original creditors \u2014 \u00a7 13-05-02.3(9) expressly exempts 'creditors collecting their own debts'. FLAG: NO PRIVATE RIGHT OF ACTION; enforced administratively by the Department of Financial Institutions (up to $5,000 per violation) and criminally (class C felony). A consumer gets nothing directly from it. Fallback for private damages is N.D.C.C. ch. 51-15, private action \u00a7 51-15-09 (actual, treble, fees).",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Lesser of 25% or excess over 40x federal minimum wage, REDUCED by $20 for each dependent family member residing with the debtor (N.D.C.C. \u00a7 32-09.1-03); debtor must give the employer a signed dependent list within 10 days",
+  "citations": [
+   "N.D.C.C. \u00a7 28-01-16(1)",
+   "N.D.C.C. \u00a7 13-05-06.3",
+   "N.D.C.C. \u00a7 13-05-10",
+   "N.D.C.C. \u00a7 32-09.1-03"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "HIGH. \u00a7 28-01-16(1) covers 'a contract, obligation, or liability, express or implied' \u2014 single 6-year period, no card split. \u00a7 28-01-15 gives 10 years on a judgment or sealed instrument. fcra null by design \u2014 ch. 51-33 is a freeze statute only."
+ },
+ "NE": {
+  "name": "Nebraska",
+  "sol_written": 5,
+  "sol_oral": 4,
+  "sol_credit_card": 5,
+  "sol_contested": true,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "No general analog. Collection Agency Act \u00a7\u00a7 45-601 et seq. is licensing only \u2014 NO PRIVATE RIGHT OF ACTION. Fallback is the Consumer Protection Act \u00a7 59-1602/\u00a7 59-1609 (actual, court may treble, fees) but \u00a7 59-1617 exempts conduct regulated by other regulatory bodies, which collectors invoke. Nothing gives Nebraska consumers an edge over the federal FDCPA against original creditors.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Lesser of 25%, or 15% if head of a family, or excess over 30x federal minimum wage (Neb. Rev. Stat. \u00a7 25-1558)",
+  "citations": [
+   "Neb. Rev. Stat. \u00a7 25-205",
+   "Neb. Rev. Stat. \u00a7 25-206",
+   "Neb. Rev. Stat. \u00a7 25-1558",
+   "Neb. Rev. Stat. \u00a7 59-1609"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "DELIBERATELY NOT the consumer-favorable default. The 4-year open-account theory under \u00a7 25-206 is arguable but Nebraska practitioners uniformly treat card agreements as written contracts under \u00a7 25-205 at 5 years, and no Nebraska appellate decision applies 4 to a credit card. Set to 5 because a wrong SOL in a mailed letter is worse than a conservative one; raise 4 as an argument. CORRECTION: the commonly cited '85% head of family' is wrong \u2014 \u00a7 25-1558 caps garnishment AT 15% for head of family (85% protected). fcra null \u2014 \u00a7\u00a7 8-2601 to 8-2615 is freeze only."
+ },
+ "NH": {
+  "name": "New Hampshire",
+  "sol_written": 3,
+  "sol_oral": 3,
+  "sol_credit_card": 3,
+  "sol_contested": false,
+  "fdcpa_equivalent": "NH Unfair, Deceptive or Unreasonable Collection Practices Act, RSA ch. 358-C",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS \u2014 RSA 358-C:1 VIII(a) defines debt collector as anyone who 'enforces or attempts to enforce an obligation' from a consumer credit transaction, with no carve-out; (b) and (c) then add fee-based collectors and debt buyers. Private action RSA 358-C:4 I: the GREATER of $200 plus costs and fees per violation, or all damages proximately caused. May be raised as a counterclaim in the collector's own suit. Short 3-year SOL plus a creditor-reaching statute makes NH one of the better states.",
+  "fcra_equivalent": "RSA ch. 359-B (accuracy 359-B:7 II; reinvestigation 359-B:11; willful 359-B:16; negligent 359-B:17)",
+  "garnishment_exempt": "NH effectively bars wage garnishment for ordinary consumer debts \u2014 RSA 512:21 II exempts pre-writ wages except on a NH-court judgment; where one exists, 50x federal minimum wage per week is protected",
+  "citations": [
+   "RSA 508:4 I",
+   "RSA 358-C:1 VIII; 358-C:4",
+   "RSA 359-B:11, :16, :17",
+   "RSA 512:21 II"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "HIGH. RSA 508:4 I is a single 3-year period for 'all personal actions', no written/oral split, no card split. CAVEAT: RSA 358-C:2 contains an applicability/exemption provision and some financial institutions argue partial exemption \u2014 confirm before asserting coverage against a bank specifically."
+ },
+ "NJ": {
+  "name": "New Jersey",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "No dedicated analog. Fallback is the CFA, N.J.S.A. 56:8-1 et seq., private action \u00a7 56:8-19 with MANDATORY TREBLE damages plus fees on proof of ascertainable loss \u2014 powerful, and not limited to third-party collectors. Limitation is doctrinal: NJ courts are inconsistent about whether post-contract collection activity is 'in connection with the sale or advertisement of merchandise', so CFA coverage of pure collection conduct is contested and fact-dependent.",
+  "fcra_equivalent": "N.J.S.A. 56:11-28 to 56:11-41 (reinvestigation \u00a7 56:11-36; willful \u00a7 56:11-38)",
+  "garnishment_exempt": "Ordinarily no more than 10% of wages; more only if income exceeds 250% of the federal poverty level (N.J.S.A. 2A:17-56). For MEDICAL debt, N.J.S.A. 56:11-60 bars garnishment of patients under 600% of poverty, eff. 2025-07-22",
+  "citations": [
+   "N.J.S.A. 2A:14-1",
+   "N.J.S.A. 56:11-36, 56:11-38",
+   "N.J.S.A. 56:11-58, 56:11-62",
+   "N.J.S.A. 2A:17-56"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "Louisa Carman Medical Debt Relief Act, P.L. 2024 c. 48, N.J.S.A. 56:11-56 to 56:11-63. Reporting ban \u00a7 56:11-58 and VOIDING provision \u00a7 56:11-62(a) took effect 2024-07-22; interest cap, garnishment ban, notice and waiting-period provisions 2025-07-22. No sunset.",
+  "confidence": "HIGH. NOTE \u00a7 56:11-62 \u2014 medical debt reported in violation is VOID, not merely unreportable. Unusual and strong; the most valuable NJ cite for a dispute letter. LOWER confidence on whether \u00a7 56:11-38 creates a consumer private right of action or only agency-enforced liability \u2014 verify before promising damages under the state FCRA."
+ },
+ "NM": {
+  "name": "New Mexico",
+  "sol_written": 6,
+  "sol_oral": 4,
+  "sol_credit_card": 4,
+  "sol_contested": true,
+  "fdcpa_equivalent": "New Mexico Unfair Practices Act, NMSA 1978 \u00a7\u00a7 57-12-1 to 57-12-26",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS \u2014 \u00a7 57-12-2(D) expressly covers misrepresentation 'in the extension of credit or in the collection of debts by a person in the regular course of the person's trade or commerce'. Debt collection and credit extension are named in the statute itself. Private action \u00a7 57-12-10: actual or $100 whichever greater, up to treble for willful, plus fees. The Collection Agency Regulatory Act is licensing-only with no private remedy.",
+  "fcra_equivalent": "NMSA 1978 \u00a7\u00a7 56-3-1 to 56-3-8 \u2014 LIMITED, not a full analog (obsolescence \u00a7 56-3-6; civil liability \u00a7 56-3-7)",
+  "garnishment_exempt": "Greater of 75% of disposable earnings or 40x the highest applicable minimum wage where earned (NMSA 1978 \u00a7 35-12-7); exempt amounts stay exempt in a bank account if traceable",
+  "citations": [
+   "NMSA 1978 \u00a7 37-1-3(A)",
+   "NMSA 1978 \u00a7 37-1-4",
+   "NMSA 1978 \u00a7 57-12-2(D), \u00a7 57-12-10",
+   "NMSA 1978 \u00a7 35-12-7"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "SPLIT IS REAL. 4 years under \u00a7 37-1-4 ('accounts and unwritten contracts') is the consumer position; counter is 6 under \u00a7 37-1-3(A) with a signed agreement. No controlling appellate decision found. ALSO CHECK \u00a7 37-1-5 (4 years for causes arising outside NM) \u2014 many card agreements select Delaware, South Dakota or Utah law, and NM's borrowing rule can independently cap at 4 years; often the better argument. fcra_equivalent QUALIFIED \u2014 could not confirm any reinvestigation duty; do not represent it as equivalent to FCRA \u00a7 1681i."
+ },
+ "NV": {
+  "name": "Nevada",
+  "sol_written": 6,
+  "sol_oral": 4,
+  "sol_credit_card": 4,
+  "sol_contested": true,
+  "fdcpa_equivalent": "Nev. Rev. Stat. ch. 649 (NRS 649.370, 649.375)",
+  "fdcpa_note": "Does NOT reach original creditors \u2014 ch. 649 is collection-agency licensing and NRS 649.020 excludes creditors collecting their own debts. FLAG: no clear private right of action under ch. 649; enforcement is the Commissioner of Financial Institutions. The workaround is NRS 598.0923 coupled with the private action at NRS 41.600 (actual damages, equitable relief, fees). To reach an ORIGINAL creditor in Nevada use NRS 41.600, not ch. 649.",
+  "fcra_equivalent": "Nev. Rev. Stat. ch. 598C (reinvestigation NRS 598C.160; willful NRS 598C.190; negligent NRS 598C.200)",
+  "garnishment_exempt": "82% of disposable earnings exempt if gross weekly wage was $770 or less, else 75%; or 50x federal minimum wage, whichever is greater (NRS 21.090(1)(g))",
+  "citations": [
+   "NRS 11.190(1)(b)",
+   "NRS 11.190(2)(a), (2)(c)",
+   "NRS 598C.160, .190, .200",
+   "NRS 21.090(1)(g)"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "NRS 649.366-649.369 (SB 248, 2021). Eff. 2021-07-01. NOTICE-AND-WAIT ONLY, not a ban: 60-day written notice before collecting medical debt, and no reporting during that window. After 60 days reporting is not prohibited.",
+  "confidence": "HIGH on SOL/credit reporting/garnishment. Card = 4 under 11.190(2)(a)/(2)(c) is standard; counter is 6 under (1)(b) with a signed agreement. Nevada is NOT on NCLC's 15-state list and SB 248 must not be described as a reporting ban."
+ },
+ "OK": {
+  "name": "Oklahoma",
+  "sol_written": 5,
+  "sol_oral": 3,
+  "sol_credit_card": 5,
+  "sol_contested": true,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "NO comprehensive state collection statute. OCPA 15 O.S. \u00a7 751 et seq. is a general UDAP with a private action at \u00a7 761.1 but does not regulate collection conduct and is not treated as an FDCPA analog. Consumers rely on the federal FDCPA.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "75% exempt; lesser of 25% or excess over 30x federal minimum wage (12 O.S. \u00a7 1171.1; 31 O.S. \u00a7 1(A)(18)); undue-hardship exemption on application",
+  "citations": [
+   "Okla. Stat. tit. 12 \u00a7 95(A)(1)",
+   "Okla. Stat. tit. 12 \u00a7 95(A)(2)",
+   "Okla. Stat. tit. 15 \u00a7 751 et seq.",
+   "Okla. Stat. tit. 12 \u00a7 1171.1"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "CONTESTED. 5 is what courts most commonly apply. Consumer position is 3 under \u00a7 95(A)(2) \u2014 an unsigned issuer-drafted agreement is not a 'contract, agreement, or promise in writing'. Counter: acceptance by use makes it written. No controlling appellate decision found."
+ },
+ "OR": {
+  "name": "Oregon",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Oregon Unlawful Debt Collection Practices Act, ORS 646.639-646.643",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS \u2014 ORS 646.639 defines debt collector as a person who 'collects or attempts to collect a debt owed, or alleged to be owed, to a creditor or debt buyer'. Oregon did NOT import the federal creditor exemption. Private action ORS 646.641: actual or $200 minimum, punitive, fees.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Greater of 75% or $254/week ($509/two weeks, $545/half-month, $1,090/month) exempt (ORS 18.385). FLAG: figures below $254/week (commonly $218) are OUTDATED \u2014 raised effective 2020. Fixed by statute, not indexed.",
+  "citations": [
+   "Or. Rev. Stat. \u00a7 12.080(1)",
+   "Or. Rev. Stat. \u00a7 646.639",
+   "Or. Rev. Stat. \u00a7 646.641",
+   "Or. Rev. Stat. \u00a7 646A.677(11)-(12)"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "ORS 646A.677(11)-(12), SB 605 (2025). Eff. 2026-01-01. FULL BAN binding BOTH sides \u2014 CRAs may not include medical debt, and no person may report it. Court may declare medical debt void as a remedy. No sunset.",
+  "confidence": "HIGH. Broadest of the medical-debt bans because it binds furnishers as well as CRAs \u2014 a letter can go to either. fcra null: ORS 646A.600-628 is identity-theft/freeze; the new \u00a7 646A.677(11) imposes one CRA duty but only as to medical debt."
+ },
+ "RI": {
+  "name": "Rhode Island",
+  "sol_written": 10,
+  "sol_oral": 10,
+  "sol_credit_card": 10,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Rhode Island FDCPA, R.I. Gen. Laws ch. 19-14.9",
+  "fdcpa_note": "Does NOT reach original creditors collecting in their own name \u2014 \u00a7 19-14.9-3 mirrors the federal definition and sweeps in a creditor only when using another name. HAS a private action: \u00a7 19-14.9-13, actual plus up to $1,000 additional, costs and fees; class recovery capped at $500,000. One-year limitations period on the claim.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Scattered rather than consolidated \u2014 \u00a7 9-26-4 exempts specified wages including a small flat exemption and wages of public-assistance recipients for one year; federal CCPA cap applies as a floor. LOW CONFIDENCE \u2014 verify subsection numbering before use.",
+  "citations": [
+   "R.I. Gen. Laws \u00a7 9-1-13(a)",
+   "R.I. Gen. Laws \u00a7 19-14.9-3",
+   "R.I. Gen. Laws \u00a7 19-14.9-13",
+   "R.I. Gen. Laws \u00a7\u00a7 6-60-1 to 6-60-5"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "R.I. Gen. Laws ch. 6-60 \u00a7\u00a7 6-60-1 to 6-60-5. Eff. 2025-07-01. FULL BAN, no notice window, no sunset. \u00a7 6-60-3 verbatim: 'No credit reporting agency shall acquire, record, or report any medical debt, in any manner.'",
+  "confidence": "\u00a7 9-1-13(a) is a 10-year catch-all for 'all civil actions' with no shorter contract provision, so all three are 10 \u2014 the longest in the set. A 4-year UCC argument (\u00a7 6A-2-725) governs buyer-seller sales contracts and is not generally applied to a card issuer's claim. GARNISHMENT IS THE WEAKEST ITEM \u2014 do not put a dollar amount in a letter without checking \u00a7 9-26-4."
+ },
+ "SC": {
+  "name": "South Carolina",
+  "sol_written": 3,
+  "sol_oral": 3,
+  "sol_credit_card": 3,
+  "sol_contested": false,
+  "fdcpa_equivalent": "S.C. Consumer Protection Code, Title 37, esp. \u00a7 37-5-108",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS \u2014 \u00a7 37-5-108 targets the conduct of 'the creditor' and assignees, not just third parties. Provides actual damages and, on a finding of unconscionable collection conduct, statutory relief plus fees. No separate collection-agency licensing act. Coverage depends on the debt qualifying as a 'consumer credit transaction' under \u00a7 37-1-301.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "South Carolina effectively PROHIBITS wage garnishment for ordinary consumer and commercial debt \u2014 available only for support, taxes and federally guaranteed student loans (\u00a7 37-5-104). The most consumer-favorable garnishment posture researched. Bank levies still possible.",
+  "citations": [
+   "S.C. Code Ann. \u00a7 15-3-530(1)",
+   "S.C. Code Ann. \u00a7 37-5-108",
+   "S.C. Code Ann. \u00a7 37-5-104",
+   "S.C. Code Ann. \u00a7 37-20-160 et seq."
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "\u00a7 15-3-530(1) verbatim: 'an action upon a contract, obligation, or liability, express or implied' \u2014 3 years, no written/oral distinction, among the shortest in the country, no card split. MODERATE confidence on the \u00a7 37-5-104 section number and on \u00a7 37-5-108 reaching pure collection conduct \u2014 no case verified."
+ },
+ "SD": {
+  "name": "South Dakota",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "NO state analog. SDCL ch. 37-29 is collection-agency licensing and bonding with NO private right of action. SDCL ch. 37-24 has a private action (\u00a7 37-24-31) but is not a collection statute. Consumers rely on the federal FDCPA.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Lesser of 20% of disposable earnings or excess over 40x federal minimum wage (SDCL 21-18-51) \u2014 the 20% cap beats the federal 25%; additional head-of-family reduction by dependents",
+  "citations": [
+   "S.D. Codified Laws \u00a7 15-2-13(1)",
+   "S.D. Codified Laws \u00a7 21-18-51",
+   "S.D. Codified Laws ch. 37-29",
+   "S.D. Codified Laws \u00a7 37-24-31"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "\u00a7 15-2-13(1) verbatim \u2014 'express or implied' describes the nature of the obligation, NOT the form, so no written/oral split and no card split. MODERATE on garnishment specifics; dependent add-on figures vary between sources \u2014 verify before quoting a dollar amount."
+ },
+ "TN": {
+  "name": "Tennessee",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Tennessee Collection Service Act, Tenn. Code Ann. \u00a7 62-20-101 et seq.",
+  "fdcpa_note": "NO PRIVATE RIGHT OF ACTION \u2014 the critical Tennessee flag. Licensing statute enforced by the Collection Service Board; no consumer damages remedy and courts have generally declined to imply one. Does NOT reach original creditors (\u00a7 62-20-103 exempts persons collecting their own accounts). Practical route is the TCPA \u00a7 47-18-109, though narrowed by 2011 amendments and its application to collection conduct is contested.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "75% exempt; lesser of 25% or excess over 30x federal minimum wage (\u00a7\u00a7 26-2-106, 26-2-107), plus a $2.50/week per dependent child under 16 exemption that has not been raised in decades",
+  "citations": [
+   "Tenn. Code Ann. \u00a7 28-3-109(a)(3)",
+   "Tenn. Code Ann. \u00a7 62-20-101 et seq.",
+   "Tenn. Code Ann. \u00a7\u00a7 26-2-106, 26-2-107",
+   "Tenn. Code Ann. \u00a7 47-18-109"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "\u00a7 28-3-109(a)(3) 'Actions on contracts not otherwise expressly provided for' \u2014 6 years, no written/oral distinction. Searched specifically for a card split and found none genuine; the 4-year UCC argument governs sale-of-goods contracts, not a card issuer's claim. MODERATE on 'no private right of action' \u2014 structure confirmed, no case fetched. Do not assert a TCSA damages claim without checking current case law."
+ },
+ "UT": {
+  "name": "Utah",
+  "sol_written": 6,
+  "sol_oral": 4,
+  "sol_credit_card": 6,
+  "sol_contested": true,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "NO state analog. Utah Code \u00a7 12-1-1 et seq. is registration and bonding with no conduct code and no private right of action. UCSPA \u00a7 13-11-19 has a private action but regulates 'suppliers' in consumer sales and is generally unavailable against collection conduct. Some restrictions in the Consumer Credit Code \u00a7 70C-7-101 et seq. Nothing reaches original creditors as collectors.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "75% exempt; lesser of 25% or excess over 30x federal minimum wage (\u00a7 70C-7-103; procedure Utah R. Civ. P. 64D)",
+  "citations": [
+   "Utah Code Ann. \u00a7 78B-2-309",
+   "Utah Code Ann. \u00a7 78B-2-307",
+   "Utah Code Ann. \u00a7 70C-7-103",
+   "Utah Code Ann. \u00a7 12-1-1 et seq."
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "le.utah.gov served a navigation shell on two attempts \u2014 the 6/4 split rests on official section CAPTIONS plus Justia's index, not a verbatim fetch of the operative sentence. Card reported as 6 on the standard reasoning that a written agreement is an instrument in writing; a consumer can argue 4 under \u00a7 78B-2-307 where the agreement is not produced, and no Utah appellate decision forecloses it."
+ },
+ "VA": {
+  "name": "Virginia",
+  "sol_written": 5,
+  "sol_oral": 3,
+  "sol_credit_card": 5,
+  "sol_contested": true,
+  "fdcpa_equivalent": null,
+  "fdcpa_note": "NO state analog. VCPA \u00a7 59.1-196 et seq. has a private action (\u00a7 59.1-204: actual or $500, up to $1,000 willful, fees) but governs 'suppliers' in 'consumer transactions', and Virginia courts have generally held collecting a debt is not itself a consumer transaction \u2014 so the VCPA is usually NOT available against pure collection conduct. The separate Medical Debt Protection Act does create medical-debt duties enforceable under ch. 17.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "75% exempt; lesser of 25% or excess over 40x federal minimum wage (\u00a7 34-29). FLAG: sources citing 30x for Virginia are OUTDATED \u2014 raised to 40x effective 2022. MODERATE \u2014 not fetched verbatim.",
+  "citations": [
+   "Va. Code Ann. \u00a7 8.01-246(2)",
+   "Va. Code Ann. \u00a7 8.01-246(4)",
+   "Va. Code Ann. \u00a7 8.01-246(B)",
+   "Va. Code Ann. \u00a7 59.1-444.4"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "Va. Code \u00a7 59.1-444.4, Medical Debt Protection Act (2024 Acts ch. 751). Eff. 2024-04-17. FULL BAN but runs against the FURNISHER side, not CRAs \u2014 bars facilities, licensed professionals and EMS agencies from reporting medical debt, and bars collection entities from reporting a collection or attempt. No sunset.",
+  "confidence": "SHARPEST SPLIT IN THE DATASET. 5 is what courts most often apply, but \u00a7 8.01-246(2) requires a contract 'in writing and signed by the party to be charged' \u2014 a typical cardholder agreement is issuer-drafted and never signed, pushing the claim into \u00a7 8.01-246(4)'s 3 years. Counter: the signed credit application, acceptance by use, or account stated. Turns on whether a signed writing is produced \u2014 raise the 3-year argument whenever it is not. SEPARATELY: \u00a7 8.01-246(B) sets a medical-debt-specific SOL of only 3 years from the final invoice due date. Virginia's ban does not bind CRAs, so aim the letter at the provider or collection entity."
+ },
+ "VT": {
+  "name": "Vermont",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Vermont Consumer Protection Rule CP 104, adopted under 9 V.S.A. \u00a7 2453; licensing 8 V.S.A. \u00a7 2201",
+  "fdcpa_note": "Vermont's collection code is a RULE, not a statute \u2014 cite CP 104 together with its enabling statute. A CP 104 violation is a CPA violation with a private action at 9 V.S.A. \u00a7 2461(b): actual or $200 minimum, exemplary up to treble, plus fees. CP 104 is generally understood to reach creditors collecting their own debts but the rule's definitional text was NOT verified \u2014 treat original-creditor coverage as probable, not confirmed.",
+  "fcra_equivalent": "Vermont FCRA, 9 V.S.A. \u00a7\u00a7 2480a-2480g (disputed accuracy \u00a7 2480d; civil liability \u00a7 2480f)",
+  "garnishment_exempt": "For consumer debt, greater of 85% of disposable weekly earnings or 40x federal minimum wage (12 V.S.A. \u00a7 3170) \u2014 only 15% reachable; court may exempt more on hardship. MODERATE \u2014 percentages not fetched verbatim.",
+  "citations": [
+   "Vt. Stat. Ann. tit. 12 \u00a7 511",
+   "Vt. Stat. Ann. tit. 9 \u00a7 2480d",
+   "Vt. Stat. Ann. tit. 9 \u00a7 2480f",
+   "Vt. Stat. Ann. tit. 9 \u00a7 2466d"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "9 V.S.A. \u00a7 2466d (with 18 V.S.A. \u00a7 9485(b)). Eff. 2025-07-01. FULL BAN, no notice window, no sunset. Verbatim: 'A credit reporting agency shall not report or maintain in the file on a consumer information relating to a medical debt.' Covers medical, dental and mental health services; excludes veterinary, certain card charges, home equity debt.",
+  "confidence": "One of only TWO jurisdictions in this batch with a REAL substantive FCRA analog (Washington the other). \u00a7 2480f(b) fetched verbatim creating a private action for damages, injunctive relief, punitive for willful, costs and fees, with a willful floor of actual or $100. 12 V.S.A. \u00a7 511 gives 6 years, no written/oral split."
+ },
+ "WA": {
+  "name": "Washington",
+  "sol_written": 6,
+  "sol_oral": 3,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Washington Collection Agency Act, RCW ch. 19.16 (RCW 19.16.250, 19.16.260)",
+  "fdcpa_note": "Does NOT reach original creditors \u2014 RCW 19.16.100 excludes 'any person whose collection activities are carried on in his, her, or its true name and are directly related to the operation of a business other than that of a collection agency'. HAS an effective private action by an unusual route: RCW 19.16.440 declares violations to be unfair practices for purposes of ch. 19.86, supplying the private action, treble damages to the statutory cap, and fees under RCW 19.86.090.",
+  "fcra_equivalent": "Washington FCRA, RCW ch. 19.182 (accuracy 19.182.060(2); reinvestigation 19.182.090; civil liability 19.182.150)",
+  "garnishment_exempt": "CONSUMER DEBT: greater of 80% of disposable weekly earnings or 35x the STATE minimum wage (RCW 6.27.150(4)). Non-consumer: 75% or 35x federal. Student loans: 85% or 50x state. FLAG: a flat 75%/35x-federal rule for consumer debt is OUTDATED, and any dollar figure goes stale annually because the state minimum wage is indexed each January 1 \u2014 compute, do not quote.",
+  "citations": [
+   "Wash. Rev. Code \u00a7 4.16.040(1)",
+   "Wash. Rev. Code \u00a7 4.16.080(3)",
+   "Wash. Rev. Code \u00a7 19.182.090",
+   "Wash. Rev. Code \u00a7 19.182.150"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": "RCW 19.182.040(1)(g), with 'medical debt' defined by RCW 19.16.100; related RCW 19.16.250(28), RCW 70.41.400(2). Eff. 2025-07-27. FULL BAN on inclusion in consumer reports, narrow exceptions for certain high-value credit and employment purposes. No sunset. Binds CRAs directly.",
+  "confidence": "Best-documented jurisdiction researched. Real substantive FCRA analog verified section by section. NOTE the reinvestigation duty is RCW 19.182.090, NOT .080 \u2014 commonly miscited. Willful liability: actual plus a $1,000 monetary penalty plus costs and fees; negligent: actual plus costs and fees."
+ },
+ "WI": {
+  "name": "Wisconsin",
+  "sol_written": 6,
+  "sol_oral": 6,
+  "sol_credit_card": 6,
+  "sol_contested": false,
+  "fdcpa_equivalent": "Wisconsin Consumer Act, Wis. Stat. ch. 427 (\u00a7 427.104)",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS \u2014 \u00a7 427.103 defines debt collection as collecting claims 'owed or due or alleged to be owed or due a merchant by a customer' and debt collector as 'any person engaging, directly or indirectly, in debt collection', with NO creditor exemption. Private action \u00a7 427.105 plus remedies and fees under \u00a7\u00a7 425.304, 425.308.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "80% of disposable earnings exempt \u2014 only 20% reachable (\u00a7 812.34). TOTAL exemption frequently overlooked: earnings wholly exempt if household income is below the federal poverty line, or the debtor receives need-based public assistance (or did within 6 months, or is eligible). If 20% would push the household below poverty, garnishment is limited to the excess.",
+  "citations": [
+   "Wis. Stat. \u00a7 893.43(1)",
+   "Wis. Stat. \u00a7 893.05",
+   "Wis. Stat. \u00a7 893.45",
+   "Wis. Stat. \u00a7 427.104"
+  ],
+  "extinguishes_debt": true,
+  "medical_debt_law": null,
+  "confidence": "EXTINGUISHMENT VERIFIED. \u00a7 893.05 verbatim: 'When the period within which an action may be commenced on a Wisconsin cause of action has expired, the right is extinguished as well as the remedy.' REVIVAL: a post-expiration payment does NOT revive, for two independent reasons \u2014 \u00a7 893.45 requires a signed writing for any new promise, and once \u00a7 893.05 extinguishes the right there is nothing left to revive. \u00a7 893.12 is often miscited here; it concerns advance payment of tort damages, not part-payment revival. TRAP: the borrowing statute \u00a7 893.07 applies the shorter of Wisconsin's period and that of the state where the claim arose \u2014 many card agreements select Delaware or South Dakota, so check the choice-of-law clause before assuming 6."
+ },
+ "WV": {
+  "name": "West Virginia",
+  "sol_written": 10,
+  "sol_oral": 5,
+  "sol_credit_card": 5,
+  "sol_contested": true,
+  "fdcpa_equivalent": "West Virginia Consumer Credit and Protection Act, W. Va. Code \u00a7\u00a7 46A-2-122 to 46A-2-129a",
+  "fdcpa_note": "REACHES ORIGINAL CREDITORS \u2014 the clearest original-creditor coverage of any state researched. West Virginia deliberately did not adopt the federal creditor exemption; a creditor collecting its own debt, including a bank, is subject to the full WVCCPA. The only carve-out in \u00a7 46A-2-122 is for WV-licensed attorneys collecting in their own name. Private action \u00a7 46A-5-101. Post-2015 amendments: 4-year limitations period for claims filed on or after 2015-09-01, penalties capped near $1,000 per violation, class recovery capped at the greater of $175,000 or total outstanding indebtedness, and a cure safe harbor at \u00a7 46A-5-101(5).",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "Lesser of 20% of disposable weekly earnings or excess over 50x federal minimum wage (\u00a7 46A-2-130) \u2014 verified verbatim. FLAG: sources citing 30x for West Virginia are WRONG; the statute says fifty times. With the 20% cap, among the more protective researched.",
+  "citations": [
+   "W. Va. Code \u00a7 55-2-6",
+   "W. Va. Code \u00a7 46A-2-122",
+   "W. Va. Code \u00a7 46A-5-101",
+   "W. Va. Code \u00a7 46A-2-130"
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "An automated read of the bare statute initially concluded original creditors fall OUTSIDE the WVCCPA \u2014 that is backwards, corrected against practitioner analysis confirming a creditor collecting its own debt including a bank is fully subject. LOWEST-CONFIDENCE SOL of the batch: \u00a7 55-2-6 was NOT fetched verbatim, published summaries disagree on whether card debt is 5 or 10, and 5 rests on the reasoning that an unsigned agreement is not a signed writing. VERIFY \u00a7 55-2-6 directly before relying on either number."
+ },
+ "WY": {
+  "name": "Wyoming",
+  "sol_written": 10,
+  "sol_oral": 8,
+  "sol_credit_card": 8,
+  "sol_contested": true,
+  "fdcpa_equivalent": "Wyoming Collection Agency Act, Wyo. Stat. \u00a7 33-11-101 et seq.",
+  "fdcpa_note": "NO PRIVATE RIGHT OF ACTION and does NOT reach original creditors \u2014 licensing and bonding only, exempts persons collecting their own accounts. WCPA \u00a7 40-12-108 has a private action but targets deceptive trade practices in consumer sales rather than collection conduct and requires a pre-suit demand. Consumers effectively rely on the federal FDCPA.",
+  "fcra_equivalent": null,
+  "garnishment_exempt": "75% exempt; lesser of 25% or excess over 30x federal minimum wage (\u00a7 1-15-511; parallel limit \u00a7 40-14-505)",
+  "citations": [
+   "Wyo. Stat. Ann. \u00a7 1-3-105(a)(i)",
+   "Wyo. Stat. Ann. \u00a7 1-3-105(a)(ii)(A)",
+   "Wyo. Stat. Ann. \u00a7 1-15-511",
+   "Wyo. Stat. Ann. \u00a7 33-11-101 et seq."
+  ],
+  "extinguishes_debt": false,
+  "medical_debt_law": null,
+  "confidence": "Fetched verbatim: (a)(i) ten years 'upon a specialty or any contract, agreement or promise in writing'; (a)(ii)(A) eight years 'upon a contract not in writing, either express or implied'. Longest written-contract SOL researched. Card reported as 8 because an issuer-drafted unsigned agreement is most naturally 'not in writing'; counter is 10 under (a)(i). NOTE this is the one state where the card figure is SHORTER than the written figure on a contested basis \u2014 confirm before asserting a time-bar."
+ }
+}

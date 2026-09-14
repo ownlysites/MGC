@@ -36,7 +36,10 @@ const EXPECT = [
   {file: 'mg_transunion.txt', format: 'experian_printable', accounts: [28, 38], inquiries: [2, 10],
    collections: [1, 3],  derog: [5, 12], lowConfidence: false, bureau: 'TransUnion'},
   {file: 'jose_santiago.txt', format: 'three_bureau',       accounts: [12, 20], inquiries: [12, 24],
-   collections: [8, 14], derog: [1, 6],  lowConfidence: false, publicRecords: [1, 3],
+   collections: [4, 5],  derog: [1, 6],  lowConfidence: false, publicRecords: [1, 3],
+   // A tri-merge reports each collection once per bureau. The raw parse found
+   // ten entries for four debts; dedupeCollections folds them, so the count
+   // here is the number of debts, not the number of rows.
    note: 'the only report in the set carrying a public record'}
 ];
 
