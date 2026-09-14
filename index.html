@@ -8861,7 +8861,7 @@ function compileBureauDispute(ctx) {
   const itemsList = items.length > 0 ? items.map((it, i) => {
     const reason = it.reason || 'This information is inaccurate, incomplete, or unverifiable.';
     const acctLine = it.account ? `Account #: ${it.account}` : '';
-    return `${i+1}. ${it.creditor || '[Creditor Name]'}${acctLine ? ' — ' + acctLine : ''}\n   Reason: ${reason}`;
+    return `${i+1}. ${it.creditor || 'the account below'}${acctLine ? ' — ' + acctLine : ''}\n   Reason: ${reason}`;
   }).join('\n\n') : '[List each disputed item here with the creditor name, account number, and specific reason. Examples: "This account is not mine" / "The balance reported is incorrect" / "This account was paid in full on [date]" / "This late payment never occurred" / "This account should have aged off my report — it is over 7 years old."]';
   
   const body = [
@@ -8895,7 +8895,7 @@ function compileBureauDispute(ctx) {
     opening.length > 120 ? pickFrom(fragments.opening_bureau, 8) : opening,
     '',
     'Items I am disputing:',
-    items.length > 0 ? items.map((it, i) => `${i+1}) ${it.creditor} - ${it.reason || 'Inaccurate/unverifiable'}`).join('\n') : '[Fill in each item]',
+    items.length > 0 ? items.map((it, i) => `${i+1}) ${it.creditor} - ${it.reason || 'Inaccurate/unverifiable'}`).join('\n') : 'See the numbered list in the letter accompanying this dispute.',
     '',
     'Under FCRA § 611 (15 U.S.C. § 1681i), you must reasonably investigate within 30 days. A cursory e-OSCAR verification does not satisfy the "reasonable reinvestigation" standard (see Johnson v. MBNA, 4th Cir. 2004).',
     '',
@@ -8986,7 +8986,9 @@ function compileMixedFile(ctx) {
     'My credit file has been mixed with another person\'s file.',
     '',
     'Addresses on my report that I have never lived at:',
-    (flagged.addresses || []).length ? (flagged.addresses || []).map((a, i) => `${i + 1}) ${String(a.address || a).replace(/\n/g, ', ')}`).join('\n') : '[list them]',
+    (flagged.addresses || []).length ? (flagged.addresses || []).map((a, i) => `${i + 1}) ${String(a.address || a).replace(/\n/g, ', ')}`).join('\n') : ['', '    ______________________________________________________________', '',
+     '    ______________________________________________________________', '',
+     '    ______________________________________________________________'].join('\n'),
     '',
     'I am requesting a file split / mixed file correction — not verification of individual accounts. The accounts are real but they belong to another consumer.',
     '',
@@ -9045,7 +9047,9 @@ function compilePersonalInfoCorrection(ctx) {
   const portalLines = [
     'I am requesting correction of identifying information in my file (not an account dispute).',
     '',
-    lines.length ? lines.map((l, i) => `${i + 1}) ${l}`).join('\n') : '[list the incorrect details]',
+    lines.length ? lines.map((l, i) => `${i + 1}) ${l}`).join('\n') : ['', '    ______________________________________________________________', '',
+     '    ______________________________________________________________', '',
+     '    ______________________________________________________________'].join('\n'),
     '',
     'FCRA § 611 covers the accuracy of any item of information in my file, including identifying information. FCRA § 607(b) requires reasonable procedures to assure maximum possible accuracy.',
     '',
@@ -9073,8 +9077,10 @@ function compile609Request(ctx) {
   const damages = pickFrom(fragments.damages_closing, 13);
   
   const itemsList = items.length > 0 ? items.map((it, i) => 
-    `${i+1}. ${it.creditor || '[Creditor Name]'}${it.account ? ' — Account #' + it.account : ''}`
-  ).join('\n') : '[List each account/item you want full disclosure on]';
+    `${i+1}. ${it.creditor || 'the account below'}${it.account ? ' — Account #' + it.account : ''}`
+  ).join('\n') : ['', '    ______________________________________________________________', '',
+     '    ______________________________________________________________', '',
+     '    ______________________________________________________________'].join('\n');
   
   const body = [
     opening,
@@ -9127,8 +9133,10 @@ function compileMOV(ctx) {
   const parroting = pickFrom(fragments.parroting_warning, 17);
   
   const itemsList = items.length > 0 ? items.map((it, i) => 
-    `${i+1}. ${it.creditor || '[Creditor Name]'}${it.account ? ' — Account #' + it.account : ''}`
-  ).join('\n') : '[List each "verified" item from your last dispute response]';
+    `${i+1}. ${it.creditor || 'the account below'}${it.account ? ' — Account #' + it.account : ''}`
+  ).join('\n') : ['', '    ______________________________________________________________', '',
+     '    ______________________________________________________________', '',
+     '    ______________________________________________________________'].join('\n');
   
   const body = [
     opening,
@@ -9535,7 +9543,9 @@ function compileInquiryDispute(ctx) {
   
   const inqList = inquiries.length > 0 ? inquiries.map((q, i) => 
     `${i+1}. ${q.creditor || '[Company]'} — Inquiry date: ${q.date || '[Date]'}`
-  ).join('\n') : '[List each unauthorized inquiry: company name and date]';
+  ).join('\n') : ['', '    ______________________________________________________________', '',
+     '    ______________________________________________________________', '',
+     '    ______________________________________________________________'].join('\n');
   
   const body = [
     opening,
@@ -9567,7 +9577,7 @@ function compileInquiryDispute(ctx) {
   
   const portal = `I dispute the following hard inquiries as unauthorized (FCRA § 604 — no permissible purpose):\n${inqList}\nI did not apply to or authorize these companies. Remove these inquiries and provide evidence of any claimed permissible purpose. Each violation: $100-$1,000 + attorney fees under 15 U.S.C. § 1681n. — ${u.name}`;
   
-  const short = `Unauthorized inquiries on my credit — no permissible purpose under FCRA § 604: ${inquiries.length > 0 ? inquiries.map(i=>i.creditor).slice(0,3).join(', ') : '[list]'}. Please remove. — ${u.name}`;
+  const short = `Unauthorized inquiries on my credit — no permissible purpose under FCRA § 604: ${inquiries.length > 0 ? inquiries.map(i=>i.creditor).slice(0,3).join(', ') : 'the inquiries listed in my letter'}. Please remove. — ${u.name}`;
   
   return {mail, portal: portal.length > 2000 ? portal.substring(0,1990)+'…' : portal, short};
 }
@@ -9576,10 +9586,15 @@ function compileInquiryDispute(ctx) {
 function compileInquiryPermissiblePurpose(ctx) {
   const inquiries = ctx.inquiries || [];
   const q = inquiries[0] || {};
-  const company = q.creditor || '[Company that pulled your report]';
-  const companyAddr = q.address || '[Company address — printed beside the inquiry on your report]';
-  const inqDateStr = q.date || '[Date of the inquiry]';
-  const bureauSeen = q.bureau || '[Bureau where the inquiry appears]';
+  // This letter goes to the company that pulled the report, so it cannot be
+  // built at all without knowing who they are — and the packet only reaches
+  // here once an inquiry has been flagged. Where the report gave us less than
+  // the whole picture, the gap is a ruled blank taken off their own report,
+  // never a bracket.
+  const company = q.creditor || 'The company named below';
+  const companyAddr = q.address || '____________________________________________';
+  const inqDateStr = q.date || '________________';
+  const bureauSeen = q.bureau || '________________';
   const u = userHeader();
 
   const recipientBlock = [company, companyAddr].filter(Boolean).join('\n');
@@ -9645,7 +9660,9 @@ function compile605B(ctx) {
   
   const itemsList = items.length > 0 ? items.map((it, i) => 
     `${i+1}. ${it.creditor || '[Creditor/Account]'}${it.account ? ' — Account #' + it.account : ''}${it.reason ? ' — ' + it.reason : ''}`
-  ).join('\n') : '[List each fraudulent account, inquiry, or item]';
+  ).join('\n') : ['', '    ______________________________________________________________', '',
+     '    ______________________________________________________________', '',
+     '    ______________________________________________________________'].join('\n');
   
   const breachClause = breachRef ? 
     `\n\nThis identity theft resulted from my personal information being exposed in the ${breachRef.name} data breach of ${breachRef.year}, which compromised ${breachRef.data ? breachRef.data.join(', ') : 'personal data'} for approximately ${breachRef.affected || 'many individuals'}. The fact that my information was publicly exposed in this breach provides substantial context for the identity theft I am now experiencing.` : '';
@@ -9842,7 +9859,9 @@ function compileBreachNotification(ctx) {
 //
 // The source form's own instinct to leave the SSN out is right and is kept.
 function compilePrivacyOptOut(ctx) {
-  const creditor = ctx.creditor || {name: '[Creditor Name]', addr: '[Creditor Address]'};
+  // Fanned out per creditor (see letterFanTargets). Blank, never a bracket —
+  // the separator sheet already tells them when an address is theirs to fill in.
+  const creditor = ctx.creditor || {name: '', addr: ''};
   const creditorName = typeof creditor === 'string' ? creditor : creditor.name;
   const creditorAddr = typeof creditor === 'object' ? (creditor.addr || '') : '';
   const u = userHeader();
@@ -16023,7 +16042,7 @@ function compileMedicalNcap(ctx) {
 function compileMedicalItemization(ctx) {
   const c = ctx.collector || {};
   const u = userHeader();
-  const name = c.name || '[Collection agency name]';
+  const name = c.name || 'The collection agency named below';
 
   const body = [
     'This letter concerns a medical account you are reporting or attempting to collect. It is a dispute and a request for validation under Section 809(b) of the Fair Debt Collection Practices Act, 15 U.S.C. § 1692g(b). It is not a refusal to pay, and it is not an allegation that you have done anything improper — it is a request that you show what the amount is made of.',
@@ -16043,7 +16062,7 @@ function compileMedicalItemization(ctx) {
     'Please also note for your file that the nationwide consumer reporting agencies do not include paid medical collections or unpaid medical collections under $500 on consumer reports, and hold an unpaid medical collection for a year after the date of service before reporting it at all.'
   ];
 
-  const mail = mailEnvelope(body, `${name}\n${c.addr || '[Collector address — from their letter]'}`, {
+  const mail = mailEnvelope(body, `${name}\n${c.addr || '____________________________________________'}`, {
     re: 'Medical Account — Request for Itemisation and Validation, FDCPA § 809(b)',
     ssnLine: false
   });

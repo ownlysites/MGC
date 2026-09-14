@@ -459,6 +459,39 @@ R.section('a missing account number does not become a bracket');
           c2.some(o => /account ending 4417/i.test(String(o.mail || ''))));
 })();
 
+// The nine letters fed from the report itself must not have a bracket waiting
+// behind a missing field. A parser that misses one field on one account is
+// enough to reach it — that is exactly how "Account ending [XXXX]" got into a
+// real envelope. The letters a person types the data into themselves are a
+// separate question and are not covered here.
+R.section('no report-fed letter has a bracket waiting behind a missing field');
+(function () {
+  const REPORT_FED = ['initial_bureau_dispute', 'furnisher_dispute', '609_request', 'mov',
+                      'inquiry_dispute', 'inquiry_permissible_purpose', 'idtheft_block',
+                      'medical_itemization', 'privacy_opt_out', 'mixed_file',
+                      'personal_info_correction'];
+  const ctxApi = H.load();
+  const st = H.session(ctxApi, {});
+  st.userInfo = {name: 'PAT MORGAN', address: '1 Main St', city: 'Sarasota, FL 34236',
+                 dob: '', ssnLast4: ''};
+  REPORT_FED.forEach(id => {
+    const t = ctxApi.letterTemplates[id];
+    if (!t) { R.check(id + ' exists', false, 'no such template'); return; }
+    let out;
+    try { out = t.compile({}); }
+    catch (e) { R.check(id + ' compiles with nothing', false, e.message.slice(0, 60)); return; }
+    const found = [];
+    ['mail', 'portal', 'short'].forEach(k => {
+      const b = String((out && out[k]) || '').match(/\[[^\]]{2,60}\]/g);
+      // "[date]" inside a worked example of how to phrase a reason is prose,
+      // not a field nobody filled in.
+      const real = (b || []).filter(x => x !== '[date]');
+      if (real.length) found.push('.' + k + ': ' + [...new Set(real)].slice(0,2).join(' '));
+    });
+    R.check(id + ' — empty context, no bracket', found.length === 0, found.join('  '));
+  });
+})();
+
 R.section('the item review prints money once');
 (function () {
   const revApi = H.load(['renderItemReview']);
