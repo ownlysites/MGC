@@ -1,0 +1,9 @@
+{
+  "name": "mgc-dev",
+  "private": true,
+  "description": "Harnesses and fixture extraction for MGC. Not shipped.",
+  "dependencies": {
+    "pdfjs-dist": "^3.11.174",
+    "playwright": "^1.47.0"
+  }
+}

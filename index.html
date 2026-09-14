@@ -9580,14 +9580,20 @@ function compileCFPB(ctx) {
 // ========== SPECIALIZED COMPILERS ==========
 
 function compileSCRAInterest(ctx) {
-  const creditor = ctx.creditor || {name:'[Creditor Name]', addr:'[Address]', account:'[XXXX]'};
-  const startDate = ctx.militaryStartDate || '[Date you entered active duty / first called up]';
+  // Fanned out per creditor (see letterFanTargets), so ctx.creditor is set per
+  // copy. Blank rather than a bracket if it somehow is not.
+  const creditor = ctx.creditor || {name:'', addr:'', account:''};
+  // The date they entered service is theirs to write in. A letter that invents
+  // one is worse than a letter with a gap the separator sheet explains.
+  const startDate = ctx.militaryStartDate || null;
   const u = userHeader();
   
   const body = [
     'This letter serves as formal notice of my rights under the Servicemembers Civil Relief Act (SCRA, 50 U.S.C. §§ 3901-4043) and my invocation of those rights with respect to the above-referenced account.',
     '',
-    `I entered active military service on ${startDate}. The above-referenced account was established prior to my active service and therefore qualifies for the protections of SCRA § 527 (50 U.S.C. § 3937).`,
+    (startDate
+      ? `I entered active military service on ${startDate}. The above-referenced account was established prior to my active service and therefore qualifies for the protections of SCRA § 527 (50 U.S.C. § 3937).`
+      : 'The above-referenced account was established prior to my active military service and therefore qualifies for the protections of SCRA § 527 (50 U.S.C. § 3937). The start date of my active service is shown on the orders enclosed with this letter.'),
     '',
     'Under 50 U.S.C. § 3937:',
     '(a) Interest on this obligation is capped at 6% per year during my period of military service.',
@@ -9625,8 +9631,12 @@ function compileSCRAInterest(ctx) {
 }
 
 function compileSCRADefault(ctx) {
-  const court = ctx.court || '[Court Name and Address]';
-  const caseNumber = ctx.caseNumber || '[Case Number]';
+  // A court name and a case number are on the papers the servicemember was
+  // served with. Nothing here can know them, and a motion filed with
+  // "[Case Number]" on it is returned. Left blank, ruled, and called out on the
+  // separator sheet as the one letter that must be completed before it is filed.
+  const court = ctx.court || '__________________________________________';
+  const caseNumber = ctx.caseNumber || '______________________';
   const u = userHeader();
   
   const body = [
@@ -9642,7 +9652,11 @@ function compileSCRADefault(ctx) {
     '',
     'Pursuant to 50 U.S.C. § 3931(g), the court may, upon application made by or on behalf of the servicemember not later than 90 days after the date of the termination of or release from military service, vacate or set aside any default judgment. I make that application now.',
     '',
-    'I have meritorious defenses to the underlying action that I would have raised but for my military service having prevented my appearance. These defenses include (but are not limited to): [LIST YOUR DEFENSES — e.g., disputing the debt, SOL, improper service, etc.]',
+    'I have meritorious defenses to the underlying action that I would have raised but for my military service having prevented my appearance. These defenses include, but are not limited to, the following:',
+    '',
+    '    ______________________________________________________________',
+    '',
+    '    ______________________________________________________________',
     '',
     'Enclosed:',
     '• Copy of my military orders / DD-214 establishing active duty at the relevant time;',
@@ -9669,7 +9683,7 @@ function compileSCRADefault(ctx) {
 }
 
 function compileSCRACreditReporting(ctx) {
-  const creditor = ctx.creditor || {name:'[Creditor]', addr:'[Address]', account:'[XXXX]'};
+  const creditor = ctx.creditor || {name:'', addr:'', account:''};
   const u = userHeader();
   
   const body = [
@@ -14085,6 +14099,26 @@ function letterFanTargets(tmpl, ctx) {
     }));
   }
 
+  // The two SCRA creditor letters go to each creditor the person owed before
+  // they went on active duty. Nothing on a credit report says which debts are
+  // pre-service, so this addresses every open account and the separator sheet
+  // says to send only the ones that predate the start of service — an honest
+  // instruction on a page that is not mailed, rather than a guess in a letter.
+  if (tmpl.id === 'scra_interest_cap' || tmpl.id === 'scra_credit_reporting') {
+    const seenS = {};
+    const outS = [];
+    (parsed.accounts || []).forEach(a => {
+      if (!a || !a.creditor) return;
+      if (a.is_collection) return;
+      const k = mgcNorm(a.creditor);
+      if (seenS[k]) return;
+      seenS[k] = 1;
+      outS.push({name: a.creditor, addr: furnisherAddressFor(a.creditor),
+                 account: a.account_number || '', acct: a, label: a.creditor});
+    });
+    return outS;
+  }
+
   // A goodwill request goes to the creditor whose late payment it is about.
   if (tmpl.id === 'goodwill') {
     const seen = {};
@@ -16469,6 +16503,12 @@ function buildActionPlanDoc() {
           <div><em>Before you send</em><p>Rewrite it in your own words, keeping the citations, account numbers and dates exactly as printed. Sign in ink, enclose your ID and proof of address, and send it certified with return receipt.</p></div>
         </div>
         ${tmpl.id === 'privacy_opt_out' ? `<div class="plan-divider-grid"><div><em>While you are at it</em><p>The prescreened-offer opt-out is separate, free, and nothing a creditor can do for you — it is exercised directly with the bureaus under FCRA § 604(e), 15 U.S.C. § 1681b(e). Call 1-888-5-OPT-OUT (1-888-567-8688) or use optoutprescreen.com. Online or by phone it lasts five years; to make it permanent you print the form from that site and mail it. This is not part of the letter on the next page and does not go in that envelope.</p></div></div>` : ''}
+        ${tmpl.id === 'scra_default_protection'
+          ? `<div class="plan-divider-grid"><div><em>Fill this one in before you file it</em><p>This is a motion to a court, not a letter to a company, and three things on it are blank because nothing here can know them: the court&rsquo;s name and address, your case number, and your defences to the underlying claim. All three are on the papers you were served with. A motion filed with blanks on it is returned. If you are still serving, your installation&rsquo;s legal assistance office will help you complete and file it at no cost &mdash; that is what they are for.</p></div></div>`
+          : ''}
+        ${(tmpl.id === 'scra_interest_cap' || tmpl.id === 'scra_credit_reporting')
+          ? `<div class="plan-divider-grid"><div><em>Only send this for debts you had BEFORE you went on active duty</em><p>The 6% cap under 50 U.S.C. &sect; 3937 applies to obligations incurred before your active service began, and nothing on a credit report says which of yours those are &mdash; so a copy has been prepared for every creditor and you choose. Sending one for a debt taken on after you started serving does not gain you anything and tells the lender you have not read the statute. Enclose a copy of your orders with each one you do send.</p></div></div>`
+          : ''}
         ${tmpl.id === 'idtheft_block' && !((state.ftcReportNumber || '').trim())
           ? `<div class="plan-divider-grid"><div><em>Do not mail this one yet</em><p>This letter is sworn under penalty of perjury and it runs on your FTC Identity Theft Report number. You have not entered one, so no number is printed and none was invented. File at IdentityTheft.gov first &mdash; it is free, it takes about fifteen minutes, and it issues the report immediately &mdash; then write the number onto this letter, or enter it and print again. Mailed without it, the four-business-day block under &sect; 605B does not start.</p></div></div>`
           : ''}
