@@ -157,3 +157,46 @@ The named reference sites are not competitors: IDIQ and SmartCredit are monitori
 | 37 | **CROA copy needs a lawyer's eye** | The referral section is written to stay outside 15 U.S.C. § 1679a(3) and `croa.js` gates the language, but implied purpose turns on marketing wording and is a facts-and-circumstances judgement. The free tool and the paid offer are read together. | **TODO — Dave's call.** Not a code change. | — |
 | 38 | **Plans counter has not moved from 5,025** | It should increment on reaching the letters step. Plans have been printed since it went live. Either the session flag suppressed it or the POST is not landing. | **TODO** — one browser check. | S |
 | 39 | **Monthly review task runs but writes nothing** | Fired 2026-09-01, ran 27 minutes, reported success, appended nothing. Created without folder access, so it cannot reach the file. A binding cannot be added after creation. Its prompt is also stale — names `mgc-orpin.vercel.app` and "764 KB / 10,100 lines"; the file is now 1.14 MB / ~16,700 lines. | **TODO** — delete and recreate with the MGC folder attached. | S |
+
+---
+
+## 2026-09-14 — bug fixes, harness rebuild, seven real reports
+
+**Fixed and live.**
+
+| Commit | What |
+|---|---|
+| `06b0984` | The packet said "nothing to dispute" above letters that disputed things. Cover page and findings list both decided "clean" from the accounts alone while the letters are built from accounts + factual contradictions + cross-bureau disagreements. Public records were missing from both tests. Three outcomes now, not two. Plan counter hardened: marks counted only on success, one retry, warns to console. |
+| `5e15d6c` | Harnesses rebuilt on real reports. Three SCRA letters were printing brackets — the one path no scenario had ever covered. Both creditor SCRA letters now fan out; the court motion keeps ruled blanks with the separator sheet saying why. |
+
+**The plan counter was never broken.** Vercel runtime logs: `/api/count` hit three times in seven days, all three mine. Not one browser GET, and that fires on every page load. The live site has had essentially no traffic. Count reads 5,026; the seed is 5,025 and one POST is a test of mine.
+
+**`/tmp` was cleared by a Mac restart** and took twelve harnesses, every splice script and all fixtures. `dev/` is in the repo now, `dev/fixtures/` gitignored, `dev/extract.cjs` regenerates fixtures from the client PDFs using the product's own pdf.js routine.
+
+### The extraction trap, recorded so nobody repeats it
+
+Fixtures extracted with pypdf made three reports fall to the low-confidence heuristic with zero collections and zero derogatory accounts. It looked exactly like a parser regression in `experian_printable`. It was the fixture — the product reconstructs lines from pdf.js y-coordinates and pypdf does not, so `Account info` never sat alone on a line. **A fixture extracted differently from the way the product extracts is a document the product will never see.**
+
+### What the seven reports gave us
+
+| Fixture | Format | Accounts | Inq | Coll | PubRec | Derog |
+|---|---|---|---|---|---|---|
+| michelle.txt | columnar_tri_merge | 32 | 12 | 3 | 0 | 11 |
+| smartcredit3.txt | columnar_tri_merge | 36 | 14 | 1 | 0 | 5 |
+| mg_experian.txt | experian_printable | 33 | 5 | 1 | 0 | 8 |
+| mg_equifax.txt | experian_printable | 32 | 5 | 1 | 0 | 10 |
+| mg_transunion.txt | experian_printable | 32 | 4 | 1 | 0 | 7 |
+| jose_santiago.txt | three_bureau | 16 | 18 | 10 | **1** | 2 |
+| gibson_james.txt | generic_heuristic | 4 | 0 | 0 | 0 | 1 |
+
+**Unblocked:** #28 — a collection carrying a late-payment grid now has four real instances across two formats. Public records are testable at last (`jose_santiago`), which partly opens #7.
+
+**Still blocked, and now known to be scarce:** #25 medical collection, #30 foreclosure / short sale / 1099-C, #13 public record in the *columnar* layout, #33 TransUnion OSC with an adverse account. None of the seven carries any of them.
+
+### New — open
+
+| # | Item | Why it matters | Status | Size |
+|---|---|---|---|---|
+| 40 | **Three single-bureau reports cannot be merged** | Michael Gibson uploaded Experian, Equifax and TransUnion as three separate files from the same day. Cross-bureau contradiction detection — the thing no competitor does — only works on a tri-merge where the report has already aligned the columns. Held as three files, the strongest feature is unavailable. | **TODO** — the highest-value feature left. | M |
+| 41 | **Creditor names do not match across bureaus** | On those three files exactly ONE creditor name matches exactly. FREEDOM MORTGAGE CORP / FREEDOM MORTGAGE / FREEDOM MTG; CREDIT ONE BANK NA / CREDIT ONE BANK / CREDITONEBNK; Equifax truncates at 20 characters. Loose matching finds twelve. Any merge in #40 needs fuzzy matching, and so does any future cross-file work. | **TODO** — blocks 40. | S |
+| 42 | **Seven harnesses still to rebuild** | `r2test`, `intake`, `breach`, `unique`, plus `regress`, `lawtest`, `angles`, `resolved`, `optout`, `aptest`, `check1` and the three browser harnesses. The behaviours are shipped and were verified when they landed; the standing gate against regression is missing. | **TODO** | M |
