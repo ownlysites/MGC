@@ -509,6 +509,11 @@ R.section('the sworn-letter warning says the three things and stops');
   R.check('it exists', block.length > 40, block.length + ' chars');
   R.check('it says we build from whatever they mark',
           /we build the letter from whatever you mark/i.test(block));
+  // Dave's call: it is not our oath to invoke and we enforce nothing. The
+  // § 1028 line carries the consequence; the posture goes. Source comments
+  // keep the phrase because they explain why these gates exist.
+  R.check('no user-facing copy invokes penalty of perjury',
+          !/penalty of perjury/i.test(html.replace(/\/\/[^\n]*/g, '')));
   R.check('and admits we cannot tell what is theirs',
           /cannot tell which accounts are really yours/i.test(block));
   R.check('it gives the mechanical reason, not just the moral one',

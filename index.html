@@ -2877,7 +2877,7 @@ section.section-tinted { padding: var(--space-20) 0; }
 
       <div>
         <h3>Identity theft warning</h3>
-        <p>Identity theft is a federal crime. Falsely claiming identity theft in order to remove accurate information from a credit report is also a federal crime, punishable by up to five years in prison under 18 U.S.C. §1028. The identity theft affidavit required for a §605B block is signed under penalty of perjury. Proceed with honesty.</p>
+        <p>Identity theft is a federal crime. Falsely claiming identity theft in order to remove accurate information from a credit report is also a federal crime, punishable by up to five years in prison under 18 U.S.C. §1028. A §605B block obtained by a material misrepresentation may be rescinded under 15 U.S.C. § 1681c-2(c), and every item put back.</p>
       </div>
     </div>
 
@@ -13380,7 +13380,7 @@ function applyIntakeBasedAnalysis(analysis) {
     analysis.warnings.push({
       severity: 'critical',
       title: 'Identity theft warning',
-      detail: 'Before proceeding with any §605B letter, you must file an Identity Theft Report at IdentityTheft.gov. Falsely claiming identity theft to remove accurate items is a federal crime (18 U.S.C. § 1028) punishable by up to 5 years in prison. The identity theft affidavit is sworn under penalty of perjury. Proceed with honesty.'
+      detail: 'Before proceeding with any §605B letter, you must file an Identity Theft Report at IdentityTheft.gov. Falsely claiming identity theft to remove accurate items is a federal crime (18 U.S.C. § 1028) punishable by up to 5 years in prison. A block obtained by a material misrepresentation may be rescinded under 15 U.S.C. § 1681c-2(c).'
     });
     analysis.wins.push({
       title: 'Security freezes — all 5 places',
@@ -16499,7 +16499,7 @@ function renderIdentityTheftWalkthrough() {
         
         <div class="alert alert-critical" style="margin:var(--space-6) 0;">
           <h4 style="color:var(--danger-dark);margin-bottom:var(--space-2);">⚠ This one is sworn</h4>
-          <p><strong>You sign this affidavit under penalty of perjury, and we build the letter from whatever you mark — we cannot tell which accounts are really yours.</strong> A block on an account you did open gets reversed under 15 U.S.C. § 1681c-2(c), and a false claim carries up to 5 years under 18 U.S.C. § 1028. Unsure about an item? Leave it off, or ask a consumer attorney — the <a href="https://www.consumeradvocates.org/findanattorney" target="_blank" rel="noopener">NACA directory</a> is free to search and most work on contingency.</p>
+          <p><strong>You sign an affidavit at IdentityTheft.gov, and we build the letter from whatever you mark — we cannot tell which accounts are really yours.</strong> A block on an account you did open gets reversed under 15 U.S.C. § 1681c-2(c), and a false claim carries up to 5 years under 18 U.S.C. § 1028. Unsure about an item? Leave it off, or ask a consumer attorney — the <a href="https://www.consumeradvocates.org/findanattorney" target="_blank" rel="noopener">NACA directory</a> is free to search and most work on contingency.</p>
         </div>
         
         <h3 style="margin-top:var(--space-8);">Step 1: File your report at IdentityTheft.gov</h3>
@@ -16559,7 +16559,7 @@ function renderIdentityTheftWalkthrough() {
           if (!never.length) {
             return `<div class="alert alert-critical" style="margin:var(--space-4) 0;">
               <h4 style="color:var(--danger-dark);margin-bottom:var(--space-2);">Your § 605B letter is not built yet — here is why</h4>
-              <p style="margin:0 0 var(--space-2);">This letter is sworn under penalty of perjury, so it is written only from accounts <strong>you</strong> have identified as not yours. Nothing here guesses at that from your report, because a sworn statement about an account you did open is the one mistake in this whole process you cannot take back.</p>
+              <p style="margin:0 0 var(--space-2);">This letter is a sworn statement, so it is written only from accounts <strong>you</strong> have identified as not yours. Nothing here guesses at that from your report, because a sworn statement about an account you did open is the one mistake in this whole process you cannot take back.</p>
               <p style="margin:0;">Go up to <strong>&ldquo;Check what&rsquo;s actually yours&rdquo;</strong> and mark every fraudulent account <em>Never mine</em>. The letter appears the moment you do, naming exactly those accounts. <button type="button" class="btn btn-sm btn-primary" style="margin-left:var(--space-2);" onclick="goToItemReview()">Take me there</button></p>
             </div>`;
           }
@@ -17566,7 +17566,7 @@ function buildActionPlanDoc() {
           ? `<div class="plan-divider-grid"><div><em>Only send this for debts you had BEFORE you went on active duty</em><p>The 6% cap under 50 U.S.C. &sect; 3937 applies to obligations incurred before your active service began, and nothing on a credit report says which of yours those are &mdash; so a copy has been prepared for every creditor and you choose. Sending one for a debt taken on after you started serving does not gain you anything and tells the lender you have not read the statute. Enclose a copy of your orders with each one you do send.</p></div></div>`
           : ''}
         ${tmpl.id === 'idtheft_block' && !((state.ftcReportNumber || '').trim())
-          ? `<div class="plan-divider-grid"><div><em>Do not mail this one yet</em><p>This letter is sworn under penalty of perjury and it runs on your FTC Identity Theft Report number. You have not entered one, so no number is printed and none was invented. File at IdentityTheft.gov first &mdash; it is free, it takes about fifteen minutes, and it issues the report immediately &mdash; then write the number onto this letter, or enter it and print again. Mailed without it, the four-business-day block under &sect; 605B does not start.</p></div></div>`
+          ? `<div class="plan-divider-grid"><div><em>Do not mail this one yet</em><p>This letter is a sworn statement and it runs on your FTC Identity Theft Report number. You have not entered one, so no number is printed and none was invented. File at IdentityTheft.gov first &mdash; it is free, it takes about fifteen minutes, and it issues the report immediately &mdash; then write the number onto this letter, or enter it and print again. Mailed without it, the four-business-day block under &sect; 605B does not start.</p></div></div>`
           : ''}
         ${(function(){
           // A bureau letter that carries no identity line is one the person has
@@ -17633,7 +17633,7 @@ function buildActionPlanDoc() {
       <div class="plan-rule plan-rule-check mt">
         <b>You chose these answers. We did not choose them for you.</b>
         <p>Making Good Choices asked one plain question per item and recorded the button you pressed. Nothing on this page was assumed, inferred or filled in on your behalf, and no letter accusing a company of anything was written from any item you did not mark yourself.</p>
-        <p>If any answer above is wrong, it is wrong in the letters too. Change it in the tool and print again before you send anything. An identity theft report is sworn under penalty of perjury &mdash; 18 U.S.C. &sect; 1028 makes a false one a federal crime, and under FCRA &sect; 605B a bureau may rescind a block obtained by a material misrepresentation and put every item back. Only say an item is not yours if it is not yours.</p>
+        <p>If any answer above is wrong, it is wrong in the letters too. Change it in the tool and print again before you send anything. 18 U.S.C. &sect; 1028 makes a false identity theft report a federal crime, and under FCRA &sect; 605B a bureau may rescind a block obtained by a material misrepresentation and put every item back. Only say an item is not yours if it is not yours.</p>
       </div>
     </section>`;
   })();
