@@ -492,6 +492,34 @@ R.section('no report-fed letter has a bracket waiting behind a missing field');
   });
 })();
 
+// The identity-theft path had four places telling someone to be careful. Three
+// of them are operational — the item review, the separator sheet, and Step 5
+// each tell you what to do next. This one is the only pure warning, and it is
+// meant to stay short: one disclosure, one consequence, one way out.
+R.section('the sworn-letter warning says the three things and stops');
+(function () {
+  const wApi = H.load(['renderIdentityTheftWalkthrough']);
+  const st = H.session(wApi, {situation: 'idtheft', special_flags: ['identity_theft']});
+  st.upload = {parsed: wApi.parseCreditReport(H.fixture('michelle.txt'))};
+  wApi.runAnalysis();
+  const html = String(wApi.renderIdentityTheftWalkthrough() || '');
+  const txt = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
+  const block = txt.slice(txt.indexOf('This one is sworn'), txt.indexOf('Step 1:'));
+
+  R.check('it exists', block.length > 40, block.length + ' chars');
+  R.check('it says we build from whatever they mark',
+          /we build the letter from whatever you mark/i.test(block));
+  R.check('and admits we cannot tell what is theirs',
+          /cannot tell which accounts are really yours/i.test(block));
+  R.check('it gives the mechanical reason, not just the moral one',
+          /1681c-2\(c\)/.test(block));
+  R.check('it names the consequence once', (block.match(/1028/g) || []).length === 1);
+  R.check('it offers a person to ask', /consumeradvocates\.org/.test(html));
+  // Short. A warning nobody finishes reading protects nobody.
+  const words = block.trim().split(/\s+/).length;
+  R.check('and stays under 90 words', words <= 90, words + ' words');
+})();
+
 R.section('the item review prints money once');
 (function () {
   const revApi = H.load(['renderItemReview']);
