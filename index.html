@@ -4432,6 +4432,140 @@ function acctKey(a) {
   return n.length >= 4 ? n : null;
 }
 
+// ========== MATCHING THE SAME ACCOUNT ACROSS THREE REPORTS ==========
+// Somebody who pulls Experian, Equifax and TransUnion separately has three
+// files describing one credit file, and merging them is the only way they get
+// the strongest dispute there is: a contradiction on the face of their own
+// report. Until now the merge matched on the account number alone and dropped
+// the per-bureau field map, so on a real set — Michael Gibson's three reports
+// from one day — it merged 97 accounts down to 51, matched 23 across bureaus,
+// and found exactly zero contradictions. The feature was silently dead.
+//
+// Matching on the name is unavoidable, because the bureaus mask account numbers
+// differently, and it is genuinely hard because they do not agree on names:
+//
+//     FREEDOM MORTGAGE CORP  /  FREEDOM MORTGAGE  /  FREEDOM MTG
+//     CREDIT ONE BANK NA     /  CREDIT ONE BANK   /  CREDITONEBNK
+//     GM FINANCIAL           /  GMFNANCIAL        /  GM FINANCIAL
+//
+// Equifax also truncates at twenty characters. On that set exactly ONE name
+// matches exactly across all three.
+//
+// The danger runs the other way too. A wrong pairing does not produce a missing
+// dispute, it produces an INVENTED one — a letter telling a bureau that two of
+// them disagree about an account when they are describing different accounts.
+// That is worse than not merging at all. So the rule is: merge only when
+// confident, and when two accounts cannot be told apart, leave them separate.
+function mgcCredNorm(s) {
+  return String(s == null ? '' : s).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+// Bounded edit distance. Stops as soon as it exceeds the cap, so it stays cheap.
+function mgcEdit(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  let prev = [];
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > cap) return cap + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+function credSimilar(an, bn) {
+  const x = mgcCredNorm(an), y = mgcCredNorm(bn);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const short = Math.min(x.length, y.length);
+  if (short < 4) return false;
+  // Truncation: Equifax cuts the name off, so one is the start of the other.
+  if (x.slice(0, short) === y.slice(0, short)) return true;
+  if (x.indexOf(y) >= 0 || y.indexOf(x) >= 0) return true;
+  // A typo or a dropped letter — GMFNANCIAL against GMFINANCIAL.
+  if (Math.abs(x.length - y.length) <= 3 && mgcEdit(x, y, 2) <= 2) return true;
+  // A shared opening long enough not to be a coincidence — CREDITONEB.
+  let i = 0;
+  while (i < short && x[i] === y[i]) i++;
+  return i >= 7;
+}
+
+// true  — the numbers agree
+// false — the numbers disagree, so these are different accounts
+// null  — one or both are unusable, so the number decides nothing
+function acctNumAgrees(a, b) {
+  const x = String(a.account_number || '').replace(/[^0-9]/g, '');
+  const y = String(b.account_number || '').replace(/[^0-9]/g, '');
+  if (x.length < 4 || y.length < 4) return null;
+  if (x.slice(-4) === y.slice(-4)) return true;
+  if (x.slice(0, 4) === y.slice(0, 4)) return true;
+  return false;
+}
+
+// findContradictions compares a three-slot array aligned to TB_BUREAU_COLS,
+// which is how a tri-merge report arrives. Three separate single-bureau files
+// have to be assembled into the same shape or the comparison has nothing to
+// compare — which is exactly why merging three real reports used to produce
+// zero contradictions while the person was holding the evidence for them.
+//
+// The status written here is the one the bureau actually reported. Where a
+// report gives no status but the account is plainly derogatory, the derogatory
+// fact is used instead of leaving the slot empty, because an empty slot reads
+// as "this bureau does not have this account" and that is a different claim.
+function setPerBureauStatus(target, bureau, src) {
+  const i = TB_BUREAU_COLS.indexOf(bureau);
+  if (i < 0) return;
+  if (!Array.isArray(target.per_bureau_status)) {
+    target.per_bureau_status = [null, null, null];
+  }
+  // A dash, "n/a" or an empty cell means this bureau did not report a status —
+  // not that it reported the account as fine. Treating absence as a clean
+  // status manufactures a contradiction out of a bureau that simply does not
+  // have the account, which is the one mistake that turns this feature from an
+  // advantage into a letter that is wrong.
+  let v = src.status || null;
+  if (v && /^[\s\-\u2013\u2014.]*$|^n\/?a$|^none$|^not reported$/i.test(String(v).trim())) v = null;
+  if (!v) {
+    if (src.is_collection) v = 'Collection';
+    else if (src.is_charge_off) v = 'Charge off';
+    else if (src.is_repossession) v = 'Repossession';
+    else if (src.has_late_payments) v = 'Late';
+    else if (src.open_closed) v = src.open_closed;
+  }
+  if (v) target.per_bureau_status[i] = String(v).trim();
+}
+
+// The shape findFactualInconsistencies and findContradictions actually read.
+// A single-bureau account carries these as flat fields; this is the same values
+// filed under the bureau that reported them, which is what makes a disagreement
+// between two of them visible at all.
+function perBureauFieldsFrom(a, bureau) {
+  if (!bureau) return null;
+  const f = {};
+  const put = (k, v) => { if (v !== null && v !== undefined && v !== '') f[k] = v; };
+  put('account_status',    a.open_closed || a.status);
+  put('account_rating',    a.status);
+  put('payment_status',    a.status);
+  put('creditor_remarks',  Array.isArray(a.comments) ? a.comments.join(' ') : a.comments);
+  put('payment_amount',    a.monthly_payment);
+  put('balance_owed',      a.balance);
+  put('high_balance',      a.high_balance || a.high_credit);
+  put('credit_limit',      a.credit_limit);
+  put('past_due',          a.past_due);
+  put('date_opened',       a.date_opened);
+  put('date_last_activity', a.date_last_activity);
+  put('date_last_paid',    a.date_last_payment);
+  put('dofd',              a.dofd);
+  const out = {};
+  out[bureau] = f;
+  return out;
+}
+
 function mergeParsedReports(parts) {
   if (parts.length === 1) return parts[0];
 
@@ -4449,8 +4583,22 @@ function mergeParsedReports(parts) {
 
     (p.accounts || []).forEach(a => {
       const k = acctKey(a);
-      if (k && byKey[k]) {
-        const t = byKey[k];
+      // Exact account-number hit first, then a confident name match. findMate
+      // returns nothing when two candidates cannot be told apart, which leaves
+      // the account separate rather than guessing which one it is.
+      let mate = (k && byKey[k]) ? byKey[k] : null;
+      if (!mate) {
+        const cands = merged.accounts.filter(t =>
+          credSimilar(t.creditor, a.creditor) &&
+          (t.reported_by || []).indexOf(bureau) < 0 &&   // never merge within one bureau
+          acctNumAgrees(t, a) !== false);
+        const numbered = cands.filter(t => acctNumAgrees(t, a) === true);
+        if (numbered.length === 1) mate = numbered[0];
+        else if (numbered.length === 0 && cands.length === 1) mate = cands[0];
+        // more than one candidate and nothing to separate them: leave it alone
+      }
+      if (mate) {
+        const t = mate;
         (a.reported_by || []).forEach(b => { if (t.reported_by.indexOf(b) === -1) t.reported_by.push(b); });
         // Keep the worst case across bureaus — a derogatory at one bureau is
         // real even when another reports the account clean.
@@ -4464,11 +4612,29 @@ function mergeParsedReports(parts) {
         });
         (a.comments || []).forEach(c => { if (t.comments.indexOf(c) === -1) t.comments.push(c); });
         if (bureau) t.per_bureau = (t.per_bureau || []).concat([{bureau: bureau, status: a.status, balance: a.balance}]);
+        // The whole point of merging. Without this the contradiction detectors
+        // get one bureau's worth of fields and find nothing to compare.
+        if (bureau) {
+          const pf = perBureauFieldsFrom(a, bureau);
+          if (pf) { t.per_bureau_fields = t.per_bureau_fields || {}; t.per_bureau_fields[bureau] = pf[bureau]; }
+          setPerBureauStatus(t, bureau, a);
+        }
+        // Keep every name the bureaus used. The letters name one account that
+        // three companies spell three ways, and the person has to recognise it.
+        const anAlias = String(a.creditor || '').trim();
+        if (anAlias && anAlias !== t.creditor) {
+          t.creditor_aliases = t.creditor_aliases || [];
+          if (t.creditor_aliases.indexOf(anAlias) < 0) t.creditor_aliases.push(anAlias);
+        }
       } else {
         const copy = JSON.parse(JSON.stringify(a));
         copy.reported_by = (a.reported_by || []).slice();
         copy.comments = (a.comments || []).slice();
         copy.per_bureau = bureau ? [{bureau: bureau, status: a.status, balance: a.balance}] : [];
+        const pf0 = perBureauFieldsFrom(a, bureau);
+        copy.per_bureau_fields = pf0 || a.per_bureau_fields || null;
+        if (bureau) setPerBureauStatus(copy, bureau, a);
+        if (bureau && copy.reported_by.indexOf(bureau) < 0) copy.reported_by.push(bureau);
         merged.accounts.push(copy);
         if (k) byKey[k] = copy;
       }
@@ -10662,12 +10828,62 @@ function r2LiveItemCount(analysis) {
 const TB_CLEAN_WORDS = ['pays as agreed', 'current', 'paid'];
 const TB_NEUTRAL_WORDS = ['closed', 'open', 'former', 'no data available', 'too new to rate'];
 
+// Exact membership was too brittle to do its job. The three bureaus write the
+// same fact a dozen ways — "Pays account as agreed", "Open/Never late.", "Paid
+// or paying as agreed" are all one status and none of them was in the list, so
+// every one classified as null and the cross-bureau comparison silently had
+// nothing to compare. On Michael Gibson's three reports that meant 27 accounts
+// carrying a status from every bureau and zero contradictions found.
+//
+// Still deliberately conservative, because the answer ends up in a letter. An
+// unrecognised status returns null and is ignored rather than guessed at, and
+// "closed" is a state rather than a payment claim — Closed-versus-Late is not
+// treated as a disagreement, because an account really can be closed and have
+// had a late payment.
+// How bad, on one coarse scale, regardless of wording. Ranking by the raw
+// string made three bureaus that all said "collection" look like a
+// disagreement — "Collection", "Collection account. $3,927" and "Collection
+// account" are three spellings of one fact, and the tool generated a letter
+// telling the bureaus they disagreed about how far behind the account went.
+// That is a false statement in an envelope, which is worse than a missed
+// dispute. Compare the category.
+function statusSeverity(v) {
+  const k = String(v || '').toLowerCase().trim();
+  if (!k) return null;
+  if (/charge[\s-]?off|charged off|profit and loss|write[\s-]?off/.test(k)) return 9;
+  if (/collection/.test(k)) return 9;
+  if (/repossess|foreclos|deed in lieu|short sale/.test(k)) return 9;
+  if (/bankrupt/.test(k)) return 9;
+  if (/settled for less|paid settle|settlement accepted/.test(k)) return 8;
+  if (/\b(120|150|180)\b/.test(k)) return 6;
+  if (/\b90\b/.test(k)) return 5;
+  if (/\b60\b/.test(k)) return 4;
+  if (/\b30\b/.test(k)) return 3;
+  if (/past due|delinquen|late\b/.test(k) && !/never late|not late|no late/.test(k)) return 2;
+  return 0;
+}
+
 function statusClass(v) {
-  const k = String(v || '').toLowerCase();
+  const k = String(v || '').toLowerCase().trim();
   if (!k) return null;
   if (TB_CLEAN_WORDS.includes(k)) return 'clean';
   if (TB_NEUTRAL_WORDS.includes(k)) return 'neutral';
-  return (TB_STATUS_RANK[k] !== undefined && TB_STATUS_RANK[k] >= 2) ? 'derogatory' : null;
+
+  // Derogatory wins wherever it appears: "Paid, was a charge-off" is derogatory.
+  if (/charge[\s-]?off|charged off|collection|repossess|foreclos|deed in lieu|short sale|bankrupt|settled for less|paid settle|default(ed)?\b|profit and loss|write[\s-]?off/.test(k)) return 'derogatory';
+  if (/\b(30|60|90|120|150|180)\b\s*(days?|d)?\s*(late|past due)/.test(k)) return 'derogatory';
+  if (/past due|delinquen|late\b/.test(k) && !/never late|not late|no late/.test(k)) return 'derogatory';
+
+  // Clean: an explicit statement that it is being paid, or was never late.
+  if (/never late|not late|no late/.test(k)) return 'clean';
+  if (/pays?\b.{0,16}as agreed|paying as agreed|paid or paying|as agreed|current|in good standing|paid on time/.test(k)) return 'clean';
+  if (/^paid\b/.test(k) && !/charge|collection|settle/.test(k)) return 'clean';
+
+  // A state rather than a payment claim.
+  if (/^(open|closed|former|transferred|re.?financed|no data|too new|unrated)/.test(k)) return 'neutral';
+
+  const ranked = TB_STATUS_RANK[k];
+  return (ranked !== undefined && ranked >= 2) ? 'derogatory' : null;
 }
 
 const TB_BUREAU_COLS = ['Equifax', 'Experian', 'TransUnion'];
@@ -10778,6 +10994,28 @@ function fiMismatch(acc, field, reason, label, isDate) {
     detail: names.map(b => b + ' reports ' + vals[b]).join('; ') + '.',
     bureaus: names
   };
+}
+
+// One row per account per rule. The per-bureau loop below is right — each
+// bureau really is reporting the defect — but three identical lines in a letter
+// about one account reads as padding, and the bureaus belong on one line.
+function dedupeFactual(list) {
+  const byKey = {};
+  const out = [];
+  (list || []).forEach(f => {
+    const k = String(f.creditor || '').toUpperCase() + '|' + f.rule;
+    if (byKey[k]) {
+      (f.bureaus || []).forEach(b => {
+        if (byKey[k].bureaus.indexOf(b) < 0) byKey[k].bureaus.push(b);
+      });
+      return;
+    }
+    const copy = Object.assign({}, f);
+    copy.bureaus = (f.bureaus || []).slice();
+    byKey[k] = copy;
+    out.push(copy);
+  });
+  return out;
 }
 
 function findFactualInconsistencies(parsed) {
@@ -11040,8 +11278,11 @@ function findContradictions(parsed) {
       // not imply, so this one does count.
       kind = 'neutral_vs_serious';
     } else {
-      const ranks = derog.map(e => e.rank).filter((v, i, arr) => arr.indexOf(v) === i);
-      if (ranks.length > 1) kind = 'severity_mismatch';
+      // Compare the category, not the sentence. Three bureaus all reporting a
+      // collection agree with each other however differently they word it.
+      const sev = derog.map(e => statusSeverity(e.status)).filter(v => v !== null);
+      const distinct = sev.filter((v, i, arr) => arr.indexOf(v) === i);
+      if (distinct.length > 1) kind = 'severity_mismatch';
     }
     if (!kind) return;
 
@@ -11755,7 +11996,7 @@ function analyzeReport(parsed, analysis) {
 
   // Field-level contradictions the report makes impossible. Computed before
   // anything else so the priority ranking and the letters can both use them.
-  analysis.factual = findFactualInconsistencies(parsed);
+  analysis.factual = dedupeFactual(findFactualInconsistencies(parsed));
 
   // The same findings regrouped by account and deduplicated by which field they
   // are about. This is what makes a second letter a new dispute rather than a

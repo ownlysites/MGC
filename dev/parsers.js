@@ -20,7 +20,7 @@ if (!H.haveFixtures()) {
   process.exit(2);
 }
 
-const api = H.load(['isExperianPrintable', 'expBureau', 'tuIsOnlineServiceCenter']);
+const api = H.load(['isExperianPrintable', 'expBureau', 'tuIsOnlineServiceCenter', 'mergeParsedReports', 'findContradictions', 'findFactualInconsistencies', 'dedupeFactual', 'statusClass', 'statusSeverity']);
 
 const EXPECT = [
   {file: 'michelle.txt',      format: 'columnar_tri_merge', accounts: [28, 36], inquiries: [8, 20],
@@ -116,5 +116,69 @@ if (mgFiles.length === 3) {
           parsed.every(p => (p.bureaus || [p.bureau]).filter(Boolean).length === 1),
           parsed.map(p => (p.bureaus || [p.bureau]).join('/')).join('  |  '));
 }
+
+// ---- three single-bureau files merged into one file ----
+// The upload box has always promised "pick all three single-bureau PDFs at
+// once — we'll combine them". It did combine them, and then dropped the
+// per-bureau field maps, so the cross-bureau comparison had nothing to compare
+// and the strongest dispute the tool can find was unreachable for anybody
+// holding three separate reports. On this real set it produced zero findings.
+R.section('three single-bureau reports merged');
+if (mgFiles.length === 3) {
+  const parts = mgFiles.map(t => api.parseCreditReport(t));
+  const merged = api.mergeParsedReports(parts);
+  const loose = merged.accounts.filter(a => (a.reported_by || []).length > 1);
+  const withFields = merged.accounts.filter(a =>
+    a.per_bureau_fields && Object.keys(a.per_bureau_fields).length > 1);
+  const withStatus = merged.accounts.filter(a =>
+    Array.isArray(a.per_bureau_status) && a.per_bureau_status.filter(Boolean).length > 1);
+
+  R.check('the merge fires', merged.format === 'merged_single_bureau', merged.format);
+  R.check('all three bureaus are named', (merged.bureaus || []).length === 3, (merged.bureaus || []).join(', '));
+  R.check('duplicates collapse', merged.accounts.length < parts.reduce((n, p) => n + p.accounts.length, 0),
+          merged.accounts.length + ' from ' + parts.reduce((n, p) => n + p.accounts.length, 0));
+  R.check('accounts are cross-referenced', loose.length >= 15, loose.length + ' seen by more than one bureau');
+  R.check('per-bureau FIELDS survive the merge', withFields.length >= 15,
+          withFields.length + ' carry more than one bureau of fields');
+  R.check('per-bureau STATUS survives the merge', withStatus.length >= 15,
+          withStatus.length + ' carry more than one bureau status');
+
+  // The payoff, and the only reason any of the above matters.
+  const mergedFx = api.dedupeFactual ? api.dedupeFactual(api.findFactualInconsistencies(merged))
+                                     : api.findFactualInconsistencies(merged);
+  const aloneFx = parts.reduce((n, p) => n + (api.findFactualInconsistencies(p) || []).length, 0);
+  R.check('merging finds what no single report shows',
+          (mergedFx || []).length > aloneFx,
+          (mergedFx || []).length + ' merged vs ' + aloneFx + ' across all three separately');
+
+  // And the thing that must NOT happen: a disagreement invented out of wording.
+  const contra = api.findContradictions(merged) || [];
+  const bogus = contra.filter(c => {
+    const a = merged.accounts.find(z => z.creditor === c.creditor) || {};
+    const sev = (a.per_bureau_status || []).filter(Boolean)
+      .map(v => api.statusSeverity ? api.statusSeverity(v) : null)
+      .filter(v => v !== null);
+    return sev.length > 1 && sev.every(v => v === sev[0]);   // all the same severity
+  });
+  R.check('no contradiction is invented from wording alone', bogus.length === 0,
+          bogus.map(b => b.creditor).join(', ') || 'clean');
+}
+
+R.section('severity is compared by category, not by sentence');
+['Collection', 'Collection account. $3,927', 'Collection account'].forEach(v => {
+  R.check('"' + v + '" is severity 9', api.statusSeverity && api.statusSeverity(v) === 9,
+          String(api.statusSeverity && api.statusSeverity(v)));
+});
+[['Pays account as agreed', 'clean'], ['Open/Never late.', 'clean'],
+ ['Paid or paying as agreed', 'clean'], ['Charged off as bad debt', 'derogatory'],
+ ['90 days past due', 'derogatory'], ['Closed', 'neutral']].forEach(([v, want]) => {
+  R.check('"' + v + '" classifies as ' + want, api.statusClass && api.statusClass(v) === want,
+          String(api.statusClass && api.statusClass(v)));
+});
+// Absence is not a clean status.
+['-', '--', 'N/A', '', '   '].forEach(v => {
+  R.check('"' + v + '" is not treated as a status', !api.statusClass || api.statusClass(v) === null,
+          String(api.statusClass && api.statusClass(v)));
+});
 
 R.done();
