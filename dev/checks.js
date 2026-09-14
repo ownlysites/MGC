@@ -360,6 +360,24 @@ R.section('the § 605B block letter, for someone who really is a victim');
   const walk2 = String(idtApi.renderIdentityTheftWalkthrough() || '');
   R.check('and Step 5 now confirms what it was built from',
           /Built from what you marked/i.test(walk2));
+
+  // Both found by driving the live page, neither visible to a harness that
+  // renders the walkthrough on its own.
+  //
+  // 1. The "Take me there" button scrolled to #item-review — which is on the
+  //    ANALYSIS step, while the walkthrough renders on the LETTERS step. The
+  //    element is display:none at that moment and scrollIntoView on a hidden
+  //    element does nothing. The button was dead.
+  R.check('the review button changes step rather than scrolling to a hidden node',
+          /goToItemReview\(\)/.test(walk1) && /function goToItemReview/.test(idtApi.SRC));
+  R.check('and goToItemReview shows the analysis step first',
+          /function goToItemReview[\s\S]{0,220}showStep\('analysis'\)/.test(idtApi.SRC));
+
+  // 2. The enclosure line said "mail the § 605B Block letter we've generated
+  //    (above)" directly beneath a red block saying the letter is not built.
+  R.check('the enclosure line does not promise a letter that is not built',
+          !/mail the § 605B Block letter/i.test(walk1));
+  R.check('and does say to mail it once it is', /Mail the § 605B Block letter above/i.test(walk2));
 })();
 
 R.done();
