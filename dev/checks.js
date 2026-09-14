@@ -380,4 +380,25 @@ R.section('the § 605B block letter, for someone who really is a victim');
   R.check('and does say to mail it once it is', /Mail the § 605B Block letter above/i.test(walk2));
 })();
 
+// Also found on screen and not in any assertion: the review printed
+// "balance $$1,412". acc.balance is a number from the columnar parser and a
+// string like "$1,412" from the three-bureau one, and toLocaleString() on a
+// string returns the string, so prefixing "$" doubled it on every three-bureau
+// report — on the one screen where someone decides whether an account is
+// theirs.
+R.section('the item review prints money once');
+(function () {
+  const revApi = H.load(['renderItemReview']);
+  ['jose_santiago.txt', 'michelle.txt', 'smartcredit3.txt', 'mg_experian.txt'].forEach(f => {
+    const text = H.fixture(f);
+    if (!text) { R.check(f + ' present', false, 'missing'); return; }
+    const st = H.session(revApi, {});
+    st.upload = {parsed: revApi.parseCreditReport(text)};
+    revApi.runAnalysis();
+    const html = String(revApi.renderItemReview() || '');
+    const doubled = (html.match(/\$\$/g) || []).length;
+    R.check(f + ' — no doubled dollar sign', doubled === 0, doubled + ' found');
+  });
+})();
+
 R.done();

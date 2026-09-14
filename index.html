@@ -15556,6 +15556,17 @@ function renderItemReview() {
     .filter(p => showAll || reviewWorthAsking(p.acc) || state.itemReview.accounts[accountKey(p.acc, p.i)]);
   const acctHidden = accts.length - acctPairs.length;
 
+  // One money formatter for whatever the parsers hand over: a number, a string
+  // that already carries its own "$", or something unreadable, which is printed
+  // as it came rather than mangled into a figure.
+  function reviewMoney(v) {
+    if (typeof v === 'number' && isFinite(v)) return '$' + v.toLocaleString();
+    const raw = String(v).trim();
+    const n = parseFloat(raw.replace(/[$,]/g, ''));
+    if (!isFinite(n)) return raw;
+    return '$' + n.toLocaleString(undefined, {maximumFractionDigits: 2});
+  }
+
   const acctRows = acctPairs.map(function (pair) {
     const acc = pair.acc, i = pair.i;
     const key = accountKey(acc, i);
@@ -15563,8 +15574,13 @@ function renderItemReview() {
     const uncertain = acc.creditor_uncertain
       ? `<span class="review-flag review-flag-check">check this name</span>`
       : '';
+    // acc.balance is a number out of the columnar parser and a string like
+    // "$1,412" out of the three-bureau one. Prefixing "$" to both printed
+    // "balance $$1,412" on every three-bureau report — which is most of them —
+    // on the one screen where the person is deciding whether an account is
+    // theirs. toLocaleString() on a string returns the string, so it hid.
     const sub = [acc.account_number, acc.date_opened ? 'opened ' + acc.date_opened : null,
-                 acc.balance != null ? 'balance $' + acc.balance.toLocaleString() : null]
+                 acc.balance != null ? 'balance ' + reviewMoney(acc.balance) : null]
                 .filter(Boolean).join(' · ');
     const k = key.replace(/'/g, "\\'");
 
