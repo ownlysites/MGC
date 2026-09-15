@@ -525,6 +525,53 @@ R.section('the sworn-letter warning says the three things and stops');
   R.check('and stays under 90 words', words <= 90, words + ' words');
 })();
 
+// A download link that 404s is worse than no link: it is a promise of a free
+// thing that does not arrive, on a page whose whole argument is that it is
+// free and honest. Every guide named in the code must be a real file in the
+// repo, and every file in the repo must be named in the code.
+R.section('every field guide link points at a file that exists');
+(function () {
+  const path = require('path');
+  const fsx = require('fs');
+  const gApi = H.load(['MGC_GUIDES', 'renderGuidesSection', 'guideLink', 'GUIDE_FOR_FINDING']);
+  const guides = gApi.MGC_GUIDES || [];
+  const dir = path.join(__dirname, '..', 'guides');
+
+  R.check('six guides are declared', guides.length === 6, guides.length + '');
+  R.check('the guides folder exists', fsx.existsSync(dir), dir);
+  if (!fsx.existsSync(dir)) return;
+
+  const onDisk = fsx.readdirSync(dir).filter(f => f.endsWith('.pdf'));
+  guides.forEach(g => {
+    const p = path.join(dir, g.file);
+    const there = fsx.existsSync(p);
+    R.check(g.n + ' — ' + g.file, there,
+            there ? (fsx.statSync(p).size / 1048576).toFixed(1) + ' MB' : 'MISSING');
+  });
+  const orphans = onDisk.filter(f => !guides.some(g => g.file === f));
+  R.check('no PDF in the folder is unlinked', orphans.length === 0, orphans.join(', '));
+
+  // The links themselves.
+  const sec = String(gApi.renderGuidesSection() || '');
+  R.check('the section links all six', (sec.match(/href="\/guides\//g) || []).length === 6);
+  R.check('and every link is a download', (sec.match(/download/g) || []).length === 6);
+  R.check('the privacy line is on the section',
+          /never leaves your browser/i.test(sec.replace(/<[^>]+>/g, ' ')));
+
+  // Every finding type mapped to a guide must name a guide that exists.
+  const mapped = Object.values(gApi.GUIDE_FOR_FINDING || {});
+  R.check('every mapped finding points at a real volume',
+          mapped.every(n => guides.some(g => g.n === n)), mapped.join(','));
+
+  // And the contextual link renders for a real report.
+  const st = H.session(gApi, {});
+  st.upload = {parsed: gApi.parseCreditReport(H.fixture('michelle.txt'))};
+  gApi.runAnalysis();
+  const types = (st.analysis.findings || []).map(f => f.type);
+  const hit = types.find(t => gApi.GUIDE_FOR_FINDING[t]);
+  R.check('a real report reaches at least one contextual guide', !!hit, hit || 'none matched');
+})();
+
 R.section('the item review prints money once');
 (function () {
   const revApi = H.load(['renderItemReview']);
