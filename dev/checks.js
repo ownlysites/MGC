@@ -563,6 +563,24 @@ R.section('every field guide link points at a file that exists');
   R.check('every mapped finding points at a real volume',
           mapped.every(n => guides.some(g => g.n === n)), mapped.join(','));
 
+  // The footer column is static markup — a footer that depends on script
+  // timing is a footer that is sometimes empty — so it is the one place the
+  // filenames are written twice. This is the check that keeps the two in step.
+  const src = gApi.SRC;
+  const footer = (src.match(/<h5>Free field guides<\/h5>[\s\S]{0,2000}?<\/ul>/) || [''])[0];
+  R.check('the footer has a guides column', footer.length > 0);
+  const footerHrefs = [...footer.matchAll(/href="\/guides\/([^"]+)"/g)].map(m => m[1]);
+  R.check('it links all six', footerHrefs.length === 6, footerHrefs.length + '');
+  R.check('and every href is a guide that exists',
+          footerHrefs.every(f => guides.some(g => g.file === f)),
+          footerHrefs.filter(f => !guides.some(g => g.file === f)).join(', '));
+  R.check('and no guide is missing from the footer',
+          guides.every(g => footerHrefs.indexOf(g.file) >= 0),
+          guides.filter(g => footerHrefs.indexOf(g.file) < 0).map(g => g.n).join(', '));
+  R.check('every footer link downloads rather than navigating',
+          (footer.match(/download/g) || []).length === 6);
+  R.check('the footer says no email is asked for', /no email asked for/i.test(footer));
+
   // And the contextual link renders for a real report.
   const st = H.session(gApi, {});
   st.upload = {parsed: gApi.parseCreditReport(H.fixture('michelle.txt'))};
