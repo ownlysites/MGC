@@ -98,8 +98,9 @@ reported-as-deceased.
 posture rests on being free and self-guided (`compliance.js` gates it), and
 that is unaffected — but assisting clients **for a fee** for the express
 purpose of improving a credit record puts the *assister* in scope of
-15 U.S.C. § 1679a(3)(A) whatever the tool is. A question for McCarthy about how
-the referral is structured, raised 2026-09-23.
+15 U.S.C. § 1679a(3)(A) whatever the tool is. Raised 2026-09-23 and **closed
+the same day**: Dave confirmed the firm knows his fee structure. Settled — do
+not raise it again.
 
 ## Known gaps we are choosing to live with
 
