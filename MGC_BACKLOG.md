@@ -60,6 +60,47 @@ None of these blocks the shipped feature — the tool prints the period and name
 | 6 | All 50 states plus DC | pending | Was 10 states. Every jurisdiction now carries SOL, collection statute, credit-reporting statute, garnishment and medical-debt data. 16 states flagged `sol_contested` where the credit-card period is genuinely unsettled — the tool stores the period a court is most likely to apply, not the friendliest reading, and says on screen that it is unsettled. Stars removed from the dropdown: they marked "we have law here", which is now every state. |
 | 5 | Statute of limitations crossed against the debts | `31f57aa` | Measured from derived DOFD → stated DOFD → date of last activity (which the tri-merge parser was not capturing at all). Leads with the reporting-clock-vs-suing-clock distinction and the revival warning. |
 
+## 2026-09-23 — reviewed against McCarthy Law's Dispute Letter Guide (June 2021)
+
+A consumer-FCRA firm's **litigation intake standard** — what a letter needs to
+survive as evidence, not how to win a deletion. Reviewed; **nothing in the
+product was changed**, one gate was added.
+
+**Already passing, now locked.** Their tone rule is the only item with real
+cost to a client: a letter that vents "cannot be used in a litigation" and the
+whole dispute has to be re-sent. All four voices clear it, including
+`frustrated` — 46 templates, 193 copies, zero hits. `dev/litigation.js` gates
+it permanently and matches CONSTRUCTIONS, not words, so reciting § 1681n stays
+legal (three such sentences pinned as negative cases).
+
+**Deliberate disagreement — full SSN.** They require it on a litigation-ready
+letter. We print last four. Dave's call, 2026-09-23: leave it, let the firm
+handle their own intake. The reasoning stands: the packet is printed and
+mailed by the consumer, nobody screens it, and a full SSN in a printed stack
+or a re-sent PDF is exposure they cannot undo. Anyone taking a file to a firm
+writes it on by hand.
+
+**Their 12 errors vs us.** Covered: paid/settled balance (with their same
+paid / settled-with-furnisher / settled-with-agent split), debt buyer + OC both
+reporting (= `double_jeopardy_balance`), unknown account, BK discharge,
+obsolete, mixed file, late payments. Partial: duplicate accounts (we dedupe
+for counting, no dispute letter), AU showing all activity (flagged, no letter).
+Missing: 1099-C balance and short-sale-as-foreclosure (already #30), and
+reported-as-deceased.
+
+| # | Item | Why it matters | Status | Size |
+|---|---|---|---|---|
+| 43 | **Reported as deceased** | Rare and catastrophic — freezes every application — and McCarthy lists it as a standard error with a one-paragraph dispute. Zero occurrences of "deceased" in the codebase. **BLOCKED on sample data**: no fixture carries the indicator and no sample shows how a report renders one, so a detector would be guessing at the field shape. Same trap as the two rules that have never fired on real data. | Blocked | S once a sample exists |
+| 44 | **Their duplicate-account framing** | For a debt buyer and original creditor both reporting, they ask to *remove one duplicate*; we ask the original creditor's balance to go to zero. Theirs is cleaner to plead. Worth adopting in `findDoubleJeopardy`'s detail text. | Open | XS |
+| 45 | **Mail from the client's home state** | Their direct experience is it gets a proper first response from the bureaus. One sentence in the mailing instructions; we do not say it. | Open | XS |
+
+**Not a code item.** Dave is using this handbook to assist clients. MGC's CROA
+posture rests on being free and self-guided (`compliance.js` gates it), and
+that is unaffected — but assisting clients **for a fee** for the express
+purpose of improving a credit record puts the *assister* in scope of
+15 U.S.C. § 1679a(3)(A) whatever the tool is. A question for McCarthy about how
+the referral is structured, raised 2026-09-23.
+
 ## Known gaps we are choosing to live with
 
 - **Experian delinquency count reads 8; the model says 9 accounts with a missed payment.** Both numbers are now shown to the user rather than ours being asserted alone. Cause still unfound.
