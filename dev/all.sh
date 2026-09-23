@@ -8,7 +8,7 @@
 cd "$(dirname "$0")/.." || exit 1
 
 fail=0
-for h in dev/compliance.js dev/consistent.js dev/checks.js dev/parsers.js dev/mailable.js; do
+for h in dev/compliance.js dev/litigation.js dev/consistent.js dev/checks.js dev/parsers.js dev/mailable.js; do
   printf '%-24s' "$(basename "$h")"
   out=$(node "$h" 2>&1)
   code=$?
